@@ -52,6 +52,12 @@
 # define MAX_SHIFT_EVER 32
 #endif
 
+#ifdef IPHONE
+#ifdef ASM_DBLPREC_CONTROL_87
+#undef ASM_DBLPREC_CONTROL_87
+#endif
+#endif /* IPHONE */
+
 /* locals */
 static Scheme_Object *number_p (int argc, Scheme_Object *argv[]);
 static Scheme_Object *complex_p (int argc, Scheme_Object *argv[]);

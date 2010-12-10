@@ -82,7 +82,10 @@ void **GC_variable_stack;
 
 #ifndef MZ_PRECISE_GC
 extern MZ_DLLIMPORT void GC_register_late_disappearing_link(void **link, void *obj);
+// revert this back for iphone build
+#ifndef IPHONE
 extern MZ_DLLIMPORT void GC_register_indirect_disappearing_link(void **link, void *obj);
+#endif
 #endif
 
 SHARED_OK static int use_registered_statics;
@@ -1410,7 +1413,11 @@ void scheme_weak_reference(void **p)
 void scheme_weak_reference_indirect(void **p, void *v)
 {
   if (GC_base(v) == v)
+#ifdef IPHONE
+    GC_register_late_disappearing_link(p, v);
+#else
     GC_register_indirect_disappearing_link(p, v);
+#endif
 }
 
 void scheme_unweak_reference(void **p)

@@ -1,4 +1,4 @@
-/* 
+/*
    Provides:
       Mach-based allocator (uses alloc_cache.c)
       macosx_init_exception_handler() --- installs fault handler
@@ -46,7 +46,7 @@ typedef struct OSXThreadData {
   struct OSXThreadData *next;
   mach_port_t thread_port_id;
   Thread_Local_Variables  *tlvs;
-} OSXThreadData; 
+} OSXThreadData;
 
 /* static const int OSX_THREAD_TABLE_SIZE = 256; */
 #define OSX_THREAD_TABLE_SIZE 256
@@ -130,9 +130,15 @@ static void unregister_mach_thread() {
 # include <mach/thread_status.h>
 # include <mach/exception.h>
 #else
+#ifdef __arm__
+# define ARCH_thread_state_t ARM_thread_state_t
+# define ARCH_THREAD_STATE ARM_THREAD_STATE
+# define ARCH_THREAD_STATE_COUNT ARM_THREAD_STATE_COUNT
+#else
 # define ARCH_thread_state_t i386_thread_state_t
 # define ARCH_THREAD_STATE i386_THREAD_STATE
 # define ARCH_THREAD_STATE_COUNT i386_THREAD_STATE_COUNT
+#endif /* __arm__ */
 #endif
 
 /* the structure of an exception msg and its reply */
@@ -385,8 +391,8 @@ void GC_attach_current_thread_exceptions_to_handler()
   }
 
   /* set the exception ports for this thread to the above */
-  retval = thread_set_exception_ports(thread_self, EXC_MASK_BAD_ACCESS, 
-				      exc_port_s, EXCEPTION_DEFAULT, 
+  retval = thread_set_exception_ports(thread_self, EXC_MASK_BAD_ACCESS,
+				      exc_port_s, EXCEPTION_DEFAULT,
 				      ARCH_THREAD_STATE);
   if(retval != KERN_SUCCESS) {
     GCPRINT(GCOUTF, "Couldn't set exception ports: %s\n", mach_error_string(retval));

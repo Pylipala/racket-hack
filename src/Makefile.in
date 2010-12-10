@@ -69,7 +69,11 @@ SETUP_ARGS = -X "$(DESTDIR)$(collectsdir)" -N "raco setup" -l- setup $(PLT_SETUP
 #  and link C code:
 CFLAGS = @CFLAGS@ @COMPFLAGS@ @PREFLAGS@
 LDFLAGS = @LDFLAGS@
-WITH_ENV_VARS = env CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)" 
+WITH_ENV_VARS = env CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)"
+
+# build for iPhoneOS/iPhoneSimulator
+IPHONE = @IPHONE@
+
 
 install:
 	$(MAKE) install-@MAIN_VARIANT@
@@ -105,10 +109,17 @@ no-run:
 	$(NOOP)
 
 copytree-run:
-	racket/racket@CGC@ -u \
+ifeq ($(IPHONE),)
+	  racket/racket@CGC@ -u \
           "$(srcdir)/../collects/setup/unixstyle-install.rkt" \
           make-install-copytree "$(srcdir)/.." \
           $(ALLDIRINFO) "@INSTALL_ORIG_TREE@"
+else
+	  $(srcdir)/host-precompiled/racket/racket@CGC@ -u \
+          "$(srcdir)/../collects/setup/unixstyle-install.rkt" \
+          make-install-copytree "$(srcdir)/.." \
+          $(ALLDIRINFO) "@INSTALL_ORIG_TREE@"
+endif
 
 install-gracket-post-collects:
 	cd gracket; $(MAKE) install-post-collects

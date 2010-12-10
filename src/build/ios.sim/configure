@@ -1,0 +1,1 @@
+../../configure --disable-gracket --disable-jit --disable-places --disable-futures --disable-shared --disable-docs --disable-foreign --disable-compact --enable-sgc --enable-iphonesim --disable-plot

@@ -73,6 +73,10 @@ AC_ARG_ENABLE(mac64,   [  --enable-mac64          do not force 32-bit build])
 
 AC_ARG_ENABLE(gc2_places_testing,  [  --enable-gcplacestest   compile GC places testing support])
 
+AC_ARG_ENABLE(iphoneos,  [  --enable-iphoneos   compile racket for iPhoneOS])
+
+AC_ARG_ENABLE(iphonesim,  [  --enable-iphonesim   compile racket for iPhoneSimulator])
+
 ###### Get OS Type #######
 
 if test -x "/bin/uname" ; then
@@ -306,6 +310,9 @@ show_explicitly_enabled "${enable_mac64}" "64-bit Mac OS X"
 
 show_explicitly_enabled "${enable_libfw}" "Frameworks-to-system"
 show_explicitly_enabled "${enable_userfw}" "Frameworks-to-user"
+
+show_explicitly_enabled "${enable_iphoneos}" "Racket build for iPhoneOS"
+show_explicitly_enabled "${enable_iphonesim}" "Racket build for iPhoneSimulator"
 
 ###### Some defaults #######
 
@@ -597,24 +604,55 @@ case $OS in
     ;;
   Darwin)
 
-    if test "${enable_sdk}" != "" ; then 
-      PREFLAGS="$PREFLAGS -isysroot ${enable_sdk} -mmacosx-version-min=10.4 -DEXTRA_EXCEPTION_STUBS"
-      LDFLAGS="$LDFLAGS -isysroot ${enable_sdk} -mmacosx-version-min=10.4"
+    IPHONE=""
+    PLATFORMPREFIX="/usr/bin"
+    MACH_FLAGS="-mmacosx-version-min=10.4"
+    if test "${enable_iphoneos}" == "yes" ; then
+      PLATFORMPREFIX="/Developer/Platforms/iPhoneOS.platform/Developer/usr/bin"
+      ARCH_FLAGS="-arch armv7"
+      MACH_FLAGS="-miphoneos-version-min=3.2 -mthumb -DIPHONE"
+      IPHONE="iPhoneOS"
+ 
+      enable_sdk="/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS4.2.sdk"
+      cross_compiling="yes"
+      LIBS="$LIBS -liconv"
+    fi
+ 
+    if test "${enable_iphonesim}" == "yes" ; then
+      PLATFORMPREFIX="/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/bin"
+      ARCH_FLAGS="-arch i386"
+      MACH_FLAGS="-D__IPHONE_OS_VERSION_MIN_REQUIRED=30200 -mmacosx-version-min=10.5 -DIPHONE"
+      IPHONE="iPhoneSimulator"
+ 
+      enable_sdk="/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator4.2.sdk"
+    fi
+ 
+    if test "${enable_sdk}" != "" ; then
+      PREFLAGS="$PREFLAGS $ARCH_FLAGS -isysroot ${enable_sdk} $MACH_FLAGS -DEXTRA_EXCEPTION_STUBS"
+      LDFLAGS="$LDFLAGS $ARCH_FLAGS -isysroot ${enable_sdk} $MACH_FLAGS"
       if test "${CC}" = "gcc" ; then
-        CC=gcc-4.0
+        CC="${PLATFORMPREFIX}/gcc-4.2"
+      fi
+      if test "${CXX}" = "g++" ; then
+        CXX="${PLATFORMPREFIX}/g++-4.2"
       fi
       if test "${CPP}" = "gcc -E" ; then
-        CPP="gcc-4.0 -E"
+       CPP="${PLATFORMPREFIX}/gcc-4.2 -E"
+      fi
+      if test "${CXXCPP}" = "g++ -E" ; then
+       CXXCPP="${PLATFORMPREFIX}/g++-4.2 -E"
       fi
       if test "${LD}" = "gcc" ; then
-        LD=gcc-4.0
+       LD="${PLATFORMPREFIX}/gcc-4.2"
       fi
       SUB_CONFIGURE_EXTRAS="${SUB_CONFIGURE_EXTRAS} CFLAGS="'"'"${CFLAGS} ${PREFLAGS}"'"'
     fi
-    
+  
     case `$UNAME -m` in
       i386)
-       enable_futures_by_default=yes
+        if test "${enable_iphoneos}" != "yes" && test "${enable_iphonesim}" != "yes" ; then
+	  enable_futures_by_default=yes
+	fi
        ;;
       *)
        ;;
@@ -655,12 +693,12 @@ case $OS in
     if test "${enable_mac64}" != "yes" ; then
       if test `${UNAME} -m` = "i386" ; then
         if test "${ORIG_CC}" = "" ; then
-           PREFLAGS="${PREFLAGS} -m32"
-           CPPFLAGS="${CPPFLAGS} -m32"
-           LDFLAGS="${LDFLAGS} -m32"
+           PREFLAGS="${PREFLAGS}"
+           CPPFLAGS="${CPPFLAGS}"
+           LDFLAGS="${LDFLAGS}"
            # To make the libffi build work, we have to fold -m32 into CC
            # instead of CFLAGS:
-           SUB_CONFIGURE_EXTRAS="${SUB_CONFIGURE_EXTRAS} CC="'"'"${CC}"' -m32"'
+           SUB_CONFIGURE_EXTRAS="${SUB_CONFIGURE_EXTRAS} CC="'"'"${CC}"'"'
         fi
       fi
     fi
@@ -787,7 +825,8 @@ AC_MSG_RESULT($have_codeset)
 AC_MSG_CHECKING([for getaddrinfo])
 AC_TRY_LINK([#include <sys/types.h>
 #include <sys/socket.h>
-#include <netdb.h>],
+#include <netdb.h>
+#include <stddef.h>],
 	[getaddrinfo(NULL, NULL, NULL, NULL);],
    AC_DEFINE(HAVE_GETADDRINFO,1,[Have getaddrinfo])
    have_getaddrinfo=yes,
@@ -1217,6 +1256,8 @@ AC_SUBST(CGC_CAP_INSTALLED)
 AC_SUBST(MAIN_VARIANT)
 
 AC_SUBST(INSTALL_SETUP_FLAGS)
+
+AC_SUBST(IPHONE)
 
 mk_needed_dir()
 {

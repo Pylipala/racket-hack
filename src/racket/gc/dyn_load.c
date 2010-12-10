@@ -178,7 +178,7 @@ GC_FirstDLOpenedLinkMap()
 void GC_register_dynamic_libraries()
 {
   struct link_map *lm = GC_FirstDLOpenedLinkMap();
-  
+
 
   for (lm = GC_FirstDLOpenedLinkMap();
        lm != (struct link_map *) 0;  lm = lm->l_next)
@@ -188,7 +188,7 @@ void GC_register_dynamic_libraries()
         unsigned long offset;
         char * start;
         register int i;
-        
+
 	e = (ElfW(Ehdr) *) lm->l_addr;
         p = ((ElfW(Phdr) *)(((char *)(e)) + e->e_phoff));
         offset = ((unsigned long)(lm->l_addr));
@@ -1114,7 +1114,7 @@ static void GC_dyld_image_remove(const struct GC_MACH_HEADER *hdr,
 }
 
 void GC_register_dynamic_libraries() {
-    /* Currently does nothing. The callbacks are setup by GC_init_dyld() 
+    /* Currently does nothing. The callbacks are setup by GC_init_dyld()
     The dyld library takes it from there. */
 }
 
@@ -1123,13 +1123,14 @@ void GC_register_dynamic_libraries() {
    Because of this we MUST setup callbacks BEFORE we ever stop the world.
    This should be called BEFORE any thread in created and WITHOUT the
    allocation lock held. */
-   
+
 void GC_init_dyld() {
+#ifndef IPHONE
   static GC_bool initialized = FALSE;
   char *bind_fully_env = NULL;
-  
+
   if(initialized) return;
-  
+
   /* PLTSCHEME: not if dls are disabled */
   if (GC_no_dls) {
     initialized = TRUE;
@@ -1139,18 +1140,18 @@ void GC_init_dyld() {
 #   ifdef DARWIN_DEBUG
       GC_printf("Registering dyld callbacks...\n");
 #   endif
-  
+
   /* Apple's Documentation:
      When you call _dyld_register_func_for_add_image, the dynamic linker runtime
      calls the specified callback (func) once for each of the images that is
      currently loaded into the program. When a new image is added to the program,
-     your callback is called again with the mach_header for the new image, and the 	
-     virtual memory slide amount of the new image. 
-     
-     This WILL properly register already linked libraries and libraries 
+     your callback is called again with the mach_header for the new image, and the
+     virtual memory slide amount of the new image.
+
+     This WILL properly register already linked libraries and libraries
      linked in the future
   */
-  
+
     _dyld_register_func_for_add_image(GC_dyld_image_add);
     _dyld_register_func_for_remove_image(GC_dyld_image_remove);
 
@@ -1158,16 +1159,16 @@ void GC_init_dyld() {
     initialized = TRUE;
 
     bind_fully_env = getenv("DYLD_BIND_AT_LAUNCH");
-    
+
     if (bind_fully_env == NULL) {
 #   ifdef DARWIN_DEBUG
       GC_printf("Forcing full bind of GC code...\n");
 #   endif
-      
+
       if(!_dyld_bind_fully_image_containing_address((unsigned long*)GC_malloc))
         GC_abort("_dyld_bind_fully_image_containing_address failed");
     }
-
+#endif /* TARGET_OS_IPHONE */
 }
 
 #define HAVE_REGISTER_MAIN_STATIC_DATA
