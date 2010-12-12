@@ -693,12 +693,14 @@ case $OS in
     if test "${enable_mac64}" != "yes" ; then
       if test `${UNAME} -m` = "i386" ; then
         if test "${ORIG_CC}" = "" ; then
-           PREFLAGS="${PREFLAGS}"
-           CPPFLAGS="${CPPFLAGS}"
-           LDFLAGS="${LDFLAGS}"
-           # To make the libffi build work, we have to fold -m32 into CC
-           # instead of CFLAGS:
-           SUB_CONFIGURE_EXTRAS="${SUB_CONFIGURE_EXTRAS} CC="'"'"${CC}"'"'
+	  if test "${IPHONE}" = "" ; then
+            PREFLAGS="${PREFLAGS} -m32"
+            CPPFLAGS="${CPPFLAGS} -m32"
+            LDFLAGS="${LDFLAGS} -m32"
+            # To make the libffi build work, we have to fold -m32 into CC
+            # instead of CFLAGS:
+            SUB_CONFIGURE_EXTRAS="${SUB_CONFIGURE_EXTRAS} CC="'"'"${CC}"' -m32"'
+	  fi
         fi
       fi
     fi
