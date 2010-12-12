@@ -237,7 +237,11 @@ $(XSRCDIR)/type.c: ../src/type.@LTO@ $(XFORMDEP)
 $(XSRCDIR)/vector.c: ../src/vector.@LTO@ $(XFORMDEP)
 	$(XFORM) $(XSRCDIR)/vector.c $(SRCDIR)/vector.c
 $(XSRCDIR)/foreign.c: ../../foreign/foreign.@LTO@ $(XFORMDEP)
+ifeq ($(IPHONE),)
 	$(XFORM_SETUP) --cpp "$(CPP) $(CPPFLAGS) -I../../foreign/libffi/include -I${SRCDIR}/../../racket/src" -o $(XSRCDIR)/foreign.c $(SRCDIR)/../../foreign/foreign.c
+else
+	$(XFORM_SETUP) --cpp "$(CPP) $(CPPFLAGS) -I../../foreign/libffi-ios/include -I${SRCDIR}/../../racket/src" -o $(XSRCDIR)/foreign.c $(SRCDIR)/../../foreign/foreign.c
+endif
 $(XSRCDIR)/main.c: ../main.@LTO@ $(XFORMDEP)
 	$(XFORM_NOPRECOMP) $(XSRCDIR)/main.c $(DEF_COLLECTS_DIR) $(srcdir)/../main.c
 
@@ -370,8 +374,13 @@ gc2.@LTO@: \
 		$(srcdir)/weak.c
 	$(CC) $(CFLAGS) -I$(builddir)/.. -c $(srcdir)/gc2.c -o gc2.@LTO@
 
+ifeq ($(IPHONE),)
 FOREIGN_OBJS = ../../foreign/libffi/src/*.@LTO@ ../../foreign/libffi/src/*/*.@LTO@
 FOREIGN_LIB = ../../foreign/libffi/libffi@FOREIGN_CONVENIENCE@.la
+else
+FOREIGN_OBJS = ../../foreign/libffi-ios/src/*.@LTO@ ../../foreign/libffi-ios/src/*/*.@LTO@
+FOREIGN_LIB = ../../foreign/libffi-ios/libffi@FOREIGN_CONVENIENCE@.la
+endif
 FOREIGN_OBJSLIB = @FOREIGN_OBJSLIB@
 
 FOREIGN_USED_LIB = $(FOREIGN_OBJ) $(FOREIGN_LIB)

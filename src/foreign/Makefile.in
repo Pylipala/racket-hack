@@ -9,6 +9,12 @@ CFLAGS = @CFLAGS@ @COMPFLAGS@ @PREFLAGS@ @PROFFLAGS@ @OPTIONS@ @MZOPTIONS@ \
          -Ilibffi/include
 ARFLAGS = @ARFLAGS@
 
+IPHONE = @IPHONE@
+
+ifneq ($(IPHONE),)
+CFLAGS += -Ilibffi-ios/include
+endif
+
 # compile sub-libraries & foreign.c
 all:
 	$(MAKE) foreign.@LTO@
@@ -21,7 +27,11 @@ stub:
 # Causes objects to be generated in libffi/src/
 #  in inconvenience mode:
 libffi/libffi@FOREIGN_CONVENIENCE@.la:
+ifeq ($(IPHONE),)
 	cd libffi; $(MAKE) libffi@FOREIGN_CONVENIENCE@.la
+else
+	cd libffi-ios; $(MAKE) libffi@FOREIGN_CONVENIENCE@.la
+endif
 
 foreign.@LTO@: $(srcdir)/foreign.c \
            $(srcdir)/../racket/include/scheme.h \
@@ -31,4 +41,8 @@ foreign.@LTO@: $(srcdir)/foreign.c \
 
 clean:
 	rm -f foreign.@LTO@
+ifeq ($(IPHONE),)
 	cd libffi; $(MAKE) clean
+else
+	cd libffi-ios; $(MAKE) clean
+endif

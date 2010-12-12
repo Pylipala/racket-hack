@@ -32,10 +32,17 @@ ARLIBFLAGS = @LDFLAGS@ @LIBS@
 
 MZSRC = $(srcdir)/src
 
+IPHONE = @IPHONE@
+
 FOREIGN_DIR = ../foreign
 FOREIGN_OBJ = $(FOREIGN_DIR)/foreign.@LTO@
+ifeq ($(IPHONE),)
 FOREIGN_OBJS = $(FOREIGN_OBJ) $(FOREIGN_DIR)/libffi/src/*.@LTO@ $(FOREIGN_DIR)/libffi/src/*/*.@LTO@
 FOREIGN_LIB = $(FOREIGN_OBJ) ../foreign/libffi/libffi@FOREIGN_CONVENIENCE@.la
+else
+FOREIGN_OBJS = $(FOREIGN_OBJ) $(FOREIGN_DIR)/libffi-ios/src/*.@LTO@ $(FOREIGN_DIR)/libffi-ios/src/*/*.@LTO@
+FOREIGN_LIB = $(FOREIGN_OBJ) ../foreign/libffi-ios/libffi@FOREIGN_CONVENIENCE@.la
+endif
 FOREIGN_STUB_LIB = $(FOREIGN_OBJ)
 FOREIGN_OBJSLIB = @FOREIGN_OBJSLIB@
 # Dependency always uses FOREIGN_LIB, but linker uses FOREIGN_OBJSLIB. The
@@ -194,10 +201,8 @@ starter: mzstart.exe
 exn:
 	$(MAKE) $(srcdir)/src/schexn.h
 	$(MAKE) $(collectsdir)/scheme/private/kernstruct.rkt
-                                       
-CSTARTUPDEST = cstartup.inc
 
-IPHONE = @IPHONE@
+CSTARTUPDEST = cstartup.inc
 
 startup:
 	$(MAKE) $(srcdir)/src/$(CSTARTUPDEST)

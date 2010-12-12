@@ -616,6 +616,8 @@ case $OS in
       enable_sdk="/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS4.2.sdk"
       cross_compiling="yes"
       LIBS="$LIBS -liconv"
+
+      SUB_CONFIGURE_EXTRAS="${SUB_CONFIGURE_EXTRAS} --host=arm-apple-darwin10"
     fi
  
     if test "${enable_iphonesim}" == "yes" ; then
@@ -625,6 +627,8 @@ case $OS in
       IPHONE="iPhoneSimulator"
  
       enable_sdk="/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator4.2.sdk"
+
+      SUB_CONFIGURE_EXTRAS="${SUB_CONFIGURE_EXTRAS} --host=i686-apple-darwin10"
     fi
  
     if test "${enable_sdk}" != "" ; then
@@ -644,6 +648,13 @@ case $OS in
       fi
       if test "${LD}" = "gcc" ; then
        LD="${PLATFORMPREFIX}/gcc-4.2"
+      fi
+      if test "${IPHONE}" != "" ; then
+        SUB_CONFIGURE_EXTRAS="${SUB_CONFIGURE_EXTRAS} CC="'"'"${CC}"'"'
+        SUB_CONFIGURE_EXTRAS="${SUB_CONFIGURE_EXTRAS} CXX="'"'"${CXX}"'"'
+        SUB_CONFIGURE_EXTRAS="${SUB_CONFIGURE_EXTRAS} CPP="'"'"${CPP}"'"'
+        SUB_CONFIGURE_EXTRAS="${SUB_CONFIGURE_EXTRAS} CXXCPP="'"'"${CXXCPP}"'"'
+        SUB_CONFIGURE_EXTRAS="${SUB_CONFIGURE_EXTRAS} LD="'"'"${LD}"'"'
       fi
       SUB_CONFIGURE_EXTRAS="${SUB_CONFIGURE_EXTRAS} CFLAGS="'"'"${CFLAGS} ${PREFLAGS}"'"'
     fi
@@ -1287,7 +1298,11 @@ fi
 FOREIGNTARGET=
 FOREIGN_IF_USED="FOREIGN_NOT_USED"
 if test -d "${srcdir}/foreign" && test "${enable_foreign}" = "yes" ; then
-  AC_CONFIG_SUBDIRS( foreign/libffi )
+  if test "${IPHONE}" = "" ; then
+    AC_CONFIG_SUBDIRS( foreign/libffi )
+  else
+    AC_CONFIG_SUBDIRS( foreign/libffi-ios )
+  fi
   FOREIGNTARGET="foreign-stuff"
   FOREIGN_IF_USED="FOREIGN_USED"
 else
