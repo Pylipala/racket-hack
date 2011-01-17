@@ -16,7 +16,7 @@
 		28AD733F0D9D9553002E5188 /* MainWindow.xib in Resources */ = {isa = PBXBuildFile; fileRef = 28AD733E0D9D9553002E5188 /* MainWindow.xib */; };
 		28D7ACF80DDB3853001CB0EB /* iRacketViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 28D7ACF70DDB3853001CB0EB /* iRacketViewController.m */; };
 		DE4CCA6612B12C80008E82BD /* libiconv.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = DECD0057128692010064F454 /* libiconv.dylib */; };
-		DECD000912868D250064F454 /* libracket3m.a in Frameworks */ = {isa = PBXBuildFile; fileRef = DECD000812868D250064F454 /* libracket3m.a */; };
+		DECB15DF12E1EE67007675FA /* libracket3m.a in Frameworks */ = {isa = PBXBuildFile; fileRef = DECD000812868D250064F454 /* libracket3m.a */; };
 		DECD001412868DB00064F454 /* MainWindow.xib in Resources */ = {isa = PBXBuildFile; fileRef = 28AD733E0D9D9553002E5188 /* MainWindow.xib */; };
 		DECD001512868DB00064F454 /* iRacketViewController.xib in Resources */ = {isa = PBXBuildFile; fileRef = 2899E5210DE3E06400AC0155 /* iRacketViewController.xib */; };
 		DECD001712868DB00064F454 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = 29B97316FDCFA39411CA2CEA /* main.m */; };
@@ -59,11 +59,11 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DECB15DF12E1EE67007675FA /* libracket3m.a in Frameworks */,
 				DE4CCA6612B12C80008E82BD /* libiconv.dylib in Frameworks */,
 				1D60589F0D05DD5A006BFB54 /* Foundation.framework in Frameworks */,
 				1DF5F4E00D08C38300B7A737 /* UIKit.framework in Frameworks */,
 				288765A50DF7441C002DB57D /* CoreGraphics.framework in Frameworks */,
-				DECD000912868D250064F454 /* libracket3m.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -285,6 +285,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer: Xueliang Hua (GWY394QHN8)";
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer: Xueliang Hua (GWY394QHN8)";
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = NO;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_OPTIMIZATION_LEVEL = 0;
 				GCC_PRECOMPILE_PREFIX_HEADER = YES;
@@ -297,7 +298,6 @@
 					_DARWIN_UNLIMITED_SELECT,
 					USE_SENORA_GC,
 					NEWGC_BTC_ACCOUNT,
-					DONT_USE_FOREIGN,
 				);
 				HEADER_SEARCH_PATHS = (
 					"/Users/nevo/projects/my-git/racket-hack.git/src/racket/include",
@@ -308,9 +308,13 @@
 					"$(inherited)",
 					"\"$(SRCROOT)/../../build/ios/racket\"",
 				);
+				OTHER_LDFLAGS = (
+					"-all_load",
+					"-ObjC",
+				);
 				PRODUCT_NAME = iRacket;
-				PROVISIONING_PROFILE = "4B0F42D7-B24E-437F-8075-BAC01B290E3B";
-				"PROVISIONING_PROFILE[sdk=iphoneos*]" = "4B0F42D7-B24E-437F-8075-BAC01B290E3B";
+				PROVISIONING_PROFILE = "D59536B4-C137-494B-8CE1-4BDFAD66FBD8";
+				"PROVISIONING_PROFILE[sdk=iphoneos*]" = "D59536B4-C137-494B-8CE1-4BDFAD66FBD8";
 				SDKROOT = iphoneos;
 			};
 			name = Debug;
@@ -326,6 +330,7 @@
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
 					"\"$(SRCROOT)/../../build.arm/racket\"",
+					"\"$(SRCROOT)/../../build/ios/racket\"",
 				);
 				PRODUCT_NAME = iRacket;
 				VALIDATE_PRODUCT = YES;
@@ -380,7 +385,6 @@
 					_DARWIN_UNLIMITED_SELECT,
 					USE_SENORA_GC,
 					NEWGC_BTC_ACCOUNT,
-					DONT_USE_FOREIGN,
 				);
 				HEADER_SEARCH_PATHS = (
 					"/Users/nevo/projects/my-git/racket-hack.git/src/build/ios.sim/racket",

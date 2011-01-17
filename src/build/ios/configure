@@ -1,1 +1,1 @@
-../../configure --disable-gracket --disable-jit --disable-places --disable-futures --disable-shared --disable-docs --disable-compact --enable-sgc --enable-iphoneos --disable-plot
+../../configure --disable-gracket --disable-jit --disable-places --disable-futures --disable-shared --disable-docs --disable-compact --enable-sgc --enable-iphoneos --disable-plot --enable-noopt
