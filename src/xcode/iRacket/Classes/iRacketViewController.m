@@ -6,6 +6,7 @@
 //  Copyright 2010 __MyCompanyName__. All rights reserved.
 //
 
+#import "scheme.h"
 #import "iRacketViewController.h"
 
 @implementation iRacketViewController
@@ -64,8 +65,9 @@ extern int racket_main(int argc, char *argv[]);
 - (IBAction)launchRacket
 {
     char *argv[1] = {
-        "display"
+        "(current-library-collection-paths)"
     };
+
     racket_main(1, argv);
 }
 

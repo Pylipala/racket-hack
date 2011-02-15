@@ -26,8 +26,8 @@
 		DECD001C12868DB00064F454 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1DF5F4DF0D08C38300B7A737 /* UIKit.framework */; };
 		DECD001D12868DB00064F454 /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 288765A40DF7441C002DB57D /* CoreGraphics.framework */; };
 		DECD003C1286907B0064F454 /* libracket3m.a in Frameworks */ = {isa = PBXBuildFile; fileRef = DECD000612868D120064F454 /* libracket3m.a */; };
-		DECD004B1286915B0064F454 /* test.c in Sources */ = {isa = PBXBuildFile; fileRef = DECD004A1286915B0064F454 /* test.c */; };
-		DECD004C1286915B0064F454 /* test.c in Sources */ = {isa = PBXBuildFile; fileRef = DECD004A1286915B0064F454 /* test.c */; };
+		DECD004B1286915B0064F454 /* test.m in Sources */ = {isa = PBXBuildFile; fileRef = DECD004A1286915B0064F454 /* test.m */; };
+		DECD004C1286915B0064F454 /* test.m in Sources */ = {isa = PBXBuildFile; fileRef = DECD004A1286915B0064F454 /* test.m */; };
 		DECD0058128692010064F454 /* libiconv.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = DECD0057128692010064F454 /* libiconv.dylib */; };
 /* End PBXBuildFile section */
 
@@ -50,7 +50,7 @@
 		DECD000812868D250064F454 /* libracket3m.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libracket3m.a; path = ../../build/ios/racket/libracket3m.a; sourceTree = SOURCE_ROOT; };
 		DECD002212868DB00064F454 /* iRacketSim.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = iRacketSim.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DECD002412868DB00064F454 /* iRacket-Info copy.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "iRacket-Info copy.plist"; sourceTree = "<group>"; };
-		DECD004A1286915B0064F454 /* test.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = test.c; sourceTree = SOURCE_ROOT; };
+		DECD004A1286915B0064F454 /* test.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = test.m; sourceTree = SOURCE_ROOT; };
 		DECD0057128692010064F454 /* libiconv.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libiconv.dylib; path = usr/lib/libiconv.dylib; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
@@ -85,7 +85,7 @@
 		080E96DDFE201D6D7F000001 /* Classes */ = {
 			isa = PBXGroup;
 			children = (
-				DECD004A1286915B0064F454 /* test.c */,
+				DECD004A1286915B0064F454 /* test.m */,
 				1D3623240D0F684500981E51 /* iRacketAppDelegate.h */,
 				1D3623250D0F684500981E51 /* iRacketAppDelegate.m */,
 				28D7ACF60DDB3853001CB0EB /* iRacketViewController.h */,
@@ -259,7 +259,7 @@
 				1D60589B0D05DD56006BFB54 /* main.m in Sources */,
 				1D3623260D0F684500981E51 /* iRacketAppDelegate.m in Sources */,
 				28D7ACF80DDB3853001CB0EB /* iRacketViewController.m in Sources */,
-				DECD004B1286915B0064F454 /* test.c in Sources */,
+				DECD004B1286915B0064F454 /* test.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -270,7 +270,7 @@
 				DECD001712868DB00064F454 /* main.m in Sources */,
 				DECD001812868DB00064F454 /* iRacketAppDelegate.m in Sources */,
 				DECD001912868DB00064F454 /* iRacketViewController.m in Sources */,
-				DECD004C1286915B0064F454 /* test.c in Sources */,
+				DECD004C1286915B0064F454 /* test.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -282,9 +282,10 @@
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ARCHS = "$(ARCHS_UNIVERSAL_IPHONE_OS)";
-				CODE_SIGN_IDENTITY = "iPhone Developer: Xueliang Hua (GWY394QHN8)";
-				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer: Xueliang Hua (GWY394QHN8)";
+				CODE_SIGN_IDENTITY = "iPhone Developer: Xueliang Hua (BGRR97TS4N)";
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer: Xueliang Hua (BGRR97TS4N)";
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = NO;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_OPTIMIZATION_LEVEL = 0;
 				GCC_PRECOMPILE_PREFIX_HEADER = YES;
@@ -297,20 +298,23 @@
 					_DARWIN_UNLIMITED_SELECT,
 					USE_SENORA_GC,
 					NEWGC_BTC_ACCOUNT,
-					DONT_USE_FOREIGN,
 				);
 				HEADER_SEARCH_PATHS = (
-					"/Users/nevo/projects/my-git/racket-hack.git/src/racket/include",
-					"/Users/nevo/projects/my-git/racket-hack.git/src/build/ios/racket",
+					"/Users/nevo/works/hacking/my-git/racket-hack.git/src/racket/include",
+					"/Users/nevo/works/hacking/my-git/racket-hack.git/src/build/ios/racket",
 				);
 				INFOPLIST_FILE = "iRacket-Info.plist";
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
 					"\"$(SRCROOT)/../../build/ios/racket\"",
 				);
+				OTHER_LDFLAGS = (
+					"-ObjC",
+					"-all_load",
+				);
 				PRODUCT_NAME = iRacket;
-				PROVISIONING_PROFILE = "4B0F42D7-B24E-437F-8075-BAC01B290E3B";
-				"PROVISIONING_PROFILE[sdk=iphoneos*]" = "4B0F42D7-B24E-437F-8075-BAC01B290E3B";
+				PROVISIONING_PROFILE = "77313A54-ADC0-436A-B55C-3B7156E3D5E6";
+				"PROVISIONING_PROFILE[sdk=iphoneos*]" = "77313A54-ADC0-436A-B55C-3B7156E3D5E6";
 				SDKROOT = iphoneos;
 			};
 			name = Debug;
@@ -380,11 +384,10 @@
 					_DARWIN_UNLIMITED_SELECT,
 					USE_SENORA_GC,
 					NEWGC_BTC_ACCOUNT,
-					DONT_USE_FOREIGN,
 				);
 				HEADER_SEARCH_PATHS = (
-					"/Users/nevo/projects/my-git/racket-hack.git/src/build/ios.sim/racket",
-					"/Users/nevo/projects/my-git/racket-hack.git/src/racket/include",
+					"/Users/nevo/works/hacking/my-git/racket-hack.git/src/build/ios.sim/racket",
+					"/Users/nevo/works/hacking/my-git/racket-hack.git/src/racket/include",
 				);
 				INCLUDED_RECURSIVE_SEARCH_PATH_SUBDIRECTORIES = "/Users/nevo/projects/opensource-git/racket.git/plt.git/src/racket";
 				INFOPLIST_FILE = "iRacket-Info copy.plist";
@@ -393,7 +396,7 @@
 					"\"$(SRCROOT)/../../build/ios.sim/racket\"",
 				);
 				PRODUCT_NAME = iRacketSim;
-				SDKROOT = iphonesimulator3.2;
+				SDKROOT = iphoneos;
 			};
 			name = Debug;
 		};

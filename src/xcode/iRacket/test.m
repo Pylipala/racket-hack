@@ -11,6 +11,14 @@ static int run(Scheme_Env *e, int argc, char *argv[])
     Scheme_Object *args[2] = {NULL, NULL};
     int i;
     mz_jmp_buf * volatile save = NULL, fresh;
+   
+    // we'll need to set Racket collect path
+    Scheme_Object *coldir =
+        scheme_make_path([[[[NSBundle mainBundle] bundlePath]
+                            stringByAppendingString:@"collects"] UTF8String]);
+    scheme_set_collects_path(coldir);
+   
+    scheme_init_collection_paths(e, scheme_null);
 
     MZ_GC_DECL_REG(8);
     MZ_GC_VAR_IN_REG(0, e);
