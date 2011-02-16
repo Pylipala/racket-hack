@@ -15,7 +15,7 @@ static int run(Scheme_Env *e, int argc, char *argv[])
     // we'll need to set Racket collect path
     Scheme_Object *coldir =
         scheme_make_path([[[[NSBundle mainBundle] bundlePath]
-                            stringByAppendingString:@"collects"] UTF8String]);
+                            stringByAppendingString:@"/icollects"] UTF8String]);
     scheme_set_collects_path(coldir);
    
     scheme_init_collection_paths(e, scheme_null);
@@ -30,9 +30,10 @@ static int run(Scheme_Env *e, int argc, char *argv[])
 
     MZ_GC_REG();
 
-    declare_modules(e);
+    // No need to load embedded modules
+    //declare_modules(e);
 
-    v = scheme_intern_symbol("racket/base");
+    v = scheme_intern_symbol("racket");
     scheme_namespace_require(v);
 
     config = scheme_current_config();
