@@ -64,12 +64,11 @@ extern int racket_main(int argc, char *argv[]);
 
 - (IBAction)launchRacket
 {
-    char *argv[2] = {
-        "(current-library-collection-paths)",
-        "(current-namespace)"
+    char *argv[1] = {
+        "(current-library-collection-paths)"
     };
 
-    racket_main(2, argv);
+    racket_main(1, argv);
 }
 
 

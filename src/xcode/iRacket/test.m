@@ -38,6 +38,22 @@ static int run(Scheme_Env *e, int argc, char *argv[])
 
     config = scheme_current_config();
     curout = scheme_get_param(config, MZCONFIG_OUTPUT_PORT);
+    
+    {
+        /*
+         * This just simulates:
+         * #./racket test.rkt
+         */
+        Scheme_Object *a[1], *nsreq;
+        char *name = "file";
+        nsreq = scheme_builtin_value("namespace-require");
+        a[0] = scheme_make_pair(scheme_intern_symbol(name),
+                                scheme_make_pair(scheme_make_utf8_string([[[[NSBundle mainBundle] bundlePath]
+                                                                             stringByAppendingString:@"/test.rkt"]
+                                                                                 UTF8String]),
+                                                 scheme_make_null()));
+        scheme_apply(nsreq, 1, a);
+    }
 
     for (i = 0; i < argc; i++) {
         save = scheme_current_thread->error_buf;
