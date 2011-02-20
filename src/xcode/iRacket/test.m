@@ -11,14 +11,27 @@ static int run(Scheme_Env *e, int argc, char *argv[])
     Scheme_Object *args[2] = {NULL, NULL};
     int i;
     mz_jmp_buf * volatile save = NULL, fresh;
-   
+
+    /*
+     * Set PATH variable in case find-executable-path will need it if exec_cmd
+     * is in relative path.
+     */
+    //setenv("PATH", [[[NSBundle mainBundle] bundlePath] UTF8String], 1);
+
     // we'll need to set Racket collect path
     Scheme_Object *coldir =
         scheme_make_path([[[[NSBundle mainBundle] bundlePath]
-                            stringByAppendingString:@"/icollects"] UTF8String]);
+                             stringByAppendingString:@"/icollects"] UTF8String]);
     scheme_set_collects_path(coldir);
    
     scheme_init_collection_paths(e, scheme_null);
+    
+#if TARGET_IPHONE_SIMULATOR
+    scheme_set_exec_cmd((char *)[[[[NSBundle mainBundle] bundlePath]
+                            stringByAppendingString:@"/iRacketSim"] UTF8String]);    
+#else
+    scheme_set_exec_cmd("iRacket");
+#endif
 
     MZ_GC_DECL_REG(8);
     MZ_GC_VAR_IN_REG(0, e);
@@ -38,6 +51,12 @@ static int run(Scheme_Env *e, int argc, char *argv[])
 
     config = scheme_current_config();
     curout = scheme_get_param(config, MZCONFIG_OUTPUT_PORT);
+    
+    // getcwd in iOS returns "/", so we'll need to set our own cwd
+    Scheme_Object *cwd =
+        scheme_make_path([[[NSBundle mainBundle] bundlePath] UTF8String]);
+    scheme_set_param(config, MZCONFIG_CURRENT_DIRECTORY, cwd);
+    scheme_set_original_dir(cwd);
     
     {
         /*
