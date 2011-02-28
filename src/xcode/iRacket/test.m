@@ -2,7 +2,7 @@
 
 #include "scheme.h"
 
-#include "base.c"
+//#include "base.c"
 
 static int run(Scheme_Env *e, int argc, char *argv[])
 {
