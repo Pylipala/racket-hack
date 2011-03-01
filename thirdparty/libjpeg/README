@@ -1,0 +1,3 @@
+* jpeg6b.zip is patched libjpeg which is capable of building from iOS SDK.
+* Use build_libjpeg_ios.sh [arm|i386] to regenerate libjpeg.a.
+* The jpeg6b.zip is downloaded from http://www.cloudgoessocial.net/2009/06/09/imagemagick-on-iphone-with-jpeg-png/ . All rights are reserved to the author of that article.
