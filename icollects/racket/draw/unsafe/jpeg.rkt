@@ -8,12 +8,7 @@
          "../private/utils.rkt"
          "../private/libs.rkt")
 
-(define-runtime-lib jpeg-lib 
-  [(unix) (ffi-lib "libjpeg" '("62" ""))]
-  [(macosx) 
-   ;; for PPC, it's actually version 8!
-   (ffi-lib "libjpeg.62.dylib")]
-  [(windows) (ffi-lib "libjpeg-7.dll")])
+(define jpeg-lib (ffi-lib #f))
 
 (define JPEG_LIB_VERSION
   (case (system-type)

@@ -1,7 +1,9 @@
 #lang racket/base
 (require ffi/unsafe
          ffi/unsafe/define
-         ffi/unsafe/objc)
+         ffi/unsafe/objc
+         racket/draw/unsafe/jpeg
+         racket/draw/unsafe/path)
 
 (define (iloveracket)
   (display "I love iRacket"))
@@ -24,6 +26,7 @@
 (import-class NSString)
 (tell #:type _id NSString alloc)
 
+#|
 ;; libpng
 (define-ffi-definer define-png main-lib
   #:provide provide)
@@ -56,3 +59,4 @@
                                  ;; array that is a pain to handle here                                                                           
                                  ))
 (define sizeof_jpeg_error_mgr 1024)
+|#

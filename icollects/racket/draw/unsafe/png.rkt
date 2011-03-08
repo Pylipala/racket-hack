@@ -8,16 +8,7 @@
          "../private/utils.rkt"
          "../private/libs.rkt")
 
-(define-runtime-lib png-lib 
-  [(unix) 
-   (case (string->symbol (path->string (system-library-subpath #f)))
-     [(i386-freebsd) (ffi-lib "libpng")]
-     [else
-      (ffi-lib "libpng12" '("0" ""))])]
-  [(macosx) (ffi-lib "libpng14.14.dylib")]
-  [(windows) 
-   (ffi-lib "zlib1.dll")
-   (ffi-lib "libpng14-14.dll")])
+(define png-lib (ffi-lib #f))
 
 (define-ffi-definer define-png png-lib
   #:provide provide)
