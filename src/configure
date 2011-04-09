@@ -5048,7 +5048,7 @@ case $OS in
       MACH_FLAGS="-miphoneos-version-min=3.2 -mthumb -DIPHONE"
       IPHONE="iPhoneOS"
 
-      enable_sdk="/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS4.2.sdk"
+      enable_sdk="/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS4.3.sdk"
       cross_compiling="yes"
       LIBS="$LIBS -liconv"
 
@@ -5061,7 +5061,7 @@ case $OS in
       MACH_FLAGS="-D__IPHONE_OS_VERSION_MIN_REQUIRED=30200 -mmacosx-version-min=10.5 -DIPHONE"
       IPHONE="iPhoneSimulator"
 
-      enable_sdk="/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator4.2.sdk"
+      enable_sdk="/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator4.3.sdk"
 
       SUB_CONFIGURE_EXTRAS="${SUB_CONFIGURE_EXTRAS} --host=i686-apple-darwin10"
     fi

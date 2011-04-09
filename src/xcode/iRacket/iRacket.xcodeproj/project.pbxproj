@@ -17,6 +17,10 @@
 		28D7ACF80DDB3853001CB0EB /* iRacketViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 28D7ACF70DDB3853001CB0EB /* iRacketViewController.m */; };
 		A79285B6131CE9DF008B596F /* libjpegsim.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A79285B5131CE9DF008B596F /* libjpegsim.a */; };
 		A79285B8131CE9F0008B596F /* libjpeg.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A79285B7131CE9F0008B596F /* libjpeg.a */; };
+		DE0B2C8213506C1C002D5112 /* iGRacketViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = DE0B2C8013506C1C002D5112 /* iGRacketViewController.m */; };
+		DE0B2C8313506C1C002D5112 /* iGRacketViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = DE0B2C8013506C1C002D5112 /* iGRacketViewController.m */; };
+		DE0B2C8413506C1C002D5112 /* iGRacketViewController.xib in Resources */ = {isa = PBXBuildFile; fileRef = DE0B2C8113506C1C002D5112 /* iGRacketViewController.xib */; };
+		DE0B2C8513506C1C002D5112 /* iGRacketViewController.xib in Resources */ = {isa = PBXBuildFile; fileRef = DE0B2C8113506C1C002D5112 /* iGRacketViewController.xib */; };
 		DE0F63F1130BFF5300C6ACE3 /* icollects in Resources */ = {isa = PBXBuildFile; fileRef = DE0F5FB0130BFF5200C6ACE3 /* icollects */; };
 		DE0F63F2130BFF5300C6ACE3 /* icollects in Resources */ = {isa = PBXBuildFile; fileRef = DE0F5FB0130BFF5200C6ACE3 /* icollects */; };
 		DE0F640E130C085900C6ACE3 /* test.rkt in Resources */ = {isa = PBXBuildFile; fileRef = DE0F640D130C081F00C6ACE3 /* test.rkt */; };
@@ -56,6 +60,9 @@
 		8D1107310486CEB800E47090 /* iRacket-Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = "iRacket-Info.plist"; plistStructureDefinitionIdentifier = "com.apple.xcode.plist.structure-definition.iphone.info-plist"; sourceTree = "<group>"; };
 		A79285B5131CE9DF008B596F /* libjpegsim.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libjpegsim.a; path = ../../../thirdparty/libjpeg/libjpegsim.a; sourceTree = SOURCE_ROOT; };
 		A79285B7131CE9F0008B596F /* libjpeg.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libjpeg.a; path = ../../../thirdparty/libjpeg/libjpeg.a; sourceTree = SOURCE_ROOT; };
+		DE0B2C7F13506C1C002D5112 /* iGRacketViewController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = iGRacketViewController.h; sourceTree = "<group>"; };
+		DE0B2C8013506C1C002D5112 /* iGRacketViewController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = iGRacketViewController.m; sourceTree = "<group>"; };
+		DE0B2C8113506C1C002D5112 /* iGRacketViewController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; path = iGRacketViewController.xib; sourceTree = "<group>"; };
 		DE0F5FB0130BFF5200C6ACE3 /* icollects */ = {isa = PBXFileReference; lastKnownFileType = folder; name = icollects; path = ../../../icollects; sourceTree = SOURCE_ROOT; };
 		DE0F640D130C081F00C6ACE3 /* test.rkt */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = test.rkt; sourceTree = "<group>"; };
 		DE3814E8131BE757000024C0 /* libpngsim.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libpngsim.a; path = ../../../thirdparty/libpng/libpngsim.a; sourceTree = SOURCE_ROOT; };
@@ -112,6 +119,9 @@
 				28D7ACF60DDB3853001CB0EB /* iRacketViewController.h */,
 				28D7ACF70DDB3853001CB0EB /* iRacketViewController.m */,
 				DE0F640D130C081F00C6ACE3 /* test.rkt */,
+				DE0B2C7F13506C1C002D5112 /* iGRacketViewController.h */,
+				DE0B2C8013506C1C002D5112 /* iGRacketViewController.m */,
+				DE0B2C8113506C1C002D5112 /* iGRacketViewController.xib */,
 			);
 			path = Classes;
 			sourceTree = "<group>";
@@ -267,6 +277,7 @@
 				2899E5220DE3E06400AC0155 /* iRacketViewController.xib in Resources */,
 				DE0F63F1130BFF5300C6ACE3 /* icollects in Resources */,
 				DE0F640E130C085900C6ACE3 /* test.rkt in Resources */,
+				DE0B2C8413506C1C002D5112 /* iGRacketViewController.xib in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -278,6 +289,7 @@
 				DECD001512868DB00064F454 /* iRacketViewController.xib in Resources */,
 				DE0F63F2130BFF5300C6ACE3 /* icollects in Resources */,
 				DE0F640F130C085900C6ACE3 /* test.rkt in Resources */,
+				DE0B2C8513506C1C002D5112 /* iGRacketViewController.xib in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -292,6 +304,7 @@
 				1D3623260D0F684500981E51 /* iRacketAppDelegate.m in Sources */,
 				28D7ACF80DDB3853001CB0EB /* iRacketViewController.m in Sources */,
 				DECD004B1286915B0064F454 /* test.m in Sources */,
+				DE0B2C8213506C1C002D5112 /* iGRacketViewController.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -303,6 +316,7 @@
 				DECD001812868DB00064F454 /* iRacketAppDelegate.m in Sources */,
 				DECD001912868DB00064F454 /* iRacketViewController.m in Sources */,
 				DECD004C1286915B0064F454 /* test.m in Sources */,
+				DE0B2C8313506C1C002D5112 /* iGRacketViewController.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

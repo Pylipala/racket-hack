@@ -3,7 +3,7 @@
          ffi/unsafe/define
          ffi/unsafe/objc
          racket/draw/unsafe/jpeg
-         racket/draw/unsafe/path)
+         racket/draw/unsafe/png)
 
 (define (iloveracket)
   (display "I love iRacket"))

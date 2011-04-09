@@ -60,7 +60,7 @@
 }
 
 
-extern int racket_main(int argc, char *argv[]);
+extern int test_main(int argc, char *argv[]);
 
 - (IBAction)launchRacket
 {
@@ -68,7 +68,7 @@ extern int racket_main(int argc, char *argv[]);
         "(current-library-collection-paths)"
     };
 
-    racket_main(1, argv);
+    test_main(1, argv);
 }
 
 

@@ -4,14 +4,16 @@
 
 //#include "base.c"
 
-static int run(Scheme_Env *e, int argc, char *argv[])
+static int do_test(int argc, char *argv[])
 {
+    Scheme_Env *e = NULL;
     Scheme_Object *curout = NULL, *v = NULL, *a[2] = {NULL, NULL};
     Scheme_Config *config = NULL;
     Scheme_Object *args[2] = {NULL, NULL};
     int i;
     mz_jmp_buf * volatile save = NULL, fresh;
 
+#if 0
     /*
      * Set PATH variable in case find-executable-path will need it if exec_cmd
      * is in relative path.
@@ -32,6 +34,7 @@ static int run(Scheme_Env *e, int argc, char *argv[])
 #else
     scheme_set_exec_cmd("iRacket");
 #endif
+#endif
 
     MZ_GC_DECL_REG(8);
     MZ_GC_VAR_IN_REG(0, e);
@@ -50,13 +53,15 @@ static int run(Scheme_Env *e, int argc, char *argv[])
     scheme_namespace_require(v);
 
     config = scheme_current_config();
+    e = scheme_get_env(config);
     curout = scheme_get_param(config, MZCONFIG_OUTPUT_PORT);
-    
+#if 0
     // getcwd in iOS returns "/", so we'll need to set our own cwd
     Scheme_Object *cwd =
         scheme_make_path([[[NSBundle mainBundle] bundlePath] UTF8String]);
     scheme_set_param(config, MZCONFIG_CURRENT_DIRECTORY, cwd);
     scheme_set_original_dir(cwd);
+#endif
     
     {
         /*
@@ -66,11 +71,12 @@ static int run(Scheme_Env *e, int argc, char *argv[])
         Scheme_Object *a[1], *nsreq;
         char *name = "file";
         nsreq = scheme_builtin_value("namespace-require");
-        a[0] = scheme_make_pair(scheme_intern_symbol(name),
-                                scheme_make_pair(scheme_make_utf8_string([[[[NSBundle mainBundle] bundlePath]
-                                                                             stringByAppendingString:@"/test.rkt"]
-                                                                                 UTF8String]),
-                                                 scheme_make_null()));
+        a[0] =
+            scheme_make_pair(scheme_intern_symbol(name),
+                             scheme_make_pair(scheme_make_utf8_string(
+                                 [[[[NSBundle mainBundle] bundlePath]
+                                     stringByAppendingString:@"/test.rkt"] UTF8String]),
+                                              scheme_make_null()));
         scheme_apply(nsreq, 1, a);
     }
 
@@ -101,7 +107,7 @@ static int run(Scheme_Env *e, int argc, char *argv[])
     return 0;
 }
 
-int racket_main(int argc, char *argv[])
+int test_main(int argc, char *argv[])
 {
-    return scheme_main_setup(1, run, argc, argv);
+    return do_test(argc, argv);
 }
