@@ -7,6 +7,7 @@
 //
 
 #import "scheme.h"
+#import "iGRacketViewController.h"
 #import "iRacketViewController.h"
 
 @implementation iRacketViewController
@@ -69,6 +70,20 @@ extern int test_main(int argc, char *argv[]);
     };
 
     test_main(1, argv);
+}
+
+- (IBAction)launchGRacket
+{
+    iGRacketViewController *iGracket =
+        [[iGRacketViewController alloc]
+            initWithNibName:@"iGRacketViewController"
+                     bundle:nil];
+    UINavigationController *nav = [[UINavigationController alloc]
+                                      initWithRootViewController:iGracket];
+    [self presentModalViewController:nav
+                            animated:YES];
+    [iGracket release];
+    [nav release];
 }
 
 

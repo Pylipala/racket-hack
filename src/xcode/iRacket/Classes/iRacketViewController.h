@@ -14,6 +14,7 @@
 
 
 - (IBAction)launchRacket;
+- (IBAction)launchGRacket;
 
 
 @end

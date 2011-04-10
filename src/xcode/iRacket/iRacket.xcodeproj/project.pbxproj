@@ -62,7 +62,7 @@
 		A79285B7131CE9F0008B596F /* libjpeg.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libjpeg.a; path = ../../../thirdparty/libjpeg/libjpeg.a; sourceTree = SOURCE_ROOT; };
 		DE0B2C7F13506C1C002D5112 /* iGRacketViewController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = iGRacketViewController.h; sourceTree = "<group>"; };
 		DE0B2C8013506C1C002D5112 /* iGRacketViewController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = iGRacketViewController.m; sourceTree = "<group>"; };
-		DE0B2C8113506C1C002D5112 /* iGRacketViewController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; path = iGRacketViewController.xib; sourceTree = "<group>"; };
+		DE0B2C8113506C1C002D5112 /* iGRacketViewController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; name = iGRacketViewController.xib; path = Classes/iGRacketViewController.xib; sourceTree = "<group>"; };
 		DE0F5FB0130BFF5200C6ACE3 /* icollects */ = {isa = PBXFileReference; lastKnownFileType = folder; name = icollects; path = ../../../icollects; sourceTree = SOURCE_ROOT; };
 		DE0F640D130C081F00C6ACE3 /* test.rkt */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = test.rkt; sourceTree = "<group>"; };
 		DE3814E8131BE757000024C0 /* libpngsim.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libpngsim.a; path = ../../../thirdparty/libpng/libpngsim.a; sourceTree = SOURCE_ROOT; };
@@ -121,7 +121,6 @@
 				DE0F640D130C081F00C6ACE3 /* test.rkt */,
 				DE0B2C7F13506C1C002D5112 /* iGRacketViewController.h */,
 				DE0B2C8013506C1C002D5112 /* iGRacketViewController.m */,
-				DE0B2C8113506C1C002D5112 /* iGRacketViewController.xib */,
 			);
 			path = Classes;
 			sourceTree = "<group>";
@@ -161,6 +160,7 @@
 			children = (
 				DE0F5FB0130BFF5200C6ACE3 /* icollects */,
 				2899E5210DE3E06400AC0155 /* iRacketViewController.xib */,
+				DE0B2C8113506C1C002D5112 /* iGRacketViewController.xib */,
 				28AD733E0D9D9553002E5188 /* MainWindow.xib */,
 				8D1107310486CEB800E47090 /* iRacket-Info.plist */,
 				DE880E7F127437DD00D5BC11 /* iRacket-Info-sim.plist */,

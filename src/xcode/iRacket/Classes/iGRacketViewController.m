@@ -15,11 +15,18 @@
 @synthesize replBuffer;
 
 
-- (id)initWithNibName:(NSString *)nibNameOrNil bundle:(NSBundle *)nibBundleOrNil
+- (id)initWithNibName:(NSString *)nibNameOrNil
+               bundle:(NSBundle *)nibBundleOrNil
 {
     self = [super initWithNibName:nibNameOrNil bundle:nibBundleOrNil];
     if (self) {
-        // Custom initialization
+        self.title = @"iGRacket";
+        self.navigationItem.rightBarButtonItem =
+        [[[UIBarButtonItem alloc]
+          initWithTitle:@"R"
+                  style:UIBarButtonItemStyleDone
+                 target:self
+                 action:@selector(eval:)] autorelease];
     }
     return self;
 }
@@ -57,6 +64,14 @@
 {
     // Return YES for supported orientations
 	return YES;
+}
+
+
+#pragma mark - REPL
+
+- (void)eval:(id)sender
+{
+    
 }
 
 @end
