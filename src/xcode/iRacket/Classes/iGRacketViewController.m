@@ -5,7 +5,9 @@
 //  Created by nevooven on 11-4-9.
 //  Copyright 2011 __MyCompanyName__. All rights reserved.
 //
+#define MZ_PRECISE_GC
 
+#include "scheme.h"
 #import "iGRacketViewController.h"
 
 
@@ -45,12 +47,60 @@
     // Release any cached data, images, etc that aren't in use.
 }
 
+#pragma mark - Racket output port
+static intptr_t
+igracket_write_bytes(Scheme_Output_Port* port, const char* buffer,
+                     intptr_t offset, intptr_t size, int rarely_block,
+                     int enable_block)
+{
+    NSLog(@"write %d bytes in offset %d (%d %d)", size, offset, rarely_block,
+          enable_block);
+    return size;
+}
+
+static int
+igracket_char_ready(Scheme_Output_Port* port)
+{
+    NSLog(@"char ready called");
+    return 1;
+}
+
+static void
+igracket_close(Scheme_Output_Port* port)
+{
+    NSLog(@"close called");
+}
+
+
 #pragma mark - View lifecycle
 
 - (void)viewDidLoad
 {
     [super viewDidLoad];
-    // Do any additional setup after loading the view from its nib.
+
+    Scheme_Object *type;
+    Scheme_Object *op = NULL;
+    Scheme_Object *name = NULL;
+    Scheme_Config *config = NULL;
+
+    MZ_GC_DECL_REG(4);
+    MZ_GC_VAR_IN_REG(0, type);
+    MZ_GC_VAR_IN_REG(1, op);
+    MZ_GC_VAR_IN_REG(2, name);
+    MZ_GC_VAR_IN_REG(3, config);
+    
+    MZ_GC_REG();
+    type = (Scheme_Object *)scheme_make_port_type("iGRacket");
+    name = (Scheme_Object *)scheme_make_byte_string("iGRacket");
+    op = (Scheme_Object *)scheme_make_output_port(type, NULL, name, NULL,
+                                                  igracket_write_bytes,
+                                                  igracket_char_ready,
+                                                  igracket_close,
+                                                  NULL, NULL, NULL, 0);
+
+    config = scheme_current_config();
+    scheme_set_param(config, MZCONFIG_OUTPUT_PORT, op);
+    MZ_GC_UNREG();
 }
 
 - (void)viewDidUnload
@@ -71,7 +121,26 @@
 
 - (void)eval:(id)sender
 {
-    
+    if ([replBuffer.text length] > 0) {
+        Scheme_Object *v = NULL;
+        Scheme_Env *env = NULL;
+        Scheme_Config *config = NULL;
+
+        MZ_GC_DECL_REG(3)
+        MZ_GC_VAR_IN_REG(0, v);
+        MZ_GC_VAR_IN_REG(1, env);
+        MZ_GC_VAR_IN_REG(2, config);
+        
+        MZ_GC_REG();
+        config = scheme_current_config();
+        env = scheme_get_env(config);
+        v = scheme_intern_symbol("racket");
+        scheme_namespace_require(v);
+        
+        scheme_eval_string_all([replBuffer.text UTF8String], env, 1);
+        MZ_GC_UNREG();
+    }
+    [replBuffer resignFirstResponder];
 }
 
 @end
