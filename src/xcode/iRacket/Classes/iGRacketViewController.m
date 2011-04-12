@@ -14,6 +14,7 @@
 @implementation iGRacketViewController
 
 
+@synthesize consoleBuffer;
 @synthesize replBuffer;
 
 
@@ -55,6 +56,14 @@ igracket_write_bytes(Scheme_Output_Port* port, const char* buffer,
 {
     NSLog(@"write %d bytes in offset %d (%d %d)", size, offset, rarely_block,
           enable_block);
+    if (size) {
+        NSString *s = [[NSString alloc] initWithBytes:buffer + offset
+                                               length:size
+                                             encoding:NSUTF8StringEncoding];
+        iGRacketViewController *this = SCHEME_OUTPORT_VAL(port);
+        this.consoleBuffer.text = [this.consoleBuffer.text
+                                      stringByAppendingFormat:@"%@", s];
+    }
     return size;
 }
 
@@ -92,7 +101,7 @@ igracket_close(Scheme_Output_Port* port)
     MZ_GC_REG();
     type = (Scheme_Object *)scheme_make_port_type("iGRacket");
     name = (Scheme_Object *)scheme_make_byte_string("iGRacket");
-    op = (Scheme_Object *)scheme_make_output_port(type, NULL, name, NULL,
+    op = (Scheme_Object *)scheme_make_output_port(type, self, name, NULL,
                                                   igracket_write_bytes,
                                                   igracket_char_ready,
                                                   igracket_close,

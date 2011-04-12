@@ -11,9 +11,11 @@
 
 @interface iGRacketViewController : UIViewController {
     UITextView *replBuffer;
+    UITextView *consoleBuffer;
 }
 
 
+@property (nonatomic, retain) IBOutlet UITextView *consoleBuffer;
 @property (nonatomic, retain) IBOutlet UITextView *replBuffer;
 
 
