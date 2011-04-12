@@ -1,6 +1,6 @@
 #define MZ_PRECISE_GC
 
-#include "scheme.h"
+#import "scheme.h"
 
 //#include "base.c"
 

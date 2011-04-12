@@ -7,7 +7,8 @@
 //
 #define MZ_PRECISE_GC
 
-#include "scheme.h"
+#import <QuartzCore/QuartzCore.h>
+#import "scheme.h"
 #import "iGRacketViewController.h"
 
 
@@ -78,6 +79,8 @@ static void
 igracket_close(Scheme_Output_Port* port)
 {
     NSLog(@"close called");
+    iGRacketViewController *this = SCHEME_OUTPORT_VAL(port);
+    this.consoleBuffer.text = nil;
 }
 
 
@@ -86,6 +89,17 @@ igracket_close(Scheme_Output_Port* port)
 - (void)viewDidLoad
 {
     [super viewDidLoad];
+
+    replBuffer.clipsToBounds = NO;
+    consoleBuffer.clipsToBounds = NO;
+    replBuffer.layer.shadowOpacity = 0.5;
+    consoleBuffer.layer.shadowOpacity = 0.5;
+    replBuffer.layer.shadowColor = [[UIColor blackColor] CGColor];
+    consoleBuffer.layer.shadowColor = [[UIColor blackColor] CGColor];
+    replBuffer.layer.shadowOffset = CGSizeMake(2.0, 0.5);
+    consoleBuffer.layer.shadowOffset = CGSizeMake(2.0, 0.5);
+    replBuffer.layer.borderWidth = 0.5;
+    consoleBuffer.layer.borderWidth = 0.5;
 
     Scheme_Object *type;
     Scheme_Object *op = NULL;
