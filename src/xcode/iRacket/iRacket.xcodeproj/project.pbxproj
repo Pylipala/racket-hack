@@ -371,6 +371,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				CODE_SIGN_IDENTITY = "iPhone Developer: Xueliang Hua (GWY394QHN8)";
 				COPY_PHASE_STRIP = YES;
 				GCC_PRECOMPILE_PREFIX_HEADER = YES;
 				GCC_PREFIX_HEADER = iRacket_Prefix.pch;
@@ -382,6 +383,7 @@
 					"\"$(SRCROOT)/../../../thirdparty/libjpeg\"",
 				);
 				PRODUCT_NAME = iRacket;
+				PROVISIONING_PROFILE = "D59536B4-C137-494B-8CE1-4BDFAD66FBD8";
 				VALIDATE_PRODUCT = YES;
 			};
 			name = Release;

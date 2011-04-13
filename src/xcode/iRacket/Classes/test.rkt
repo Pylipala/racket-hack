@@ -3,7 +3,8 @@
          ffi/unsafe/define
          ffi/unsafe/objc
          racket/draw/unsafe/jpeg
-         racket/draw/unsafe/png)
+         racket/draw/unsafe/png
+         test-engine/racket-tests)
 
 (define (iloveracket)
   (display "I love iRacket"))
@@ -60,3 +61,6 @@
                                  ))
 (define sizeof_jpeg_error_mgr 1024)
 |#
+
+(check-expect (+ 1 2) 4)
+(test)
