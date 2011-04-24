@@ -610,7 +610,7 @@ case $OS in
     if test "${enable_iphoneos}" == "yes" ; then
       PLATFORMPREFIX="/Developer/Platforms/iPhoneOS.platform/Developer/usr/bin"
       ARCH_FLAGS="-arch armv7"
-      MACH_FLAGS="-miphoneos-version-min=3.2 -mthumb -DIPHONE"
+      MACH_FLAGS="-miphoneos-version-min=3.2 -gdwarf-2 -marm -DIPHONE"
       IPHONE="iPhoneOS"
  
       enable_sdk="/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS4.3.sdk"
@@ -623,7 +623,7 @@ case $OS in
     if test "${enable_iphonesim}" == "yes" ; then
       PLATFORMPREFIX="/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/bin"
       ARCH_FLAGS="-arch i386"
-      MACH_FLAGS="-D__IPHONE_OS_VERSION_MIN_REQUIRED=30200 -mmacosx-version-min=10.5 -DIPHONE"
+      MACH_FLAGS="-D__IPHONE_OS_VERSION_MIN_REQUIRED=30200 -mmacosx-version-min=10.6 -DIPHONE"
       IPHONE="iPhoneSimulator"
  
       enable_sdk="/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator4.3.sdk"

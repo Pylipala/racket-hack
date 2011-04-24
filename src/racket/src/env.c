@@ -545,7 +545,7 @@ static Scheme_Env *place_instance_init(void *stack_base, int initial_main_os_thr
   scheme_init_expand_observe(env);
   scheme_init_place(env);
 /* END PRIMITIVE MODULES */
-#if defined(MZ_USE_PLACES)
+#if defined(MZ_USE_PLACES) && !defined(IPHONE)
   scheme_jit_fill_threadlocal_table();
 #endif
   scheme_init_futures_per_place();

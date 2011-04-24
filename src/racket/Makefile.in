@@ -154,12 +154,20 @@ MZFW = Racket.framework/Versions/$(FWVERSION)/Racket
 
 $(MZFW): libracket.@LIBSFX@ libmzgc.@LIBSFX@ $(SPECIALIZINGOBJECTS)
 	mkdir -p  Racket.framework/Versions/$(FWVERSION)
+ifeq ($(IPHONE),)
 	@MZLINKER@ -o $(MZFW) @LDFLAGS@ -framework CoreFoundation -dynamiclib -all_load $(SPECIALIZINGOBJECTS) libracket.@LIBSFX@ libmzgc.@LIBSFX@ @LIBS@
+else
+	/usr/bin/libtool -static -o $(MZFW) -arch_only armv7 libracket.@LIBSFX@ libmzgc.@LIBSFX@
+endif
 	rm -f Racket.framework/Racket
 	ln -s Versions/$(FWVERSION)/Racket Racket.framework/Racket
 
 racket@CGC@@OSX@: $(MZFW) main.@LTO@
+ifeq ($(IPHONE),)
 	@MZLINKER@ -o racket@CGC@ @PROFFLAGS@ @LDFLAGS@ main.@LTO@ -Wl,-headerpad_max_install_names -F. -framework Racket @LIBS@
+else
+	@MZLINKER@ -o racket@CGC@ @PROFFLAGS@ @LDFLAGS@ main.@LTO@ -Wl,-headerpad_max_install_names -F. -framework Racket @LIBS@ -framework CoreFoundation
+endif
 	/usr/bin/install_name_tool -change "Racket.framework/Versions/$(FWVERSION)/Racket" "@executable_path/Racket.framework/Versions/$(FWVERSION)/Racket" "racket@CGC@"
 
 # OSKit ----------------------------------------

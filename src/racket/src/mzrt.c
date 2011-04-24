@@ -138,7 +138,11 @@ MZ_INLINE uint32_t mzrt_atomic_add_32(volatile unsigned int *counter, unsigned i
       : "memory", "cc");
   return value;
 #else
+#ifdef IPHONE
+  return OSAtomicAdd32((int32_t)value, (volatile int32_t *)counter);
+#else
 #error !!!Atomic ops not provided!!!
+#endif /* IPHONE */
 #endif
 }
 

@@ -25,6 +25,7 @@
 		DE0F63F2130BFF5300C6ACE3 /* icollects in Resources */ = {isa = PBXBuildFile; fileRef = DE0F5FB0130BFF5200C6ACE3 /* icollects */; };
 		DE0F640E130C085900C6ACE3 /* test.rkt in Resources */ = {isa = PBXBuildFile; fileRef = DE0F640D130C081F00C6ACE3 /* test.rkt */; };
 		DE0F640F130C085900C6ACE3 /* test.rkt in Resources */ = {isa = PBXBuildFile; fileRef = DE0F640D130C081F00C6ACE3 /* test.rkt */; };
+		DE18E5BA1364813500EBD18E /* libz.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = DE38150F131BEE50000024C0 /* libz.dylib */; };
 		DE3814E9131BE757000024C0 /* libpngsim.a in Frameworks */ = {isa = PBXBuildFile; fileRef = DE3814E8131BE757000024C0 /* libpngsim.a */; };
 		DE3814EB131BE769000024C0 /* libpng.a in Frameworks */ = {isa = PBXBuildFile; fileRef = DE3814EA131BE769000024C0 /* libpng.a */; };
 		DE381510131BEE50000024C0 /* libz.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = DE38150F131BEE50000024C0 /* libz.dylib */; };
@@ -82,6 +83,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DE18E5BA1364813500EBD18E /* libz.dylib in Frameworks */,
 				DE4CCA6612B12C80008E82BD /* libiconv.dylib in Frameworks */,
 				1D60589F0D05DD5A006BFB54 /* Foundation.framework in Frameworks */,
 				1DF5F4E00D08C38300B7A737 /* UIKit.framework in Frameworks */,
@@ -361,8 +363,8 @@
 					"-all_load",
 				);
 				PRODUCT_NAME = iRacket;
-				PROVISIONING_PROFILE = "D59536B4-C137-494B-8CE1-4BDFAD66FBD8";
-				"PROVISIONING_PROFILE[sdk=iphoneos*]" = "D59536B4-C137-494B-8CE1-4BDFAD66FBD8";
+				PROVISIONING_PROFILE = "E8E66B33-51D5-403E-87B6-AD51679BA944";
+				"PROVISIONING_PROFILE[sdk=iphoneos*]" = "E8E66B33-51D5-403E-87B6-AD51679BA944";
 				SDKROOT = iphoneos;
 			};
 			name = Debug;

@@ -1,4 +1,4 @@
-
+#include <stdio.h>
 #include <sys/types.h>
 #include "sgc.h"
 
@@ -44,7 +44,7 @@ typedef struct Chained
 Chained *chains[MAX_C_SIZE];
 #endif
 
-work2()
+void work2()
 {
   int broken = 15;
   int i, j, k, l;
@@ -112,7 +112,11 @@ work2()
   }
 }
 
+#ifdef IPHONE
+void test_main()
+#else
 main()
+#endif
 {
   int dummy;
 

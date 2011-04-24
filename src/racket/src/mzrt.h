@@ -11,6 +11,10 @@ typedef unsigned int uint32_t;
 # include <stdint.h>
 #endif
 
+#ifdef IPHONE
+#include <libkern/OSAtomic.h>
+#endif
+
 MZ_INLINE uint32_t mzrt_atomic_add_32(volatile unsigned int *counter, unsigned int value);
 MZ_INLINE uint32_t mzrt_atomic_incr_32(volatile unsigned int *counter);
 
@@ -167,7 +171,11 @@ static MZ_INLINE int mzrt_cas(volatile size_t *addr, size_t old, size_t new_val)
   return result;
 #  endif
 # else
+#ifdef IPHONE
+  return OSAtomicCompareAndSwap32((int32_t)old, (int32_t)new_val, (volatile int32_t *)addr);
+#else
 # error mzrt_cas not defined on this platform
+#endif /* IPHONE */
 # endif
 #elif defined(_MSC_VER)
 # if defined(_AMD64_)
