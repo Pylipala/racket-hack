@@ -10,7 +10,11 @@
 */
 
 /* Controls how often freed pages are actually returned to OS: */
+#ifdef IPHONE
+#define BLOCKFREE_UNMAP_AGE 0
+#else
 #define BLOCKFREE_UNMAP_AGE 3
+#endif
 
 /* Controls size of the cache */
 #define BLOCKFREE_CACHE_SIZE 3000

@@ -4019,9 +4019,9 @@ static void garbage_collect(NewGC *gc, int force_full, int switching_master)
   /* determine if this should be a full collection or not */
   gc->gc_full = force_full || !gc->generations_available 
     || (gc->since_last_full > 100) || (gc->memory_in_use > (2 * gc->last_full_mem_use));
-#if 0
-  printf("Collection %li (full = %i): %i / %i / %i / %i  %ld\n", number_of_gc_runs, 
-      gc->gc_full, force_full, !generations_available,
+#if 1
+  printf("Collection %li (full = %i): %i / %i / %i / %i  %ld\n", gc->number_of_gc_runs, 
+      gc->gc_full, force_full, !gc->generations_available,
       (gc->since_last_full > 100), (gc->memory_in_use > (2 * gc->last_full_mem_use)),
       gc->last_full_mem_use);
 #endif

@@ -157,7 +157,7 @@ $(MZFW): libracket.@LIBSFX@ libmzgc.@LIBSFX@ $(SPECIALIZINGOBJECTS)
 ifeq ($(IPHONE),)
 	@MZLINKER@ -o $(MZFW) @LDFLAGS@ -framework CoreFoundation -dynamiclib -all_load $(SPECIALIZINGOBJECTS) libracket.@LIBSFX@ libmzgc.@LIBSFX@ @LIBS@
 else
-	/usr/bin/libtool -static -o $(MZFW) -arch_only armv7 libracket.@LIBSFX@ libmzgc.@LIBSFX@
+	/usr/bin/libtool -static -o $(MZFW) libracket.@LIBSFX@ libmzgc.@LIBSFX@
 endif
 	rm -f Racket.framework/Racket
 	ln -s Versions/$(FWVERSION)/Racket Racket.framework/Racket

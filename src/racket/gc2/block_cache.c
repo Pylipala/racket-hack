@@ -7,7 +7,11 @@ static void  *os_alloc_pages(size_t len);
 static void   os_free_pages(void *p, size_t len);
 static void   os_protect_pages(void *p, size_t len, int writable);
 
+#ifdef IPHONE
+#define BC_BLOCK_SIZE (1 << 21)  /* 2 MB */
+#else
 #define BC_BLOCK_SIZE (1 << 24)  /* 16 MB */
+#endif
 
 struct block_desc;
 static AllocCacheBlock *alloc_cache_create();

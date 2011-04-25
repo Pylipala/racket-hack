@@ -43,7 +43,8 @@ static int racket_main(Scheme_Env *e, int argc, char *argv[])
     scheme_set_exec_cmd((char *)[[[[NSBundle mainBundle] bundlePath]
                            stringByAppendingString:@"/iRacketSim"] UTF8String]);    
 #else
-    scheme_set_exec_cmd("iRacket");
+    scheme_set_exec_cmd((char *)[[[[NSBundle mainBundle] bundlePath]
+                           stringByAppendingString:@"/iRacket"] UTF8String]);
 #endif
 
     // getcwd in iOS returns "/", so we'll need to set our own cwd
