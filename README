@@ -1,3 +1,22 @@
+Before you start to Racket your life here
+===============================
+This is the port of Racket engine which currently runs on but not limited to iOS platform. The future plan is allow Racket to bring unique user experience to such mobile platforms as iOS, Android, WebOS, etc, because of Racket's amazing capabilities.
+
+
+How to build for iOS
+-------------------------------
+Currently, the code is carefully taylored for iOS only, and you're recommended to use provided configure options. Besides, an Xcode project is included to facilitate you with various tests. In order to make your life easier, please follow below instructions to set up your build environment:
+* Install iOS SDK 4.3. Currently, configure will pick by default 4.3 sdk to compile, so if you want to use other versions, please go ahead to make your change. It's easy!
+* We'll need some precompiled host tools (racketcgc, e.g.) to help build libraries for iOS
+  #cd $YOUR_GIT_REPO/src/host-precompiled/ & ./configure & make
+* To build for iOS
+  #cd $YOUR_GIT_REPO/src/build/ios/ & ./configure & make
+* To build for iOS Simulator
+  #cd $YOUR_GIT_REPO/src/build/ios.sim/ & ./configure & make
+* Open XCode project to see how everything works:
+  #open $YOUR_GIT_REPO/src/xcode/iRacket/iRacket.xcodeproj
+
+
 The Racket programming language
 ===============================
 
