@@ -1,0 +1,1 @@
+("5.0.99.4" ("e7eefa5cd69fe4b783d55df2f055ec1e33408721" . "09009c01ef21908a1ac16903013ad6fb08d7f69a") (collects #"scheme" #"base.rkt") (collects #"string-constants" #"string-constant.rkt") (collects #"scheme" #"base" #"lang" #"reader.rkt"))
