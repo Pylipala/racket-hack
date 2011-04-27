@@ -7,6 +7,7 @@ How to build for iOS
 -------------------------------
 Currently, the code is carefully taylored for iOS only, and you're recommended to use provided configure options. Besides, an Xcode project is included to facilitate you with various tests. In order to make your life easier, please follow below instructions to set up your build environment:
 * Install iOS SDK 4.3. Currently, configure will pick by default 4.3 sdk to compile, so if you want to use other versions, please go ahead to make your change. It's easy!
+* clone libffi-ios-hack from my another repo https://github.com/nevo/libffi-ios-hack, and put it under src/foreign/ with name of libffi-ios
 * We'll need some precompiled host tools (racketcgc, e.g.) to help build libraries for iOS
   #cd $YOUR_GIT_REPO/src/host-precompiled/ & ./configure & make
 * To build for iOS
