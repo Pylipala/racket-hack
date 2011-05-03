@@ -11,10 +11,16 @@
 (define-syntax define-enum
   (syntax-rules ()
     [(_ n) (begin)]
-    [(_ n id . ids) (begin
-                      (define id n)
-                      (provide id)
-                      (define-enum (+ n 1) . ids))]))
+    [(_ n (id op val) . ids) 
+     (begin
+       (define id val)
+       (provide id)
+       (define-enum (+ 1 id) . ids))]
+    [(_ n id . ids) 
+     (begin
+       (define id n)
+       (provide id)
+       (define-enum (+ 1 n) . ids))]))
 
 (define-syntax-rule (define/provide id val)
   (begin
