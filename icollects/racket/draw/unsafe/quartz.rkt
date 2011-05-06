@@ -49,6 +49,12 @@
 (define-quartz CGBitmapContextGetBitsPerComponent
   (_fun _CGContextRef -> _size_t))
 
+(define-quartz CGBitmapContextGetData
+  (_fun _CGContextRef -> _cpointer/null))
+
+(define-quartz CGBitmapContextGetBytesPerRow
+  (_fun _CGContextRef -> _size_t))
+
 (define-enum 0
   kCGImageAlphaNone
   kCGImageAlphaPremultipliedLast
