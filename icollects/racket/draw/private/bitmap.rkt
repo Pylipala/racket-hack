@@ -5,7 +5,7 @@
          "syntax.rkt"
          "hold.rkt"
          "../unsafe/bstr.rkt"
-         "../unsafe/cairo.rkt"
+         "../unsafe/quartz.rkt"
          "../unsafe/png.rkt"
          "../unsafe/jpeg.rkt"
          "../xbm.rkt"
@@ -113,19 +113,20 @@
          h
          (and b&w? #t)
          (and alpha? (not b&w?))
-         (let ([s (cairo_image_surface_create CAIRO_FORMAT_ARGB32 (max w 1) (max h 1))])
-           (cairo_surface_flush s)
+         (let* ([rgb (CGColorSpaceCreateDeviceRGB)]
+		[s (CGBitmapContextCreate 0 (max w 1) (max h 1) 8
+					  (* 4 (max w 1)) rgb
+					  (bitwise-ior kCGBitmapAlphaByteOrder32Big kCGImageAlphaFirst))])
            (cond
             [b&w?
              ;; Init transparent white:
              (transparent-white! s w h)]
             [alpha? 
              ;; Init transparent:
-             (bytes-fill! (cairo_image_surface_get_data s) 0)]
+             (bytes-fill! (CGBitmapContextGetData s) 0)]
             [else
              ;; Init all white, 255 alpha:
-             (bytes-fill! (cairo_image_surface_get_data s) 255)])
-           (cairo_surface_mark_dirty s)
+             (bytes-fill! (CGBitmapContextGetData s) 255)])
            s)
          #f)]
        [([(make-alts path-string? input-port?) filename]
@@ -141,10 +142,10 @@
                  (and s
                       (not alpha?)
                       (not b&w?)
-                      (let ([w (cairo_image_surface_get_width s)]
-                            [h (cairo_image_surface_get_height s)]
-                            [row-width (cairo_image_surface_get_stride s)]
-                            [bstr (cairo_image_surface_get_data s)]
+                      (let ([w (CGBitmapContextGetWidth s)]
+                            [h (CGBitmapContextGetHeight s)]
+                            [row-width (CGBitmapContextGetBytesPerRow s)]
+                            [bstr (CGBitmapContextGetData s)]
                             [A (a-index)])
                         (begin0
                          (and mask?
@@ -159,12 +160,11 @@
                          ;; Force all alpha values to 255
                          (for* ([j (in-range h)]
                                 [i (in-range w)])
-                           (bytes-set! bstr (+ A (* 4 i) (* j row-width)) 255))
-                         (cairo_surface_mark_dirty s))))])
+                           (bytes-set! bstr (+ A (* 4 i) (* j row-width)) 255)))))])
             (if s
                 (values #f
-                        (cairo_image_surface_get_width s)
-                        (cairo_image_surface_get_height s)
+                        (CGBitmapContextGetWidth s)
+                        (CGBitmapContextGetHeight s)
                         b&w?
                         alpha?
                         s
@@ -178,7 +178,9 @@
             (error (init-name 'bitmap%)
                    "given byte string is too small for dimensions: ~s"
                    bstr))
-          (let ([s (cairo_image_surface_create CAIRO_FORMAT_ARGB32 w h)])
+          (let* ([rgb (CGColorSpaceCreateDeviceRGB)]
+		 [s (CGBitmapContextCreate 0 w h 8 (* 4 w) rgb
+					   (bitwise-ior kCGBitmapAlphaByteOrder32Big kCGImageAlphaFirst))])
             (let ([rows (list->vector
                          (for/list ([i (in-range h)])
                            (let ([s (* i bw)])
@@ -240,8 +242,8 @@
       (check-alternate 'load-file)
       (release-bitmap-storage)
       (set!-values (s b&w?) (do-load-bitmap in kind bg complain-on-failure?))
-      (set! width (if s (cairo_image_surface_get_width s) 0))
-      (set! height (if s (cairo_image_surface_get_height s) 0)))
+      (set! width (if s (CGBitmapContextGetWidth s) 0))
+      (set! height (if s (CGBitmapContextGetHeight s) 0)))
 
     (define/private (do-load-bitmap in kind bg complain-on-failure?)
       (if (path-string? in)
@@ -300,7 +302,9 @@
                                                           (send bg blue))))])
               (let ([rows (read-png r)])
                 (destroy-png-reader r)
-                (let* ([s (cairo_image_surface_create CAIRO_FORMAT_ARGB32 w h)]
+                (let* ([rgb (CGColorSpaceCreateDeviceRGB)]
+		       [s (CGBitmapContextCreate 0 w h 8 (* 4 w) rgb
+						 (bitwise-ior kCGBitmapAlphaByteOrder32Big kCGImageAlphaFirst))]
                        [pre? (and alpha? (eq? kind 'png/alpha))])
                   (install-bytes-rows s w h rows b&w? alpha? pre? #f)
                   (values s b&w?))))]
@@ -316,11 +320,12 @@
                           [c (jpeg_decompress_struct-output_components d)])
                       (let-values ([(samps bstr) (create-jpeg-sample-array d (* w c))]
                                    [(A R G B) (argb-indices)])
-                        (let* ([s (cairo_image_surface_create CAIRO_FORMAT_ARGB32 w h)]
+                        (let* ([rgb (CGColorSpaceCreateDeviceRGB)]
+			       [s (CGBitmapContextCreate 0 w h 8 (* 4 w) rgb
+							 (bitwise-ior kCGBitmapAlphaByteOrder32Big kCGImageAlphaFirst))]
                                [dest (begin
-                                       (cairo_surface_flush s)
-                                       (cairo_image_surface_get_data s))]
-                               [dest-row-width (cairo_image_surface_get_stride s)])
+                                       (CGBitmapContextGetData s))]
+                               [dest-row-width (CGBitmapContextGetBytesPerRow s)])
                           (for ([j (in-range h)])
                             (jpeg_read_scanlines d samps 1)
                             (let ([row (* dest-row-width j)])
@@ -337,8 +342,7 @@
                                         (unsafe-bytes-set! dest (fx+ 4i R) (unsafe-bytes-ref bstr ci))
                                         (unsafe-bytes-set! dest (fx+ 4i G) (unsafe-bytes-ref bstr (fx+ ci 1)))
                                         (unsafe-bytes-set! dest (fx+ 4i B) (unsafe-bytes-ref bstr (fx+ ci 2)))))))))
-                          (cairo_surface_mark_dirty s)
-                          (jpeg_finish_decompress d)
+                           (jpeg_finish_decompress d)
                           (values s #f)))))
                   (lambda ()
                     (destroy-decompress d))))]
@@ -353,23 +357,29 @@
            [(xbm xbm/alpha)
             (let-values ([(w h rows) (read-xbm in)])
               (if rows
-                  (let ([s (cairo_image_surface_create CAIRO_FORMAT_ARGB32 w h)])
+                  (let* ([rgb (CGColorSpaceCreateDeviceRGB)]
+			[s (CGBitmapContextCreate 0 w h 8 (* 4 w) rgb
+						  (bitwise-ior kCGBitmapAlphaByteOrder32Big kCGImageAlphaFirst))])
                     (install-bytes-rows s w h rows #t #f #f #t)
                     (values s #t))
                   (values #f #f)))]
            [(xpm xpm/alpha)
             (let-values ([(w h rows) (read-xpm in)])
               (if rows
-                  (let ([s (cairo_image_surface_create CAIRO_FORMAT_ARGB32 w h)]
-                        [alpha? #t])
+                  (let* ([rgb (CGColorSpaceCreateDeviceRGB)]
+			 [s (CGBitmapContextCreate 0 w h 8 (* 4 w) rgb
+						   (bitwise-ior kCGBitmapAlphaByteOrder32Big kCGImageAlphaFirst))]
+			 [alpha? #t])
                     (install-bytes-rows s w h rows #f alpha? #t #f)
                     (values s #f))
                   (values #f #f)))]
            [(bmp bmp/alpha)
             (let-values ([(w h rows) (read-bmp in)])
               (if rows
-                  (let ([s (cairo_image_surface_create CAIRO_FORMAT_ARGB32 w h)]
-                        [alpha? #t])
+                  (let* ([rgb (CGColorSpaceCreateDeviceRGB)]
+			 [s (CGBitmapContextCreate 0 w h 8 (* 4 w) rgb
+						   (bitwise-ior kCGBitmapAlphaByteOrder32Big kCGImageAlphaFirst))]
+			 [alpha? #t])
                     (install-bytes-rows s w h rows #f alpha? #t #f)
                     (values s #f))
                   (values #f #f)))]
@@ -391,9 +401,8 @@
     ;; backward? : affects byte interpretation in `b&w?' mode; see above
     (define/private (install-bytes-rows s w h rows b&w? alpha? pre? backward?)
       (let* ([dest (begin
-                     (cairo_surface_flush s)
-                     (cairo_image_surface_get_data s))]
-             [dest-row-width (cairo_image_surface_get_stride s)])
+                     (CGBitmapContextGetData s))]
+             [dest-row-width (CGBitmapContextGetBytesPerRow s)])
         (let-values ([(A R G B) (argb-indices)])
           (for ([r (in-vector rows)]
                 [j (in-naturals)])
@@ -429,13 +438,12 @@
                       (unsafe-bytes-set! dest (fx+ pos A) al)
                       (unsafe-bytes-set! dest (fx+ pos R) (premult al (unsafe-bytes-ref r spos)))
                       (unsafe-bytes-set! dest (fx+ pos G) (premult al (unsafe-bytes-ref r (fx+ spos 1))))
-                      (unsafe-bytes-set! dest (fx+ pos B) (premult al (unsafe-bytes-ref r (fx+ spos 2))))))))))
-        (cairo_surface_mark_dirty s)))
+                      (unsafe-bytes-set! dest (fx+ pos B) (premult al (unsafe-bytes-ref r (fx+ spos 2))))))))))))
 
     (define/private (call-with-alt-bitmap x y w h proc)
       (let* ([bm (make-object bitmap% w h #f #t)]
-             [cr (cairo_create (send bm get-cairo-surface))])
-        (let ([p (cairo_get_source cr)])
+             [ctx (send bm get-context-ref)])
+        (begin
           (cairo_pattern_reference p)
           (cairo_set_source_surface cr (get-cairo-surface) (- x) (- y))
           (cairo_new_path cr)

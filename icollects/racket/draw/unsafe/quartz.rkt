@@ -14,6 +14,14 @@
 
 (define _size_t _long)
 
+(define _CGFloat (make-ctype (if 64-bit? _double _float)
+(define-cstruct _CGPoint ([x _CGFloat]
+			  [y _CGFloat]))
+(define-cstruct _CGSize ([width _CGFloat]
+			 [height _CGFloat]))
+(define-cstruct CGRect ([origin _CGPoint]
+			[size _CGSize]))
+
 (define _CGContextRef (_cpointer 'CGContextRef))
 (define _CGContextRef/null (_cpointer/null 'CGContextRef))
 (define _CGBitmapInfo _uint32)
@@ -54,6 +62,15 @@
 
 (define-quartz CGBitmapContextGetBytesPerRow
   (_fun _CGContextRef -> _size_t))
+
+(define-quartz CGContextBeginPath
+  (_fun _CGContextRef -> _void))
+
+(define-quartz CGContextClosePath
+  (_fun _CGContextRef -> _void))
+
+(define-quartz CGRectMake
+  (_fun _CGFloat _CGFLoat _CGFloat _CGFloat -> _CGRect))
 
 (define-enum 0
   kCGImageAlphaNone
