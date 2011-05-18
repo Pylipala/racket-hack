@@ -47,7 +47,7 @@
   (and (exact-nonnegative-integer? i) (i . <= . 100)))
 
 (define (destroy s)
-  (cairo_surface_destroy s))
+  (CGContextRelease s))
 
 (define (argb-indices)
   (if (system-big-endian?)
@@ -348,7 +348,9 @@
                     (destroy-decompress d))))]
            [(gif gif/mask gif/alpha)
             (let-values ([(w h rows) (gif->rgba-rows in)])
-              (let* ([s (cairo_image_surface_create CAIRO_FORMAT_ARGB32 w h)]
+              (let* ([rgb (CGColorSpaceCreateDeviceRGB)]
+		     [s (CGBitmapContextCreate 0 w h 8 (* 4 w) rgb
+					       (bitwise-ior kCGBitmapAlphaByteOrder32Big kCGImageAlphaFirst))]
                      [alpha? #t]
                      [pre? (and alpha? (eq? kind 'gif/alpha))]
                      [b&w? #f])
@@ -358,8 +360,8 @@
             (let-values ([(w h rows) (read-xbm in)])
               (if rows
                   (let* ([rgb (CGColorSpaceCreateDeviceRGB)]
-			[s (CGBitmapContextCreate 0 w h 8 (* 4 w) rgb
-						  (bitwise-ior kCGBitmapAlphaByteOrder32Big kCGImageAlphaFirst))])
+			 [s (CGBitmapContextCreate 0 w h 8 (* 4 w) rgb
+						   (bitwise-ior kCGBitmapAlphaByteOrder32Big kCGImageAlphaFirst))])
                     (install-bytes-rows s w h rows #t #f #f #t)
                     (values s #t))
                   (values #f #f)))]
@@ -442,16 +444,15 @@
 
     (define/private (call-with-alt-bitmap x y w h proc)
       (let* ([bm (make-object bitmap% w h #f #t)]
-             [ctx (send bm get-context-ref)])
+	     [rect (CGRectMake x y w h)]
+	     [img (CGBitmapContextCreateImage s)]
+	     [clip (CGImageCreateWithImageInRect img rect)]
+	     [ctx (send bm get-context-ref)]
+	     clipRect (CGRectMake 0 0 w h))
         (begin
-          (cairo_pattern_reference p)
-          (cairo_set_source_surface cr (get-cairo-surface) (- x) (- y))
-          (cairo_new_path cr)
-          (cairo_rectangle cr 0 0 w h)
-          (cairo_fill cr)
-          (cairo_set_source cr p)
-          (cairo_pattern_destroy p))
-        (cairo_destroy cr)
+	  (CGContextDrawImage ctx clipRect clip)
+	  (CGImageRelease clip)
+	  (CGImageRelease img))
         (proc bm)
         (send bm release-bitmap-storage)))
 
@@ -480,9 +481,8 @@
                ;; Write a 1-bit png
                (let* ([b (ceiling (/ width 8))]
                       [rows (build-vector height (lambda (i) (make-bytes b)))]
-                      [data (begin (cairo_surface_flush s)
-                                   (cairo_image_surface_get_data s))]
-                      [row-width (cairo_image_surface_get_stride s)])
+                      [data (CGBitmapContextGetData s)]
+                      [row-width (CGBitmapContextGetBytesPerRow s)])
                  (for ([j (in-range height)])
                    (let ([row (vector-ref rows j)])
                      (for ([bi (in-range b)])
@@ -524,13 +524,17 @@
                      (write-png w rows)
                      (destroy-png-writer w))))]
               [else
-               ;; Use Cairo built-in support:
+	       (error (method-name 'bitmap% 'save-file)
+		      "TODO: implement PNG writter using CoreGraphics")
+	       #|
+               ;; Not implemented yet for CoreGraphics
                (let ([proc (lambda (ignored bstr len)
                              (write-bytes (scheme_make_sized_byte_string bstr len 0) out)
                              CAIRO_STATUS_SUCCESS)])
                  (with-holding
                   proc
-                  (cairo_surface_write_to_png_stream s proc)))])]
+                  (cairo_surface_write_to_png_stream s proc)))])
+	       |#]
             [(jpeg)
              (let ([c (create-compress out)])
                (dynamic-wind
@@ -545,9 +549,8 @@
                      (jpeg_start_compress c #t)
                      (let-values ([(samps bstr) (create-jpeg-sample-array c (* width height 3))]
                                   [(A R G B) (argb-indices)])
-                       (cairo_surface_flush s)
-                       (let* ([dest (cairo_image_surface_get_data s)]
-                              [dest-row-width (cairo_image_surface_get_stride s)]
+                       (let* ([dest (CGBitmapContextGetData s)]
+                              [dest-row-width (CGBitmapContextGetBytesPerRow s)]
                               [h height]
                               [w width])
                          (for ([j (in-range h)])
@@ -567,8 +570,8 @@
 
     (def/public (ok?) (and s #t))
 
-    (define/public (get-cairo-surface) s)
-    (define/public (get-cairo-alpha-surface)
+    (define/public (get-context-ref) s)
+    (define/public (get-context-ref-alpha)
       (if (or b&w? alpha-channel?)
           s
           (begin
@@ -607,9 +610,8 @@
       ;; Get pixels:
       (when (not get-alpha?)
         (let-values ([(A R G B) (argb-indices)])
-          (cairo_surface_flush s)
-          (let ([data (cairo_image_surface_get_data s)]
-                [row-width (cairo_image_surface_get_stride s)]
+          (let ([data (CGBitmapContextGetData s)]
+                [row-width (CGBitmapContextGetBytesPerRow s)]
                 [use-alpha? (or alpha-channel? b&w?)])
             (let ([w2 (+ x (min (- width x) w))])
               (for* ([j (in-range y (min (+ y h) height))])
@@ -656,9 +658,8 @@
       ;; Set pixels:
       (let-values ([(A R G B) (argb-indices)])
         (when (not set-alpha?)
-          (cairo_surface_flush s)
-          (let ([data (cairo_image_surface_get_data s)]
-                [row-width (cairo_image_surface_get_stride s)])
+          (let ([data (CGBitmapContextGetData s)]
+                [row-width (CGBitmapContextGetBytesPerRow s)])
             (let ([w2 (+ x (min (- width x) w))])
               (for ([j (in-range y (min (+ y h) height))]
                     [dj (in-naturals)])
@@ -684,7 +685,7 @@
                             (bytes-set! data (+ ri R) (bytes-ref bstr (+ pi 1)))
                             (bytes-set! data (+ ri G) (bytes-ref bstr (+ pi 2)))
                             (bytes-set! data (+ ri B) (bytes-ref bstr (+ pi 3)))))))))))
-          (cairo_surface_mark_dirty s)))
+          ))
       (cond
        [(and set-alpha?
              (not alpha-channel?))
@@ -692,15 +693,12 @@
         (set-alphas-as-mask x y w h bstr (* 4 w) 0)]))
     
     (define/public (get-alphas-as-mask x y w h bstr)
-      (let ([data (cairo_image_surface_get_data (if (or b&w? alpha-channel?)
-                                                    (begin
-                                                      (cairo_surface_flush s)
-                                                      s)
+      (let ([data (CGBitmapContextGetData (if (or b&w? alpha-channel?)
+						    (s)
                                                     (begin
                                                       (prep-alpha)
-                                                      (cairo_surface_flush alpha-s)
                                                       alpha-s)))]
-            [row-width (cairo_image_surface_get_stride s)]
+            [row-width (CGBitmapContextGetBytesPerRow s)]
             [A (a-index)])
         (for ([j (in-range y (min (+ y h) height))])
           (let ([row (* j row-width)])
@@ -714,13 +712,16 @@
                  (not alpha-channel?))
         (unless alpha-s-up-to-date?
           (unless alpha-s
-            (set! alpha-s (cairo_image_surface_create CAIRO_FORMAT_ARGB32
-                                                      width height)))
-          (cairo_surface_flush s)
-          (cairo_surface_flush alpha-s)
-          (let ([data (cairo_image_surface_get_data s)]
-                [alpha-data (cairo_image_surface_get_data alpha-s)]
-                [row-width (cairo_image_surface_get_stride s)]
+            (set! alpha-s
+		  (let*
+		    ([rgb (CGColorSpaceCreateDeviceRGB)]
+		     [s (CGBitmapContextCreate 0 (max width 1) (max height 1) 8
+					       (* 4 (max width 1)) rgb
+					       (bitwise-ior kCGBitmapAlphaByteOrder32Big kCGImageAlphaFirst))])
+		    s))
+          (let ([data (CGBitmapContextGetData s)]
+                [alpha-data (CGBitmapContextGetData alpha-s)]
+                [row-width (CGBitmapContextGetBytesPerRow s)]
                 [A (a-index)]
                 [B (b-index)])
             (for ([j (in-range height)])
@@ -733,12 +734,11 @@
                                  (bytes-ref data (+ q B)))
                               3)])
                       (bytes-set! alpha-data (+ q A) (- 255 v))))))))
-          (cairo_surface_mark_dirty alpha-s)
           (set! alpha-s-up-to-date? #t))))
 
     (define/public (transparent-white! s width height)
-      (let ([bstr (cairo_image_surface_get_data s)]
-            [row-width (cairo_image_surface_get_stride s)]
+      (let ([bstr (CGBitmapContextGetData s)]
+            [row-width (CGBitmapContextGetBytesPerRow s)]
             [A (a-index)])
         (bytes-fill! bstr 255)
         (for ([j (in-range height)])
@@ -748,11 +748,10 @@
 
     (define/public (set-alphas-as-mask x y w h bstr src-w src-A)
       (when (or b&w? (and (not b&w?) (not alpha-channel?)))
-        (let ([data (cairo_image_surface_get_data s)]
-              [row-width (cairo_image_surface_get_stride s)]
+        (let ([data (CGBitmapContextGetData s)]
+              [row-width (CGBitmapContextGetBytesPerRow s)]
               [A (a-index)]
               [B (b-index)])
-          (cairo_surface_flush s)
           (for ([j (in-range y (min (+ y h) height))])
             (let ([row (* j row-width)]
                   [src-row (* (- j y) src-w)])
@@ -765,7 +764,7 @@
                     (bytes-set! data (+ q 1) vv)
                     (bytes-set! data (+ q 2) vv)
                     (bytes-set! data (+ q A) (if b&w? v 255)))))))
-          (cairo_surface_mark_dirty s))))
+	  )))
 
     ))
 

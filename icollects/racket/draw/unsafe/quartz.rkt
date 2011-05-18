@@ -26,6 +26,7 @@
 (define _CGContextRef/null (_cpointer/null 'CGContextRef))
 (define _CGBitmapInfo _uint32)
 (define _CGColorSpaceRef (_cpointer 'CGColorSpaceRef))
+(define _CGImageRef (_cpointer 'CGImageRef))
 
 (define-quartz CGColorSpaceRelease
   (_fun _CGColorSpaceRef -> _void)
@@ -44,6 +45,9 @@
   (_fun _pointer _size_t _size_t _size_t _size_t _CGColorSpaceRef _CGBitmapInfo -> _CGContextRef)
   #:make-fail make-not-available
   #:wrap (allocator CGContextRelease))
+
+(define-quartz CGBitmapContextCreateImage
+  (_fun _CGContextRef -> _CGImageRef))
 
 (define-quartz CGBitmapContextGetHeight
   (_fun _CGContextRef -> _size_t))
@@ -68,6 +72,18 @@
 
 (define-quartz CGContextClosePath
   (_fun _CGContextRef -> _void))
+
+(define-quartz CGContextDrawImage
+  (_fun _CGContextRef _CGRect _CGImageRef -> _void))
+
+(define-quartz CGImageCreateWithImageInRect
+  (_fun _CGImageRef _CGRect -> _CGImageRef))
+
+(define-quartz CGImageRelease
+  (_fun _CGImageRef -> _void))
+
+(define-quartz CGContextConvertRectToUserSpace
+  (_fun _CGContextRef _CGRect -> _CGRect))
 
 (define-quartz CGRectMake
   (_fun _CGFloat _CGFLoat _CGFloat _CGFloat -> _CGRect))
