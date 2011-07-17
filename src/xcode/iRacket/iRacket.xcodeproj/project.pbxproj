@@ -386,7 +386,7 @@
 					"\"$(SRCROOT)/../../../thirdparty/libjpeg\"",
 				);
 				PRODUCT_NAME = iRacket;
-				PROVISIONING_PROFILE = "D59536B4-C137-494B-8CE1-4BDFAD66FBD8";
+				PROVISIONING_PROFILE = "E8E66B33-51D5-403E-87B6-AD51679BA944";
 				VALIDATE_PRODUCT = YES;
 			};
 			name = Release;

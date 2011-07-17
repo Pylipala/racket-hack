@@ -2,6 +2,7 @@
 (require ffi/unsafe
          ffi/unsafe/define
          ffi/unsafe/objc
+         ffi/unsafe/alloc
          racket/draw/unsafe/jpeg
          racket/draw/unsafe/png
          test-engine/racket-tests)
@@ -26,6 +27,28 @@
 (define uikit-lib (ffi-lib (format "/System/Library/Frameworks/UIKit.framework/UIKit")))
 (import-class NSString)
 (tell #:type _id NSString alloc)
+
+(define quartz-lib
+  (ffi-lib (format "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")))
+
+(define-ffi-definer define-quartz quartz-lib
+  #:provide provide-protected)
+
+(define _size_t _long)
+
+(define _CGContextRef (_cpointer 'CGContextRef))
+(define _CGContextRef/null (_cpointer/null 'CGContextRef))
+(define _CGBitmapInfo _uint32)
+(define _CGColorSpaceRef (_cpointer 'CGColorSpaceRef))
+
+(define-quartz CGContextRelease
+  (_fun _CGContextRef -> _void)
+  #:wrap (deallocator))
+
+(define-quartz CGBitmapContextCreate
+  (_fun _pointer _size_t _size_t _size_t _size_t _CGColorSpaceRef _CGBitmapInfo -> _CGContextRef)
+  #:make-fail make-not-available
+  #:wrap (allocator CGContextRelease))
 
 #|
 ;; libpng
