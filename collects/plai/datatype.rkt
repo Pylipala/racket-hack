@@ -52,7 +52,7 @@
       (plai-syntax-error 'type-case stx-loc type-case:not-a-type)))
 
 (require (for-syntax syntax/parse
-                     unstable/syntax
+                     racket/syntax unstable/syntax
                      (only-in scheme/function curry)))
 
 (define-for-syntax (syntax-string s)
@@ -352,7 +352,12 @@
     ;;; far, either the clauses are malformed or the error is completely
     ;;; unintelligible.
     [(_ type-id test-expr clauses ...)
-     (map validate-clause (syntax->list #'(clauses ...)))]
+     (begin
+       (unless (identifier? #'type-id)
+         (plai-syntax-error 'type-case #'type-id type-case:not-a-type))
+       (validate-and-remove-type-symbol #'type-id (syntax-local-value #'type-id (λ () #f)))
+       (andmap validate-clause (syntax->list #'(clauses ...)))
+       (plai-syntax-error 'type-case stx "Unknown error"))]
     [_ (plai-syntax-error 'type-case stx type-case:generic)]))
 
 

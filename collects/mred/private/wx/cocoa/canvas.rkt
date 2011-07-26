@@ -17,6 +17,7 @@
          "item.rkt"
          "gc.rkt"
          "image.rkt"
+         "panel.rkt"
          "../common/backing-dc.rkt"
          "../common/canvas-mixin.rkt"
          "../common/event.rkt"
@@ -26,7 +27,8 @@
          "../common/freeze.rkt")
 
 (provide 
- (protect-out canvas%))
+ (protect-out canvas%
+              canvas-panel%))
 
 ;; ----------------------------------------
 
@@ -60,7 +62,7 @@
             (tellv ctx restoreGraphicsState)))))))
 
 (define-objc-mixin (MyViewMixin Superclass)
-  #:mixins (FocusResponder KeyMouseTextResponder CursorDisplayer) 
+  #:mixins (KeyMouseTextResponder CursorDisplayer FocusResponder) 
   [wxb]
   (-a _void (drawRect: [_NSRect r])
       (when wxb
@@ -238,21 +240,26 @@
               is-window-enabled?
               block-mouse-events
               move get-x get-y
-              on-size
               register-as-child
               get-size get-position
               set-focus
               client-to-screen
               is-auto-scroll? get-virtual-width get-virtual-height
               reset-auto-scroll
-              refresh-for-autoscroll)
+              refresh-for-autoscroll
+              flush)
 
-     (define vscroll-ok? (and (memq 'vscroll style) #t))
+     (define vscroll-ok? (and (or (memq 'vscroll style) 
+                                  (memq 'auto-vscroll style)) ; 'auto variant falls through from panel
+                              #t))
      (define vscroll? vscroll-ok?)
-     (define hscroll-ok? (and (memq 'hscroll style) #t))
+     (define hscroll-ok? (and (or (memq 'hscroll style) 
+                                  (memq 'auto-hscroll style))
+                              #t))
      (define hscroll? hscroll-ok?)
 
-     (define wants-focus? (not (memq 'no-focus style)))
+     (define wants-focus? (and (not (memq 'no-focus style))
+                               (not (is-panel?))))
      (define is-combo? (memq 'combo style))
      (define has-control-border? (and (not is-combo?)
                                       (memq 'control-border style)))
@@ -340,11 +347,12 @@
 
      (define content-cocoa
        (let ([r (make-NSRect (make-NSPoint 0 0)
-                             (make-NSSize (max 0 (- w (* 2 x-margin)))
-                                          (max 0 (- h (* 2 y-margin)))))])
+                             (make-NSSize (max 0 (- w (if vscroll? scroll-width 0) (* 2 x-margin)))
+                                          (max 0 (- h (if hscroll? scroll-width 0) (* 2 y-margin)))))])
          (as-objc-allocation
           (if (or is-combo? (not (memq 'gl style)))
-              (tell (tell (if is-combo? MyComboBox MyView) alloc) 
+              (tell (tell (if is-combo? MyComboBox MyView)
+                          alloc)
                     initWithFrame: #:type _NSRect r)
               (let ([pf (gl-config->pixel-format gl-config)])
                 (begin0
@@ -360,11 +368,13 @@
        (tellv content-cocoa setDelegate: content-cocoa)
        (install-control-font content-cocoa #f))
 
-     (define dc (make-object dc% this))
+     (define dc (make-object dc% this (memq 'transparent canvas-style)))
 
      (send dc start-backing-retained)
 
      (queue-paint)
+
+     (define/public (is-panel?) #f)
      
      (define/public (get-dc) dc)
 
@@ -382,6 +392,7 @@
      (define/override (get-client-size xb yb)
        (super get-client-size xb yb)
        (when is-combo?
+         (set-box! xb (max 0 (- (unbox xb) 22)))
          (set-box! yb (max 0 (- (unbox yb) 5)))))
 
      (define/override (maybe-register-as-child parent on?)
@@ -396,15 +407,16 @@
 
      (define/override (show on?)
        ;; FIXME: what if we're in the middle of an on-paint?
-       (super show on?)
-       (fix-dc))
+       (super show on?))
 
      (define/override (hide-children)
        (super hide-children)
+       (fix-dc #f)
        (suspend-all-reg-blits))
 
      (define/override (show-children)
        (super show-children)
+       ;; (fix-dc) ; inteferes with `paint-children''
        (resume-all-reg-blits))
 
      (define/override (fixup-locations-children)
@@ -451,9 +463,13 @@
                   (is-shown-to-root?))
          (atomically (resume-all-reg-blits)))
        (fix-dc)
-       (when (is-auto-scroll?)
+       (when (and (is-auto-scroll?)
+                  (not (is-panel?)))
          (reset-auto-scroll 0 0))
-       (on-size 0 0))
+       (on-size))
+
+     ;; this `on-size' method is for `editor-canvas%', only:
+     (define/public (on-size) (void))
 
      (define/public (show-scrollbars h? v?)
        (let ([h? (and h? hscroll-ok?)]
@@ -483,12 +499,14 @@
                                          h-pos v-pos)
        (scroll-range h-scroller h-len)
        (scroll-page h-scroller h-page)
-       (scroll-pos h-scroller h-pos)
+       (unless (= h-pos -1)
+         (scroll-pos h-scroller h-pos))
        (when h-scroller
          (tellv (scroller-cocoa h-scroller) setEnabled: #:type _BOOL (and h-step (positive? h-len))))
        (scroll-range v-scroller v-len)
        (scroll-page v-scroller v-page)
-       (scroll-pos v-scroller v-pos)
+       (unless (= v-pos -1)
+         (scroll-pos v-scroller v-pos))
        (when v-scroller
          (tellv (scroller-cocoa v-scroller) setEnabled: #:type _BOOL (and v-step (positive? v-len)))))
 
@@ -507,19 +525,24 @@
      (define/public (set-scroll-pos which v)
        (update which scroll-pos v))
 
-     (define/private (guard-scroll which v)
-       (if (is-auto-scroll?)
-           0
-           v))
+     (define/private (guard-scroll skip-guard? which v)
+       (if skip-guard?
+           v
+           (if (is-auto-scroll?)
+               0
+               v)))
 
-     (define/public (get-scroll-page which) 
-       (guard-scroll which
+     (define/public (get-scroll-page which [skip-guard? #f]) 
+       (guard-scroll skip-guard?
+                     which
                      (scroll-page (if (eq? which 'vertical) v-scroller h-scroller))))
-     (define/public (get-scroll-range which)
-       (guard-scroll which
+     (define/public (get-scroll-range which [skip-guard? #f])
+       (guard-scroll skip-guard?
+                     which
                      (scroll-range (if (eq? which 'vertical) v-scroller h-scroller))))
-     (define/public (get-scroll-pos which)
-       (guard-scroll which
+     (define/public (get-scroll-pos which [skip-guard? #f])
+       (guard-scroll skip-guard?
+                     which
                      (scroll-pos (if (eq? which 'vertical) v-scroller h-scroller))))
      
      (define v-scroller
@@ -627,6 +650,13 @@
        (tellv content-cocoa addItemWithObjectValue: #:type _NSString str)
        #t)
      (define/public (on-combo-select i) (void))
+     (define/public (popup-combo)
+       ;; Pending refresh events intefere with combo popups
+       ;; for some reason, so flush them:
+       (yield-refresh)
+       (flush)
+       ;; Beware that the `popUp:' method is undocumented:
+       (tellv (tell content-cocoa cell) popUp: #f))
 
      (define clear-bg? (and (not (memq 'transparent canvas-style)) 
                             (not (memq 'no-autoclear canvas-style))))
@@ -668,18 +698,18 @@
             (let ([kind
                    (cond
                     [(= part NSScrollerDecrementPage)
-                     (set-scroll-pos direction (- (get-scroll-pos direction)
-                                                  (get-scroll-page direction)))
+                     (set-scroll-pos direction (- (get-scroll-pos direction #t)
+                                                  (get-scroll-page direction #t)))
                      'page-up]
                     [(= part NSScrollerIncrementPage)
-                     (set-scroll-pos direction (+ (get-scroll-pos direction)
-                                                  (get-scroll-page direction)))
+                     (set-scroll-pos direction (+ (get-scroll-pos direction #t)
+                                                  (get-scroll-page direction #t)))
                      'page-down]
                     [(= part NSScrollerDecrementLine)
-                     (set-scroll-pos direction (- (get-scroll-pos direction) 1))
+                     (set-scroll-pos direction (- (get-scroll-pos direction #t) 1))
                      'line-up]
                     [(= part NSScrollerIncrementLine)
-                     (set-scroll-pos direction (+ (get-scroll-pos direction) 1))
+                     (set-scroll-pos direction (+ (get-scroll-pos direction #t) 1))
                      'line-down]
                     [(= part NSScrollerKnob)
                      'thumb]
@@ -693,7 +723,7 @@
                                     [position (get-scroll-pos direction)]))))))))
        (constrained-reply (get-eventspace)
                           (lambda ()
-                            (let loop () (pre-event-sync #t) (when (yield) (loop))))
+                            (let loop () (pre-event-sync #t) (when (yield/no-sync) (loop))))
                           (void)))
      (define/public (on-scroll e) (void))
      
@@ -703,10 +733,11 @@
                   (e . is-a? . mouse-event%)
                   (send e button-down? 'left))
          (set-focus))
-       (or (not is-combo?)
-           (e . is-a? . key-event%)
-           (not (send e button-down? 'left))
-           (not (on-menu-click? e))))
+       (and (not (is-panel?))
+            (or (not is-combo?)
+                (e . is-a? . key-event%)
+                (not (send e button-down? 'left))
+                (not (on-menu-click? e)))))
 
      (define/override (gets-focus?)
        wants-focus?)
@@ -718,7 +749,7 @@
        (let ([xb (box 0)]
              [yb (box 0)])
          (get-client-size xb yb)
-         ((send e get-x) . > . (- (unbox xb) 22))))
+         ((send e get-x) . > . (unbox xb))))
 
      (define/public (on-popup) (void))
 
@@ -764,12 +795,10 @@
        (void))
 
      (define/public (get-backing-size xb yb)
-       (get-client-size xb yb)
-       (when is-combo?
-         (set-box! xb (- (unbox xb) 22))))
+       (get-client-size xb yb))
 
      (define/override (get-cursor-width-delta)
-       (if is-combo? 22 0))
+       0)
 
      (define/public (is-flipped?)
        (tell #:type _BOOL (get-cocoa-content) isFlipped))
@@ -810,8 +839,8 @@
                               defer: #:type _BOOL NO))]
                   [iv (tell (tell NSImageView alloc) init)])
               (tellv iv setImage: img)
-              (tellv iv setFrame: #:type _NSRect  (make-NSRect (make-NSPoint 0 0)
-                                                               (make-NSSize w h)))
+              (tellv iv setFrame: #:type _NSRect (make-NSRect (make-NSPoint 0 0)
+                                                              (make-NSSize w h)))
               (tellv (tell win contentView) addSubview: iv)
               (tellv win setAlphaValue: #:type _CGFloat 0.0)
               (tellv cocoa-win addChildWindow: win ordered: #:type _int NSWindowAbove)
@@ -833,3 +862,20 @@
        (atomically
         (suspend-all-reg-blits)
         (set! blits null))))))
+
+(define canvas-panel%
+  (class (panel-mixin canvas%)
+    (inherit get-virtual-h-pos
+             get-virtual-v-pos
+             get-cocoa-content)
+
+    (define/override (is-panel?) #t)
+
+    (define/override (reset-dc-for-autoscroll)
+      (let* ([content-cocoa (get-cocoa-content)])
+        (tellv content-cocoa setBoundsOrigin: #:type _NSPoint
+               (make-NSPoint (get-virtual-h-pos)
+                             (- (get-virtual-v-pos)))))
+      (super reset-dc-for-autoscroll))
+
+    (super-new)))

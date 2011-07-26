@@ -16,6 +16,7 @@ get-face-list
 get-family-builtin-face
 gl-config%
 gl-context<%>
+linear-gradient%
 make-bitmap
 make-monochrome-bitmap
 pdf-dc%
@@ -24,7 +25,9 @@ pen-list%
 point%
 post-script-dc%
 ps-setup%
+radial-gradient%
 region%
+svg-dc%
 the-brush-list
 the-color-database
 the-font-list

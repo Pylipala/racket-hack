@@ -2,13 +2,16 @@
 (require (for-syntax racket/base
                      "sc.rkt"
                      "lib.rkt"
-                     unstable/syntax
+                     racket/syntax
+                     syntax/keyword
                      "rep-data.rkt"
                      "rep.rkt"
                      "kws.rkt")
-         "runtime.rkt")
+         "runtime.rkt"
+         (only-in unstable/syntax phase-of-enclosing-module))
 (provide define-conventions
          define-literal-set
+         literal-set->predicate
          kernel-literals)
 
 (define-syntax (define-conventions stx)
@@ -57,35 +60,105 @@
                def ...
                (list parser ...)))))]))
 
+(define-for-syntax (check-phase-level stx ctx)
+  (unless (or (exact-integer? (syntax-e stx))
+              (eq? #f (syntax-e stx)))
+    (raise-syntax-error #f "expected phase-level (exact integer or #f)" ctx stx))
+  stx)
+
+(define-for-syntax (check-litset-list stx ctx)
+  (syntax-case stx ()
+    [(litset-id ...)
+     (for/list ([litset-id (syntax->list #'(litset-id ...))])
+       (let* ([val (and (identifier? litset-id)
+                        (syntax-local-value/record litset-id literalset?))])
+         (if val
+             (cons litset-id val)
+             (raise-syntax-error #f "expected literal set name" ctx litset-id))))]
+    [_ (raise-syntax-error #f "expected list of literal set names" ctx stx)]))
+
+;; check-literal-entry/litset : stx stx -> (list id id)
+(define-for-syntax (check-literal-entry/litset stx ctx)
+  (syntax-case stx ()
+    [(internal external)
+     (and (identifier? #'internal) (identifier? #'external))
+     (list #'internal #'external)]
+    [id
+     (identifier? #'id)
+     (list #'id #'id)]
+    [_ (raise-syntax-error #f "expected literal entry" ctx stx)]))
+
+(define-for-syntax (check-duplicate-literals stx imports lits)
+  (let ([lit-t (make-hasheq)]) ;; sym => #t
+    (define (check+enter! key blame-stx)
+      (when (hash-ref lit-t key #f)
+        (raise-syntax-error #f (format "duplicate literal: ~a" key) stx blame-stx))
+      (hash-set! lit-t key #t))
+    (for ([id+litset (in-list imports)])
+      (let ([litset-id (car id+litset)]
+            [litset (cdr id+litset)])
+        (for ([entry (in-list (literalset-literals litset))])
+          (check+enter! (car entry) litset-id))))
+    (for ([lit (in-list lits)])
+      (check+enter! (syntax-e (car lit)) (car lit)))))
+
 (define-syntax (define-literal-set stx)
   (syntax-case stx ()
-    [(define-literal-set name (lit ...))
-     (let ([phase-of-definition (syntax-local-phase-level)])
+    [(define-literal-set name . rest)
+     (let-values ([(chunks rest)
+                   (parse-keyword-options
+                    #'rest
+                    `((#:literal-sets ,check-litset-list)
+                      (#:phase ,check-phase-level)
+                      (#:for-template)
+                      (#:for-syntax)
+                      (#:for-label))
+                    #:incompatible '((#:phase #:for-template #:for-syntax #:for-label))
+                    #:context stx
+                    #:no-duplicates? #t)])
        (unless (identifier? #'name)
          (raise-syntax-error #f "expected identifier" stx #'name))
-       (let ([lits (check-literals-list/litset #'(lit ...) stx)])
-         (with-syntax ([((internal external) ...) lits])
+       (let ([relphase
+              (cond [(assq '#:for-template chunks) -1]
+                    [(assq '#:for-syntax chunks) 1]
+                    [(assq '#:for-label chunks) #f]
+                    [else (options-select-value chunks '#:phase #:default 0)])]
+             [lits (syntax-case rest ()
+                     [( (lit ...) )
+                      (for/list ([lit (in-list (syntax->list #'(lit ...)))])
+                        (check-literal-entry/litset lit stx))]
+                     [_ (raise-syntax-error #f "bad syntax" stx)])]
+             [imports (options-select-value chunks '#:literal-sets #:default null)])
+         (check-duplicate-literals stx imports lits)
+         (with-syntax ([((internal external) ...) lits]
+                       [(litset-id ...) (map car imports)]
+                       [relphase relphase])
            #`(begin
                (define phase-of-literals
-                 (phase-of-enclosing-module))
+                 (if 'relphase
+                     (+ (phase-of-enclosing-module) 'relphase)
+                     'relphase))
                (define-syntax name
                  (make-literalset
-                  (list (list 'internal (quote-syntax external)) ...)
-                  (quote-syntax phase-of-literals)))
+                  (append (literalset-literals (syntax-local-value (quote-syntax litset-id)))
+                          ...
+                          (list (list 'internal
+                                      (quote-syntax external)
+                                      (quote-syntax phase-of-literals))
+                                ...))))
                (begin-for-syntax/once
                 (for ([x (in-list (syntax->list #'(external ...)))])
-                  (unless (identifier-binding x 0)
-                    (raise-syntax-error #f "literal is unbound in phase 0"
+                  (unless (identifier-binding x 'relphase)
+                    (raise-syntax-error #f
+                                        (format "literal is unbound in phase ~a~a~a"
+                                                'relphase
+                                                (case 'relphase
+                                                  ((1) " (for-syntax)")
+                                                  ((-1) " (for-template)")
+                                                  ((#f) " (for-label)")
+                                                  (else ""))
+                                                " relative to the enclosing module")
                                         (quote-syntax #,stx) x))))))))]))
-
-(define-syntax (phase-of-enclosing-module stx)
-  (syntax-case stx ()
-    [(poem)
-     (let ([phase-within-module (syntax-local-phase-level)])
-       #`(let ([phase-of-this-expression
-                (variable-reference->phase (#%variable-reference))])
-           (- phase-of-this-expression
-              #,(if (zero? phase-within-module) 0 1))))]))
 
 #|
 Literal sets: The goal is for literals to refer to their bindings at
@@ -110,6 +183,24 @@ Use cases, explained:
        (that's why the weird (if (z?) 0 1) term)
 |#
 
+;; FIXME: keep one copy of each identifier (?)
+
+(define-syntax (literal-set->predicate stx)
+  (syntax-case stx ()
+    [(literal-set->predicate litset-id)
+     (let ([val (and (identifier? #'litset-id)
+                     (syntax-local-value/record #'litset-id literalset?))])
+       (unless val (raise-syntax-error #f "expected literal set name" stx #'litset-id))
+       (let ([lits (literalset-literals val)])
+         (with-syntax ([((_sym lit phase-var) ...) lits])
+           #'(make-literal-set-predicate (list (list (quote-syntax lit) phase-var) ...)))))]))
+
+(define (make-literal-set-predicate lits)
+  (lambda (x [phase (syntax-local-phase-level)])
+    (for/or ([lit (in-list lits)])
+      (let ([lit-id (car lit)]
+            [lit-phase (cadr lit)])
+        (free-identifier=?/phases x phase lit-id lit-phase)))))
 
 ;; Literal sets
 

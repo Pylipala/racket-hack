@@ -1,4 +1,4 @@
-;;; cut.ss
+;;; cut.rkt
 
 ; This file reimplements srfi-26 for PLT.
 ; The reimplementation provides better error messages.
@@ -16,7 +16,7 @@
 ;    Given the arguments for the macro call to cut (or cute) as a syntax-list,
 ;  call build with four lists:
 ;    1) a list of names given to each <>-slot
-;    2) [cut] a list of the macro arguments, except that all occurences
+;    2) [cut] a list of the macro arguments, except that all occurrences
 ;       of a <>-slots have been substituted with the chosen name.
 ;    3) [cute] a list the names given to the exprs and the <>-slots
 ;    4) [cute] a list of lists of name-expression pairs, i.e. the bindings

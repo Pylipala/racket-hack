@@ -25,6 +25,7 @@
    make-predicate-signature
    make-type-variable-signature
    make-list-signature
+   make-vector-signature
    make-mixed-signature
    make-combined-signature
    make-case-signature
@@ -176,6 +177,52 @@
     (if (andmap values arbitraries)
 	(apply proc arbitraries)
 	#f)))
+
+(define vectors-table (make-weak-hasheq)) ; #### ought to do ephemerons, too
+
+(define (make-vector-signature name arg-signature syntax)
+  (make-signature
+   name
+   (lambda (self obj)
+
+     (define (check old-sigs)
+       (let ((old-sigs (cons arg-signature old-sigs)))
+	 (hash-set! vectors-table obj old-sigs)
+	 (let* ((orig (vector->list obj))
+		(els (map (lambda (x)
+			    (apply-signature arg-signature x))
+			  orig)))
+	   (if (andmap eq? orig els)
+	       obj
+	       (let ((new (list->vector els)))
+		 (hash-set! vectors-table obj old-sigs)
+		 new)))))
+
+     (cond
+      ((not (vector? obj))
+       (signature-violation obj self #f #f)
+       obj)
+      ((hash-ref vectors-table obj #f)
+       => (lambda (old-sigs)
+	    (if (ormap (lambda (old-sig)
+			 (signature<=? old-sig arg-signature))
+		       old-sigs)
+		obj
+		(check old-sigs))))
+      (else
+       (check '()))))
+   syntax
+   #:arbitrary-promise
+   (delay
+     (lift->arbitrary arbitrary-vector arg-signature))
+   #:info-promise
+   (delay (make-vector-info arg-signature))
+   #:=?-proc
+   (lambda (this-info other-info)
+     (and (vector-info? other-info)
+	  (signature=? arg-signature (vector-info-arg-signature other-info))))))
+
+(define-struct vector-info (arg-signature) #:transparent)
 
 (define (make-mixed-signature name alternative-signatures syntax)
   (letrec ((alternative-signatures-promise 
@@ -437,32 +484,32 @@
       (make-signature
        name
        (lambda (self thing)
-
 	 (if (not (predicate thing))
 	     (signature-violation thing self #f #f)
-	     (let ((log (wrap-ref thing)))
-	       (cond
-		((not log)
-		 (wrap-set! thing
-			    (make-lazy-wrap-log (list not-checked) '())))
-		((not (let ()
-			(define (<=? sigs1 sigs2)
-			  (andmap signature<=? sigs1 sigs2))
-			(define (check wrap-field-signatures)
-			  (ormap (lambda (field-signatures)
-				   (<=? wrap-field-signatures field-signatures))
-				 field-signatures-list))
-			(or (ormap (lambda (wrap-not-checked)
-				     (andmap check 
-					     (lazy-log-not-checked-field-signatures-list wrap-not-checked)))
-				   (lazy-wrap-log-not-checked log))
-			    (ormap check (lazy-wrap-log-checked log)))))
-		 (wrap-set! thing
-			    (make-lazy-wrap-log (cons not-checked (lazy-wrap-log-not-checked log))
-						(lazy-wrap-log-checked log)))))))
+	     (begin
+	       (let ((log (wrap-ref thing)))
+		 (cond
+		  ((not log)
+		   (wrap-set! thing
+			      (make-lazy-wrap-log (list not-checked) '())))
+		  ((not (let ()
+			  (define (<=? sigs1 sigs2)
+			    (andmap signature<=? sigs1 sigs2))
+			  (define (check wrap-field-signatures)
+			    (ormap (lambda (field-signatures)
+				     (<=? wrap-field-signatures field-signatures))
+				   field-signatures-list))
+			  (or (ormap (lambda (wrap-not-checked)
+				       (andmap check 
+					       (lazy-log-not-checked-field-signatures-list wrap-not-checked)))
+				     (lazy-wrap-log-not-checked log))
+			      (ormap check (lazy-wrap-log-checked log)))))
+		   (wrap-set! thing
+			      (make-lazy-wrap-log (cons not-checked (lazy-wrap-log-not-checked log))
+						  (lazy-wrap-log-checked log))))))
 
-	 (when eager-checking?
-	   (check-lazy-wraps! type-descriptor thing))
+	       (when eager-checking?
+		 (check-lazy-wraps! type-descriptor thing))))
        
 	 thing)
        (delay syntax)

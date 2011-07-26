@@ -1,6 +1,5 @@
 #lang scribble/doc
-@(require scribble/manual
-          "utils.ss"
+@(require scribble/manual "utils.rkt"
           (for-syntax racket/base)
           (for-label setup/main-collects))
 
@@ -65,6 +64,7 @@ have @racketmodname[scribble/manual]).
                 [#:tag-prefix tag-prefix (or/c false/c string? module-path?) #f]
                 [#:style style (or/c style? #f string? symbol? (listof symbol?)) #f]
                 [#:version vers (or/c string? false/c) #f]
+                [#:date date (or/c string? false/c) #f]
                 [pre-content pre-content?] ...+)
          title-decl?]{
 
@@ -91,6 +91,11 @@ path, it is converted to a string using
 The @racket[vers] argument is propagated to the @racket[title-decl]
 structure. Use @racket[""] as @racket[vers] to suppress version
 rendering in the output.
+
+The @racket[date] argument is propagated to the @racket[title-decl]
+structure via a @racket[document-date] @tech{style property}. Use
+@racket[""] as @racket[date] to suppress date rendering in Latex
+output.
 
 The section title is automatically indexed by
 @racket[decode-part]. For the index key, leading whitespace and a
@@ -159,8 +164,9 @@ address-harvesting robots.}
  @racket[pre-flow] (i.e., parsed with @racket[decode-flow]).
  
  The @racket[style] argument is handled the same as @racket[para].
- The @racket['inset] style causes the nested flow to be inset compared
- to surrounding text.}
+ The @racket['inset] and @racket['code-inset] styles cause the nested
+ flow to be inset compared to surrounding text, with the latter
+ particularly intended for insetting code.}
 
 
 @defproc[(centered [pre-flow pre-flow?] ...) nested-flow?]{
@@ -168,13 +174,21 @@ address-harvesting robots.}
 Produces a @tech{nested flow} whose content is centered.}
 
 
-@defproc[(margin-note [pre-flow pre-flow?] ...) block?]{
+@defproc[(margin-note [pre-flow pre-flow?] ...
+                      [#:left? left? any/c #f])
+         block?]{
 
 Produces a @tech{nested flow} that is typeset in the margin, instead
-of inlined.}
+of inlined.
+
+If @racket[left?] is true, then the note is shown on the opposite as
+it would normally be shown (which is the left-hand side for HTML
+output). Beware of colliding with output for a table of contents.}
 
 
-@defproc[(margin-note* [pre-content pre-content?] ...) element?]{
+@defproc[(margin-note* [pre-content pre-content?] ...
+                       [#:left? left? any/c #f]) 
+         element?]{
 
 Produces an @racket[element] that is typeset in the margin, instead of
 inlined. Unlike @racket[margin-note], @racket[margin-note*] can be
@@ -233,7 +247,7 @@ beginning of each line.
 
 The @racket[str]s are @emph{not} decoded with @racket[decode-content],
 so @racket[(verbatim "---")] renders with three hyphens instead of an
-em-dash. Beware, however, that @emph{reading}
+em dash. Beware, however, that @emph{reading}
 @litchar["@"]@racket[verbatim] converts @litchar["@"] syntax
 within the argument, and such reading occurs well before
 arguments to @racket[verbatim] are delivered at run-time. To disable simple
@@ -288,14 +302,6 @@ gets progressively larger.}
 @defproc[(emph [pre-content pre-content?] ...) element?]{
 The same as @racket[italic].}
 
-@defproc[(linebreak) element?]{
-Produces an element that forces a line break.}
-
-@defproc[(hspace [n exact-nonnegative-integer?]) element?]{
-
-Produces an element containing @racket[n] spaces and style
-@racket['hspace].}
-
 @defproc[(literal [str string?] ...+) element?]{
 
 Produces an element containing literally @racket[str]s with no
@@ -337,8 +343,8 @@ See also @racket[verbatim].}
  
  The strings in @racket[suffixes] are filtered to those supported by
  given renderer, and then the acceptable suffixes are tried in
- order. The HTML renderer supports @racket[".png"] and
- @racket[".gif"], while the Latex renderer supports @racket[".png"],
+ order. The HTML renderer supports @racket[".png"],
+ @racket[".gif"], and @racket[".svg"], while the Latex renderer supports @racket[".png"],
  @racket[".pdf"], and @racket[".ps"] (but @racket[".ps"] works only
  when converting Latex output to DVI, and @racket[".png"] and
  @racket[".pdf"] work only for converting Latex output to PDF).
@@ -346,6 +352,66 @@ See also @racket[verbatim].}
  Note that when the @racket[suffixes] library is non-empty, then 
  the @racket[path] argument should not have a suffix.
  }
+
+@; ------------------------------------------------------------------------
+@section[#:tag "spacing"]{Spacing}
+
+@defproc[(linebreak) element?]{
+Produces an element that forces a line break.}
+
+
+@def-elem-proc[nonbreaking]{Like @racket[elem], but line breaks are
+suppressed while rendering the content.}
+
+
+@defproc[(hspace [n exact-nonnegative-integer?]) element?]{
+
+Produces an element containing @racket[n] spaces and style
+@racket['hspace].}
+
+
+@defthing[~ string?]{
+
+A string containing the non-breaking space character,
+which is equivalent to @racket['nbsp] as an element.}
+
+
+@defthing[-~- string?]{
+
+A string containing the non-breaking hyphen character.}
+
+
+@defthing[?- string?]{
+
+A string containing the soft-hyphen character (i.e., a suggestion of
+where to hyphenate a word to break it across lines when rendering).}
+
+
+@defthing[._ element?]{
+
+Generates a period that ends an abbreviation in the middle of a
+sentence, as opposed to a period that ends a sentence (since the
+latter may be typeset with extra space). Use @litchar|{@._}| in a
+document instead of just @litchar{.} for an abbreviation-ending period
+that is preceded by a lowercase letter and followed by a space.
+
+See @racket[.__] for an example.}
+
+
+@defthing[.__ element?]{
+
+Generates a period that ends a sentence (which may be typeset with
+extra space), as opposed to a period that ends an abbreviation in the
+middle of a sentence. Use @litchar|{@.__}| in a document instead of just
+@litchar{.} for a sentence-ending period that is preceded by an
+uppercase letter.
+
+The following example illustrates both @racket[._] and @racket[.__]:
+
+@codeblock|{
+ #lang scribble/base
+ My name is Mr@._ T@.__ I pity the fool who can't typeset punctuation.
+}|}
 
 
 @; ------------------------------------------------------------------------
@@ -372,9 +438,7 @@ Generates a literal hyperlinked URL.}
                  [#:underline? underline? any/c #t])
          element?]{
 
-Inserts the hyperlinked title of the section tagged @racket[tag], but
-elements in the title content with the @racket['aux] @tech{style property}
-are omitted in the hyperlink label.
+Inserts a reference to the section tagged @racket[tag].
 
 If @racket[#:doc module-path] is provided, the @racket[tag] refers to
 a tag with a prefix determined by @racket[module-path]. When
@@ -392,8 +456,28 @@ reach the @racket[tag] section. When @racket[#:doc] is not provided,
 the @racket[prefixes] path is relative to any enclosing section (i.e.,
 the youngest ancestor that produces a match).
 
-If @racket[underline?] is @racket[#f], then the hyperlink is rendered
-in HTML without an underline.}
+For HTML output, the generated reference is the hyperlinked title of
+the elements in the section's title content, except that elements with
+the @racket['aux] @tech{style property} are omitted in the hyperlink
+label. If @racket[underline?] is @racket[#f], then the hyperlink is
+rendered in HTML without an underline.
+
+For Latex output, the generated reference's format depends on the
+document style. By default, only the section number is shown in the
+reference, but the @racketmodname[scribble/manual] style shows the
+title after the section number. Customize the output (see
+@secref["config"]) by redefining the @ltx{BookRef}, @|etc|, macros (see
+@secref["builtin-latex"]).}
+
+
+@defproc[(Secref [tag string?]
+                 [#:doc module-path (or/c module-path? false/c) #f]
+                 [#:tag-prefixes prefixes (or/c (listof string?) false/c) #f]
+                 [#:underline? underline? any/c #t])
+         element?]{
+
+Like @racket[secref], but if the rendered form of the reference starts
+with a word (e.g., ``section''), then the word is capitalized.}
 
 
 @defproc[(seclink [tag string?] 

@@ -1,7 +1,7 @@
 #lang mzscheme
 
 (require mzlib/list mzlib/etc mzlib/class
-         "math.ss" "view.ss" "renderer-helpers.ss" "renderers.ss" "fit.ss")
+         "math.rkt" "view.rkt" "renderer-helpers.rkt" "renderers.rkt" "fit.rkt")
 
 ;; plot : plottable (option value)*
 (define-syntax plot
@@ -36,7 +36,7 @@
 
 ;; make-2d-renderer : (2d-view% -> void)
 ;; provides a user with the ability to create their own renderers
-;; without providing the implimentation
+;; without providing the implementation
 (define custom identity)
 
 ;;

@@ -53,7 +53,7 @@
                                ""
                                (bitwise-ior WS_CHILD WS_CLIPSIBLINGS)
                                0 0 0 0
-                               (send parent get-client-hwnd)
+                               (send parent get-content-hwnd)
                                #f
                                hInstance
                                #f))
@@ -112,9 +112,9 @@
         (MoveWindow client-hwnd 1 (+ tab-height 2) (- w 4) (- h tab-height 6) #t)))
 
     (define/override (is-command? cmd)
-      (= cmd 64985))
+      (= cmd -551))
 
-    (define/public (do-command cmd control-hwnd)
+    (define/override (do-command cmd control-hwnd)
       (queue-window-event this (lambda ()
                                  (callback this
                                            (new control-event%

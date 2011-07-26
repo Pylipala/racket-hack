@@ -1,30 +1,38 @@
 #lang scheme
 
-(require racket/contract/exists)
+(require racket/contract/private/exists)
 
 ;; this code builds the list of predicates (in case it changes, this may need to be re-run)
 #;
-(define predicates
+(define runtime-predicates
   (let ([fn (build-path (collection-path "scheme")
                         "compiled" 
-                        "main_ss.zo")])
+                        "main_rkt.zo")]
+        [ns (make-base-namespace)])
+    (namespace-attach-module (current-namespace) 'scheme ns)
+    (parameterize ([current-namespace ns])
+      (namespace-require 'scheme))
     (let-values ([(vars stx)
                   (module-compiled-exports
                    (parameterize ([read-accept-compiled #t])
                      (call-with-input-file fn read)))])
-      
-      (filter (λ (sym) 
-                (let ([str (symbol->string sym)])
-                  (and (not (equal? str ""))
-                       (regexp-match #rx"[?]$" str)
-                       (not (regexp-match #rx"[=<>][?]$" str)))))
-              (map car (cdr (assoc 0 vars)))))))
-
+      (sort
+       (filter (λ (sym) 
+                 (let ([str (symbol->string sym)])
+                   (and (regexp-match #rx"[?]$" str)
+                        (not (regexp-match #rx"[=<>][?]$" str))
+                        (procedure-arity-includes? 
+                         (namespace-variable-value sym #t #f ns)
+                         1))))
+               (map car (cdr (assoc 0 vars))))
+       string<=?
+       #:key symbol->string))))
 
 (define-for-syntax predicates
   '(absolute-path?
     arity-at-least?
-    bitwise-bit-set?
+    blame-original?
+    blame-swapped?
     blame?
     boolean?
     box?
@@ -35,6 +43,9 @@
     bytes-converter?
     bytes?
     channel?
+    chaperone-contract-property?
+    chaperone-contract?
+    chaperone?
     char-alphabetic?
     char-blank?
     char-graphic?
@@ -58,28 +69,19 @@
     continuation-prompt-available?
     continuation-prompt-tag?
     continuation?
-    contract-first-order-passes?
-    contract-stronger?
-    contract?
     contract-property?
-    contract-struct?
+    contract?
     custodian-box?
-    custodian-memory-accounting-available?
     custodian?
+    custom-print-quotable?
     custom-write?
     date-dst?
     date?
-    dict-can-functional-set?
-    dict-can-remove-keys?
-    dict-mutable?
-    dict?
     directory-exists?
+    double-flonum?
     empty?
     eof-object?
     ephemeron?
-    eq?
-    equal?
-    eqv?
     even?
     evt?
     exact-integer?
@@ -91,6 +93,7 @@
     exn:fail:contract:blame?
     exn:fail:contract:continuation?
     exn:fail:contract:divide-by-zero?
+    exn:fail:contract:non-fixnum-result?
     exn:fail:contract:variable?
     exn:fail:contract?
     exn:fail:filesystem:exists?
@@ -113,47 +116,44 @@
     file-exists?
     file-stream-port?
     fixnum?
-    flat-contract?
     flat-contract-property?
-    flat-contract-struct?
+    flat-contract?
+    flonum?
     generic?
     handle-evt?
+    has-contract?
     hash-eq?
+    hash-equal?
     hash-eqv?
-    hash-has-key?
     hash-placeholder?
     hash-weak?
     hash?
     identifier?
     immutable?
-    implementation?
+    impersonator-property-accessor-procedure?
+    impersonator-property?
+    impersonator?
     inexact-real?
     inexact?
     input-port?
     inspector?
     integer?
-    interface-extension?
     interface?
     internal-definition-context?
-    is-a?
     keyword?
     link-exists?
     list?
-    log-level?
     log-receiver?
     logger?
     member-name-key?
-    method-in-interface?
     module-path-index?
     module-path?
-    module-provide-protected?
     mpair?
     namespace-anchor?
     namespace?
     negative?
     null?
     number?
-    object-method-arity-includes?
     object?
     odd?
     output-port?
@@ -174,9 +174,7 @@
     pretty-print-style-table?
     primitive-closure?
     primitive?
-    procedure-arity-includes?
     procedure-arity?
-    procedure-closure-contents-eq?
     procedure-struct-type?
     procedure?
     promise-forced?
@@ -186,8 +184,6 @@
     rational?
     readtable?
     real?
-    regexp-match-exact?
-    regexp-match?
     regexp?
     relative-path?
     rename-transformer?
@@ -197,6 +193,7 @@
     semaphore?
     sequence?
     set!-transformer?
+    single-flonum?
     special-comment?
     srcloc?
     string?
@@ -204,18 +201,16 @@
     struct-constructor-procedure?
     struct-mutator-procedure?
     struct-predicate-procedure?
+    struct-type-property-accessor-procedure?
     struct-type-property?
     struct-type?
     struct?
-    subclass?
     subprocess?
     symbol-interned?
+    symbol-unreadable?
     symbol?
-    syntax-local-transforming-module-provides?
     syntax-original?
-    syntax-transforming?
     syntax?
-    system-big-endian?
     tcp-accept-ready?
     tcp-listener?
     tcp-port?
@@ -229,7 +224,7 @@
     udp-connected?
     udp?
     unit?
-    unknown?
+    unsupplied-arg?
     variable-reference?
     vector?
     void?

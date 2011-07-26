@@ -33,7 +33,7 @@
     prefix))
 
 (define (drop-common-prefix as bs #:same? [same? equal?])
-  (let-values ([(atail btail) (internal-split-common-prefix as bs same? #f)])
+  (let-values ([(prefix atail btail) (internal-split-common-prefix as bs same? #f)])
     (values atail btail)))
 
 (provide/contract
@@ -139,7 +139,10 @@
 (define (map/values n f . ls)
   (apply values (map/list n f ls)))
 
-(provide map/values)
+(define (map2 f . ls)
+  (apply values (map/list 2 f ls)))
+
+(provide map2 map/values)
 
 ;; dvanhorn added:
 

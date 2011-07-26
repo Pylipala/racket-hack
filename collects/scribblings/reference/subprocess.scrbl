@@ -1,14 +1,13 @@
 #lang scribble/doc
-@(require "mz.ss"
-          (for-label racket/system))
+@(require "mz.rkt" (for-label racket/system))
 
 @title[#:tag "subprocess"]{Processes}
 
 @defproc*[([(subprocess [stdout (or/c (and/c output-port? file-stream-port?) #f)]
                         [stdin (or/c (and/c input-port? file-stream-port?) #f)]
-                        [stderr (or/c (and/c output-port? file-stream-port?) #f)]
+                        [stderr (or/c (and/c output-port? file-stream-port?) #f 'stdout)]
                         [command path-string?]
-                        [arg string?] ...)
+                        [arg (or/c path? string? bytes?)] ...)
             (values subprocess?
                     (or/c (and/c input-port? file-stream-port?) #f)
                     (or/c (and/c output-port? file-stream-port?) #f)
@@ -29,14 +28,17 @@ Creates a new process in the underlying operating system to execute
 @racket[process] from @racketmodname[racket/system].
 
 The @racket[command] argument is a path to a program executable, and
-the @racket[arg]s are command-line arguments for the program. Under
-Unix and Mac OS X, command-line arguments are passed as byte strings
-using the current locale's encoding (see @secref["encodings"]).
+the @racket[arg]s are command-line arguments for the program. On
+Unix and Mac OS X, command-line arguments are passed as byte strings,
+and string @racket[args] are converted using the current locale's
+encoding (see @secref["encodings"]). On Windows, command-line
+arguments are passed as strings, and bytes strings are converted using
+UTF-8.
 
-Under Windows, the first @racket[arg] can be replaced with
+On Windows, the first @racket[arg] can be replaced with
 @indexed-racket['exact], which triggers a Windows-specific behavior:
 the sole @racket[arg] is used exactly as the command-line for the
-subprocess. Otherwise, under Windows, a command-line string is
+subprocess. Otherwise, on Windows, a command-line string is
 constructed from @racket[command] and @racket[arg] so that a typical
 Windows console application can parse it back to an array of
 arguments. If @racket['exact] is provided on a non-Windows platform,
@@ -46,12 +48,15 @@ the @exnraise[exn:fail:contract].
 search for ``command line parsing'' at
 @tt{http://msdn.microsoft.com/}.}
 
-Unless it is @racket[#f], @racket[stdout] is used for the launched
+When provided as a port, @racket[stdout] is used for the launched
 process's standard output, @racket[stdin] is used for the process's
 standard input, and @racket[stderr] is used for the process's standard
 error.  All provided ports must be file-stream ports. Any of the ports
 can be @racket[#f], in which case a system pipe is created and
-returned by @racket[subprocess]. For each port that is provided, no
+returned by @racket[subprocess]. The @racket[stderr] argument can be 
+@racket['stdout], in which case the same file-stream port or system pipe
+that is supplied as standard output is also used for standard error.
+For each port or @racket['stdout] that is provided, no
 pipe is created and the corresponding returned value is @racket[#f].
 
 The @racket[subprocess] procedure returns four values:
@@ -67,7 +72,7 @@ The @racket[subprocess] procedure returns four values:
  @racket[#f] if @racket[stdin-input-port] was a port;}
 
  @item{an input port piped from the process's standard error, or
- @racket[#f] if @racket[stderr-output-port] was a port.}
+ @racket[#f] if @racket[stderr-output-port] was a port or @racket['stdout].}
 
 ]
 
@@ -126,14 +131,14 @@ current platform:
  @item{@racket[force?] is true, not a group, all platforms: Terminates
        the process if the process still running.}
 
- @item{@racket[force?] is false, not a group, under Unix or Mac OS X:
+ @item{@racket[force?] is false, not a group, on Unix or Mac OS X:
        Sends the process an interrupt signal instead of a kill
        signal.}
 
- @item{@racket[force?] is false, not a group, under Windows: No action
+ @item{@racket[force?] is false, not a group, on Windows: No action
        is taken.}
 
- @item{@racket[force?] is true, a group, under Unix or Mac OS X:
+ @item{@racket[force?] is true, a group, on Unix or Mac OS X:
        Terminates all processes in the group, but only if
        @racket[subprocess-status] has never produced a
        non-@racket['running] result for the subprocess and only if
@@ -143,15 +148,15 @@ current platform:
        terminated while the continued existence of the group is
        unknown).}
 
- @item{@racket[force?] is true, a group, under Windows: Terminates
+ @item{@racket[force?] is true, a group, on Windows: Terminates
        the process if the process still running.}
 
- @item{@racket[force?] is false, a group, under Unix or Mac OS X: The
-       same as when @racket[force?] is @scheme[#t], but when the group
+ @item{@racket[force?] is false, a group, on Unix or Mac OS X: The
+       same as when @racket[force?] is @racket[#t], but when the group
        is sent a signal, it is an interrupt signal instead of a kill
        signal.}
 
- @item{@racket[force?] is false, a group, under Windows: All processes
+ @item{@racket[force?] is false, a group, on Windows: All processes
        in the group receive a CTRL-BREAK signal (independent of
        whether the immediate subprocess has terminated).}
 
@@ -311,12 +316,12 @@ real process ID).}
 
 @note-lib[racket/system]
 
-@defproc[(system [command string?]) boolean?]{
+@defproc[(system [command (or/c string? bytes?)]) boolean?]{
 
 Executes a Unix, Mac OS X, or Windows shell command synchronously
 (i.e., the call to @racket[system] does not return until the
 subprocess has ended). The @racket[command] argument is a string
-containing no nul characters. If the command succeeds, the return
+or byte string containing no nul characters. If the command succeeds, the return
 value is @racket[#t], @racket[#f] otherwise.
 
 See also @racket[current-subprocess-custodian-mode] and
@@ -324,7 +329,7 @@ See also @racket[current-subprocess-custodian-mode] and
 implement @racket[system].}
 
 
-@defproc*[([(system* [command path-string?] [arg string?] ...) boolean?]
+@defproc*[([(system* [command path-string?] [arg (or/c path? string? bytes?)] ...) boolean?]
            [(system* [command path-string?] [exact 'exact] [arg string?]) boolean?])]{
 
 Like @racket[system], except that @racket[command] is a filename that
@@ -333,18 +338,18 @@ is executed directly (instead of through a shell command), and the
 specified string arguments (which must contain no nul
 characters).
 
-Under Windows, the first argument after @racket[command] can be
+On Windows, the first argument after @racket[command] can be
 @racket['exact], and the final @racket[arg] is a complete command
 line. See @racket[subprocess] for details.}
 
 
-@defproc[(system/exit-code [command string?]) (integer-in 0 255)]{
+@defproc[(system/exit-code [command (or/c string? bytes?)]) (integer-in 0 255)]{
 
 Like @racket[system], except that the result is the exit code returned
 by the subprocess. A @racket[0] result normally indicates success.}
 
 
-@defproc*[([(system*/exit-code [command path-string?] [arg string?] ...) (integer-in 0 255)]
+@defproc*[([(system*/exit-code [command path-string?] [arg (or/c path? string? bytes?)] ...) (integer-in 0 255)]
            [(system*/exit-code [command path-string?] [exact 'exact] [arg string?]) (integer-in 0 255)])]{
 
 Like @racket[system*], but returns the exit code like
@@ -358,8 +363,8 @@ Like @racket[system*], but returns the exit code like
                input-port?
                ((or/c 'status 'wait 'interrupt 'kill) . -> . any))]{
 
-Executes a shell command asynchronously (using @exec{sh} under Unix
-and Mac OS X, @exec{cmd} under Windows). The result is a list of five
+Executes a shell command asynchronously (using @exec{sh} on Unix
+and Mac OS X, @exec{cmd} on Windows). The result is a list of five
 values:
 
 @itemize[
@@ -389,10 +394,10 @@ values:
     the subprocess has completed.}
 
    @item{@racket['interrupt] sends the subprocess an interrupt signal
-    under @|AllUnix|, and takes no action under Windows. The result is
+    on @|AllUnix|, and takes no action on Windows. The result is
     @|void-const|.
 
-     @margin-note{Under Unix and Mac OS X, if @racket[command] runs a
+     @margin-note{On Unix and Mac OS X, if @racket[command] runs a
      single program, then @exec{sh} typically runs the program in
      such a way that it replaces @exec{sh} in the same process. For
      reliable and precise control over process creation, however, use
@@ -402,7 +407,7 @@ values:
      @|void-const|.  Note that the immediate process created by
      @racket[process] is a shell process that may run another program;
      terminating the shell process may not terminate processes that
-     the shell starts, particularly under Windows.}
+     the shell starts, particularly on Windows.}
 
    ]}
 
@@ -420,18 +425,18 @@ implement @racket[process]. In particular, the @racket['interrupt] and
 of a single process.}
  
 
-@defproc*[([(process* [command path-string?] [arg string?] ...) list?]
+@defproc*[([(process* [command path-string?] [arg (or/c path? string? bytes?)] ...) list?]
            [(process* [command path-string?] [exact 'exact] [arg string?]) list?])]{
 
 Like @racket[process], except that @racket[command] is a filename that
-is executed directly, and the @racket[arg]s are the arguments. Under
+is executed directly, and the @racket[arg]s are the arguments. On
 Windows, as for @racket[system*], the first @racket[arg] can be
 replaced with @racket['exact].}
 
 
 @defproc[(process/ports [out (or/c #f output-port?)]
                         [in (or/c #f input-port?)]
-                        [error-out (or/c #f output-port?)]
+                        [error-out (or/c #f output-port? 'stdout)]
                         [command string?])
          list?]{
 
@@ -439,19 +444,21 @@ Like @racket[process], except that @racket[out] is used for the
 process's standard output, @racket[in] is used for the process's
 standard input, and @racket[error-out] is used for the process's
 standard error.  Any of the ports can be @racket[#f], in which case a
-system pipe is created and returned, as in @racket[process]. For each
-port that is provided, no pipe is created, and the corresponding value
-in the returned list is @racket[#f].}
+system pipe is created and returned, as in @racket[process]. If
+@racket[error-out] is @racket['stdout], then standard error is
+redirected to standard output.  For each port or @racket['stdout] that
+is provided, no pipe is created, and the corresponding value in the
+returned list is @racket[#f].}
 
 @defproc*[([(process*/ports [out (or/c #f output-port?)]
                             [in (or/c #f input-port?)]
-                            [error-out (or/c #f output-port?)]
+                            [error-out (or/c #f output-port? 'stdout)]
                             [command path-string?]
-                            [arg string?] ...)
+                            [arg (or/c path? string? bytes?)] ...)
             list?]
            [(process*/ports [out (or/c #f output-port?)]
                             [in (or/c #f input-port?)]
-                            [error-out (or/c #f output-port?)]
+                            [error-out (or/c #f output-port? 'stdout)]
                             [command path-string?]
                             [exact 'exact]
                             [arg string?])

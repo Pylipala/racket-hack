@@ -1,5 +1,5 @@
 #lang scheme/base
-(require "private/provide-structs.ss"
+(require "private/provide-structs.rkt"
          scheme/contract)
 
 (provide-structs
@@ -13,4 +13,5 @@
                  [extra-files (listof (or/c path-string? (cons/c 'collects (listof bytes?))))])]
 
  [url-anchor ([name string?])]
+ [alt-tag ([name (and/c string? #rx"^[a-zA-Z0-9]+$")])]
  [attributes ([assoc (listof (cons/c symbol? string?))])])

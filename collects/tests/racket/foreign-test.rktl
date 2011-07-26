@@ -21,7 +21,7 @@
 
 (when (eq? 'windows (system-type))
   (let* ([concat string-append]
-         [studio  "c:/Program Files/Microsoft Visual Studio 8"]
+         [studio  "c:/Program Files/Microsoft Visual Studio 10.0"]
          [scommon (concat studio "/Common7")]
          [vc      (concat studio "/VC")])
     (putenv "PATH"    (concat (getenv "PATH")
@@ -256,6 +256,25 @@
     (test 'hello hash-ref ht seventeen2 #f)
     (test 'hello hash-ref ht seventeen3 #f)))
 
+;; Check proper handling of offsets:
+(let ()
+  (define scheme_make_sized_byte_string 
+    (get-ffi-obj 'scheme_make_sized_byte_string #f (_fun _pointer _long _int -> _scheme)))
+  ;; Non-gcable:
+  (let ()
+    (define p (cast (ptr-add #f 20) _pointer _pointer))
+    (define d (scheme_make_sized_byte_string (ptr-add p 24)
+                                             4
+                                             0))
+    (test 44 values (cast d _pointer _long)))
+  ;; GCable:
+  (let ()
+    (define p (cast (ptr-add #f 20) _pointer _gcpointer))
+    (define d (scheme_make_sized_byte_string (ptr-add p 24)
+                                             4
+                                             0))
+    (test 44 values (cast d _gcpointer _long))))
+
 (delete-test-files)
 
 (report-errs)
@@ -355,7 +374,9 @@ added.
 (foo-test "foo_byte"   '(156)   (_fun _byte -> _byte))
 (foo-test "foo_ubyte"  '(156)   (_fun _ubyte -> _ubyte))
 (foo-test "foo_double" '(81.0)  (_fun _double -> _double))
+(foo-test "foo_double" '(81.0f0)  (_fun _double -> _double))
 (foo-test "foo_float"  '(81.0)  (_fun _float -> _float))
+(foo-test "foo_float"  '(81.0f0)  (_fun _float -> _float))
 
 (exit) ;=======================================================================
 (newline)

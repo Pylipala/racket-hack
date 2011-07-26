@@ -1,32 +1,32 @@
 (module mrtop mzscheme
   (require mzlib/class
-	   mzlib/class100
-	   mzlib/etc
-	   mzlib/list
-	   (prefix wx: "kernel.ss")
-	   "lock.ss"
-	   "helper.ss"
-	   "const.ss"
-	   "kw.ss"
-	   "check.ss"
-	   "wx.ss"
-	   "wxtop.ss"
-	   "wxpanel.ss"
-	   "wxitem.ss"
-	   "mrwindow.ss"
-	   "mrcontainer.ss")
+           mzlib/class100
+           mzlib/etc
+           mzlib/list
+           (prefix wx: "kernel.rkt")
+           "lock.rkt"
+           "helper.rkt"
+           "const.rkt"
+           "kw.rkt"
+           "check.rkt"
+           "wx.rkt"
+           "wxtop.rkt"
+           "wxpanel.rkt"
+           "wxitem.rkt"
+           "mrwindow.rkt"
+           "mrcontainer.rkt"
+           "app.rkt")
 
   (provide top-level-window<%>
-	   frame%
-	   dialog%
-	   (protect root-menu-frame
-		    set-root-menu-frame!)
-	   get-top-level-windows
-	   get-top-level-focus-window
-	   get-top-level-edit-target-window
-	   send-message-to-window
-	   (protect check-top-level-parent/false
-		    check-frame-parent/false))
+           frame%
+           dialog%
+           (protect root-menu-frame)
+           get-top-level-windows
+           get-top-level-focus-window
+           get-top-level-edit-target-window
+           send-message-to-window
+           (protect check-top-level-parent/false
+                    check-frame-parent/false))
 
   (define top-level-window<%>
     (interface (area-container-window<%>)
@@ -139,6 +139,8 @@
         [do-set-status-text (lambda (s)
                               (when status-message
                                 (send status-message set-label s)))])
+      (override
+        [get-client-handle (lambda () (send wx-panel get-client-handle))])
       (sequence 
 	(super-init (lambda () (set! wx (mk-wx finish)) wx) 
                     (lambda () wx-panel) (lambda () mid-panel)
@@ -240,6 +242,11 @@
 	  (check-style cwho #f '(no-caption resize-border no-sheet close-button) style)))
       (rename [super-on-subwindow-char on-subwindow-char])
       (private-field [wx #f])
+      (public
+        [show-without-yield (lambda () 
+                              (as-entry
+                               (lambda ()
+                                 (send wx call-show #t (lambda () (send wx show-without-yield))))))])
       (override
 	[on-subwindow-char (lambda (w event)
 			     (super-on-subwindow-char w event)
@@ -259,11 +266,6 @@
 			 (let ([cwho '(constructor dialog)])
 			   (check-container-ready cwho parent)))
 		       label parent))))))
-
-  (define root-menu-frame #f)
-  (define (set-root-menu-frame! f) 
-    (set! root-menu-frame f)
-    (set-root-menu-wx-frame! (mred->wx f)))
   
   (define (get-top-level-windows)
     (remq root-menu-frame (map wx->mred (wx:get-top-level-windows))))
@@ -306,4 +308,18 @@
 
   (define (check-frame-parent/false who p)
     (unless (or (not p) (is-a? p frame%))
-      (raise-type-error (who->name who) "frame% object or #f" p))))
+      (raise-type-error (who->name who) "frame% object or #f" p)))
+
+  (define root-menu-frame
+    (and (current-eventspace-has-menu-root?)
+         ;; The very first frame shown is somehow sticky under Cocoa,
+         ;;  so create the root frame, show it , and hide it.
+         (let* ([f (make-object (class frame%
+                                  (define/override (on-exit)
+                                    (exit))
+                                  (super-make-object "Root" #f 0 0 -9000 -9000
+                                                     '(no-resize-border no-caption))))]
+                [wx (mred->wx f)])
+           (set-root-menu-wx-frame! wx)
+           (send wx designate-root-frame)
+           f))))

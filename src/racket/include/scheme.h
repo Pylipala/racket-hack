@@ -1,6 +1,6 @@
 /*
   Racket
-  Copyright (c) 2004-2010 PLT Scheme Inc.
+  Copyright (c) 2004-2011 PLT Scheme Inc.
   Copyright (c) 1995-2001 Matthew Flatt
   All rights reserved.
 
@@ -308,11 +308,9 @@ typedef struct Scheme_Vector {
   Scheme_Object *els[1];
 } Scheme_Vector;
 
-#if defined(MZ_USE_PLACES) && defined(MZ_PRECISE_GC)
 # define SHARED_ALLOCATED 0x2
 # define SHARED_ALLOCATEDP(so) (MZ_OPT_HASH_KEY((Scheme_Inclhash_Object *)(so)) & SHARED_ALLOCATED)
 # define SHARED_ALLOCATED_SET(so) (MZ_OPT_HASH_KEY((Scheme_Inclhash_Object *)(so)) |= SHARED_ALLOCATED)
-#endif
 
 typedef struct Scheme_Double_Vector {
   Scheme_Inclhash_Object iso; /* & 0x2 indicates allocated in the MASTERGC */
@@ -389,7 +387,7 @@ typedef intptr_t (*Scheme_Secondary_Hash_Proc)(Scheme_Object *obj, void *cycle_d
 
 #define SCHEME_PATHP(obj)  SAME_TYPE(SCHEME_TYPE(obj), SCHEME_PLATFORM_PATH_KIND)
 #define SCHEME_GENERAL_PATHP(obj)  ((SCHEME_TYPE(obj) >= scheme_unix_path_type) && (SCHEME_TYPE(obj) <= scheme_windows_path_type))
-  /* A path is guranteed to have the same shape as a byte string */
+  /* A path is guaranteed to have the same shape as a byte string */
 
 #define SCHEME_PATH_STRINGP(x) (SCHEME_CHAR_STRINGP(x) || SCHEME_PATHP(x))
 #define SCHEME_PATH_STRING_STR "path or string"
@@ -652,7 +650,7 @@ typedef struct Scheme_Offset_Cptr
 #define SCHEME_PRIM_TYPE_PARAMETER               64
 #define SCHEME_PRIM_TYPE_STRUCT_PROP_GETTER      (64 | 128)
 #define SCHEME_PRIM_SOMETIMES_INLINED            (64 | 256)
-/* combination still available: 64|128|256 */
+#define SCHEME_PRIM_TYPE_STRUCT_PROP_PRED        (64 | 128 | 256)
 
 #define SCHEME_PRIM_IS_STRUCT_PROC (SCHEME_PRIM_IS_STRUCT_INDEXED_GETTER | SCHEME_PRIM_IS_STRUCT_PRED | SCHEME_PRIM_IS_STRUCT_OTHER)
 
@@ -1035,7 +1033,6 @@ typedef struct Scheme_Thread {
   struct Scheme_Comp_Env *current_local_env;
   Scheme_Object *current_local_mark;
   Scheme_Object *current_local_name;
-  Scheme_Object *current_local_certs;
   Scheme_Object *current_local_modidx;
   Scheme_Env *current_local_menv;
   Scheme_Object *current_local_bindings;
@@ -1155,7 +1152,10 @@ typedef void (*Scheme_Kill_Action_Func)(void *);
       thread = NULL; \
       if (scheme_setjmp(newbuf)) { \
         scheme_pop_kill_action(); \
-        func(data); \
+        thread = scheme_get_current_thread(); \
+        if (!thread->cjs.skip_dws) { \
+          func(data); \
+        } \
         scheme_longjmp(*savebuf, 1); \
       } else {
 # define END_ESCAPEABLE() \
@@ -1191,6 +1191,7 @@ enum {
   MZCONFIG_PRINT_HANDLER,
   MZCONFIG_PROMPT_READ_HANDLER,
   MZCONFIG_READ_HANDLER,
+  MZCONFIG_READ_INPUT_PORT_HANDLER,
 
   MZCONFIG_READTABLE,
   MZCONFIG_READER_GUARD,

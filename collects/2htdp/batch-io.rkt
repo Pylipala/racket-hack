@@ -1,12 +1,12 @@
 #lang scheme
 
-(require (for-syntax syntax/parse) 
-         srfi/13 htdp/error 
+(require (for-syntax syntax/parse)
+         srfi/13 htdp/error
          (rename-in lang/prim (first-order->higher-order f2h))
-         "private/csv/csv.ss")
+         "private/csv/csv.rkt")
 
 ;; todo?
-;; -- export tokenization? 
+;; -- export tokenization?
 
 ;; -----------------------------------------------------------------------------
 (provide simulate-file) ;; syntax (simulate-file reader string ...)
@@ -39,10 +39,9 @@
  ;; read the specified file as a file of comma-separated values, apply the second
  ;; argument to each row, i.e., list of CSV on one line 
  
- write-file ;; String String -> Boolean
- ;; write the second argument to specified file in the same folder as the program
- ;; produce false, if f exists
- ;; produce true, if f doesn't exist
+ write-file ;; String String -> String 
+ ;; (write-file filename str) writes str to filename; 
+ ;; produces the file name as a confirmation that the write succeeded 
  )      
 
 ;; -----------------------------------------------------------------------------
@@ -125,8 +124,9 @@
   (let ([result (not (file-exists? f))])
     (with-output-to-file f 
       (lambda () (printf "~a" str))
+      #:mode 'text
       #:exists 'replace)
-    #t))
+    f))
 
 ;; -----------------------------------------------------------------------------
 ;; auxiliaries 

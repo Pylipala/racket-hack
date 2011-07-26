@@ -49,7 +49,13 @@
                  hmenu
                  lbl))
 
-  (def/public-unimplemented select)
+  (define/public (select mb)
+    (when parent
+      (let ([m (regexp-match #rx"&[^&]" label)])
+        (when m
+          (send parent popup-menu-with-char (string-ref (car m) 1)))))
+    #t)
+
   (def/public-unimplemented get-font)
   (def/public-unimplemented set-width)
   (def/public-unimplemented set-title)
@@ -119,6 +125,12 @@
      id
      (lambda (i pos)
        (send i get-check hmenu pos))))
+
+  (define/public (auto-check id)
+    (with-item
+     id
+     (lambda (i pos)
+       (send i set-check hmenu pos (not (send i get-check hmenu pos))))))
 
   (define/private (remove-item! pos)
     (set! items 

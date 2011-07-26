@@ -22,7 +22,8 @@
               set-fixup-window-locations!
               post-dummy-event
 
-              try-to-sync-refresh)
+              try-to-sync-refresh
+              sync-cocoa-events)
 
  ;; from common/queue:
  current-eventspace
@@ -48,7 +49,7 @@
 
 (define-objc-class MyApplicationDelegate NSObject #:protocols (NSApplicationDelegate)
   []
-  [-a _int (applicationShouldTerminate: [_id app])
+  [-a _NSUInteger (applicationShouldTerminate: [_id app])
       (queue-quit-event)
       0]
   [-a _BOOL (openPreferences: [_id app])
@@ -119,7 +120,7 @@
 (import-class NSEvent)
 (define wake-evt
   (tell NSEvent 
-        otherEventWithType: #:type _int NSApplicationDefined
+        otherEventWithType: #:type _NSUInteger NSApplicationDefined
         location: #:type _NSPoint (make-NSPoint 0.0 0.0)
         modifierFlags: #:type _NSUInteger 0 
         timestamp: #:type _double 0.0
@@ -315,7 +316,7 @@
        (when evt (check-menu-bar-click evt))
        (and evt
             (or (not dequeue?)
-                (let ([e (eventspace-hook (tell evt window))])
+                (let ([e (eventspace-hook evt (tell evt window))])
                   (if e
                       (let ([mouse-or-key?
                              (bitwise-bit-set? MouseAndKeyEventMask
@@ -369,6 +370,15 @@
   (atomically
    (pre-event-sync #t)))
 
+(set-platform-queue-sync!
+ (lambda ()
+   ;; in atomic mode
+   (dispatch-all-ready)))
+
+(define (sync-cocoa-events)
+  (atomically
+   (dispatch-all-ready)))
+
 ;; ------------------------------------------------------------
 ;; Install an alternate "sleep" function (in the PLT Scheme core)
 ;; that wakes up if any Cocoa event is ready.
@@ -377,6 +387,7 @@
 (define-mz scheme_end_sleeper_thread (_fun -> _void))
 
 (define-mz scheme_sleep _pointer)
+(define-mz scheme_set_place_sleep (_fun _pointer -> _void))
 
 ;; Called through an atomic callback:
 (define (sleep-until-event secs fds)
@@ -389,6 +400,5 @@
 
 (define (cocoa-install-event-wakeup)
   (post-dummy-event) ; why do we need this? 'nextEventMatchingMask:' seems to hang if we don't use it
-  (set-ffi-obj! 'scheme_sleep #f _pointer (function-ptr sleep-until-event 
-                                                        (_fun #:atomic? #t 
-                                                              _float _pointer -> _void))))
+  (scheme_set_place_sleep (function-ptr sleep-until-event 
+                                        (_fun #:atomic? #t _float _gcpointer -> _void))))

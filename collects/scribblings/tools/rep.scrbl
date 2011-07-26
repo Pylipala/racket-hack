@@ -40,8 +40,8 @@ Resets any error highlighting in this editor.
 @defmethod[(display-results [results (list-of TST)])
            void?]{
 
-This displays each of the elements of @scheme[results] in the interactions
-window, expect those elements of @scheme[results] that are void. Those
+This displays each of the elements of @racket[results] in the interactions
+window, expect those elements of @racket[results] that are void. Those
 are just ignored.
 
 
@@ -59,10 +59,10 @@ submitted at the prompt.
 }
 @methimpl{
 
-The function @scheme[run-loop] is called. It is expected to loop, calling
-it's argument with a thunk that corresponds to the user's
-evaluation. It should call it's argument once for each expression the
-user is evaluating.  It should pass a thunk to it's argument that
+The function @racket[run-loop] is called. It is expected to loop, calling
+its argument with a thunk that corresponds to the user's
+evaluation. It should call its argument once for each expression the
+user is evaluating.  It should pass a thunk to its argument that
 actually does the users's evaluation.
 
 
@@ -80,11 +80,11 @@ This function evaluates all of the expressions in a text.
 }
 @methimpl{
 
-It evaluates all of the expressions in @scheme[text] starting at
-@scheme[start] and ending at @scheme[end], calling
+It evaluates all of the expressions in @racket[text] starting at
+@racket[start] and ending at @racket[end], calling
 @method[drracket:rep:text% do-many-evals] to handle the evaluation.
 
-The @scheme[complete-program?] argument determines if the
+The @racket[complete-program?] argument determines if the
 @method[drracket:language:language<%> front-end/complete-program] method or the
 @method[drracket:language:language<%> front-end/interaction] method is called.
 
@@ -95,12 +95,12 @@ The @scheme[complete-program?] argument determines if the
                                [complete-program? boolean?]
                                [cleanup (-> void)])
            any]{
-  Evaluates the program in the @scheme[port] argument. If @scheme[complete-program?]
-  is @scheme[#t], this method calls the
+  Evaluates the program in the @racket[port] argument. If @racket[complete-program?]
+  is @racket[#t], this method calls the
   @method[drracket:language:language<%> front-end/complete-program] to evaluate
-  the program. If it is @scheme[#f], it calls 
+  the program. If it is @racket[#f], it calls 
   @method[drracket:language:language<%> front-end/interaction] method.
-  When evaluation finishes, it calls @scheme[cleanup] on the user's main thread.
+  When evaluation finishes, it calls @racket[cleanup] on the user's main thread.
 
   This method must be called from the DrRacket main thread.
 }
@@ -111,16 +111,22 @@ The @scheme[complete-program?] argument determines if the
   how it finishes).
 }
 
-@defmethod[#:mode augment (on-execute [run-on-user-thread (-> any)]) any]{
+@defmethod[(on-execute [run-on-user-thread (-> any)]) any]{
+
+  Use @racket[run-on-user-thread] to initialize the user's parameters, etc.
 
   Called from the DrRacket thread after the language's
   @method[drracket:language:language<%> on-execute]
   method has been invoked, and after the
   special values have been setup (the ones registered
-  via @scheme[drracket:language:add-snip-value]).
+  via @racket[drracket:language:add-snip-value]).
 
-  Use @scheme[run-on-user-thread] to initialize the user's parameters, etc.
-
+  Do not print to @racket[current-output-port] or @racket[current-error-port]
+  during the dynamic extent of the thunk passed to @racket[run-on-user-thread] becuase
+  this can deadlock. IO is still, in general, fine, but the @racket[current-error-port]
+  and @racket[current-output-port] are set to the user's ports that print
+  into the interactions window and are not in a good state during those calls.
+  
 }
 
 @defmethod[(get-error-range)
@@ -134,7 +140,7 @@ there can only be one highlighted error region at a time.
 }
 @methimpl{
 
-If @scheme[#f], no region is highlighted. If a list, the first
+If @racket[#f], no region is highlighted. If a list, the first
 element is the editor where the range is highlighted and the
 second and third are the beginning and ending regions,
 respectively.
@@ -178,7 +184,7 @@ This method returns the thread that the users code runs
 in. It is returns a different result, each time the user
 runs the program.
 
-It is @scheme[#f] before the first time the user click on
+It is @racket[#f] before the first time the user click on
 the Run button or the evaluation has been killed.
 
 This thread has all of its parameters initialized according to the
@@ -217,8 +223,7 @@ See also
 
 }
 
-@defmethod[(initialize-console)
-           void?]{
+@defmethod[(initialize-console) void?]{
 
 This inserts the ``Welcome to DrRacket'' message into the interactions
 buffer, calls
@@ -227,12 +232,22 @@ buffer, calls
 @method[editor<%> clear-undos].
 
 Once the console is initialized, this method calls
-@method[drracket:language:language<%> first-opened]. Accordingly, this method should not be called to initialize
+@method[drracket:language:language<%> first-opened]. 
+Accordingly, this method should not be called to initialize
 a REPL when the user's evaluation is imminent. That is,
 this method should be called when new tabs or new windows
 are created, but not when the Run button is clicked. 
 
-
+This method calls the 
+@method[drracket:language:language<%> first-opened]
+from the user's eventspace's main thread and, when 
+@method[drracket:language:language<%> first-opened]
+returns, it enqueue's a callback that ends
+an edit sequence on the REPL and calls
+@method[editor<%> clear-undos]. Accordingly, if the
+@method[drracket:language:language<%> first-opened]
+method does not return, the interactions text will
+be in an unclosed edit sequence.
 }
 
 @defmethod[(insert-prompt)
@@ -288,7 +303,7 @@ This method resets the highlighting being displayed for this repl. See also:
            void?]{
 @methspec{
 
-This function runs it's arguments in the user evaluation thread. This
+This function runs its arguments in the user evaluation thread. This
 thread is the same as the user's eventspace main thread.
 
 See also  
@@ -297,7 +312,7 @@ See also
 }
 @methimpl{
 
-Calls @scheme[f], after switching to the user's thread.
+Calls @racket[f], after switching to the user's thread.
 
 
 }}
@@ -360,7 +375,7 @@ interactions windows.}
 @definterface[drracket:rep:context<%> ()]{
 
 Objects that match this interface provide all of the services that the 
-@scheme[drracket:rep:text%] class needs to connect with it's context.
+@racket[drracket:rep:text%] class needs to connect with its context.
 
 
 
@@ -445,7 +460,7 @@ user's program to be evaluated in.
            (or/c string? false/c)]{
 This method should return an explanatory string when the
 state of the program that the repl reflects has changed. It
-should return @scheme[#f] otherwise.
+should return @racket[#f] otherwise.
 
 }
 

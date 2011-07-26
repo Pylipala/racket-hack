@@ -103,6 +103,9 @@
          stx
          stx))))
 
+  (define-values (double-flonum?) ; for symmetry with single-flonum?
+    (lambda (x) (flonum? x)))
+
   (#%provide (all-from-except "more-scheme.rkt" old-case fluid-let)
              (all-from "misc.rkt")
              (all-from "define.rkt")
@@ -130,9 +133,16 @@
              (all-from-except '#%kernel lambda λ #%app #%module-begin apply prop:procedure 
                               procedure-arity procedure-reduce-arity raise-arity-error
                               procedure->method procedure-rename
-                              chaperone-procedure impersonate-procedure)
+                              chaperone-procedure impersonate-procedure
+                              assq assv assoc
+                              prop:incomplete-arity)
              (all-from "reqprov.rkt")
-             (all-from "for.rkt")
+             (all-from-except "for.rkt"
+                              define-in-vector-like
+                              define-:vector-like-gen
+                              make-in-vector-like
+                              stream? stream-empty? stream-first stream-rest 
+                              prop:stream in-stream empty-stream make-do-stream)
              (all-from "kernstruct.rkt")
              #%top-interaction
 
@@ -144,4 +154,5 @@
              (rename define-struct* define-struct)
              define-struct/derived
              struct-field-index
-             struct-copy))
+             struct-copy
+             double-flonum?))

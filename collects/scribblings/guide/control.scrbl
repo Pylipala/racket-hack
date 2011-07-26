@@ -1,7 +1,5 @@
 #lang scribble/doc
-@(require scribble/manual
-          scribble/eval
-          "guide-utils.ss")
+@(require scribble/manual scribble/eval "guide-utils.rkt")
 
 @(define cc-eval (make-base-eval))
 
@@ -245,12 +243,12 @@ the continuation in @racket[saved-k] becomes @racket[(lambda (x) (+ 5
 (saved-k 10)
 ]
 
-A more traditional continuation operator in Racket is
-@racket[call-with-current-continuation], which is often abbreviated
+A more traditional continuation operator in Racket (or Scheme) is
+@racket[call-with-current-continuation], which is usually abbreviated
 @racket[call/cc]. It is like
 @racket[call-with-composable-continuation], but applying the captured
 continuation first @tech{aborts} (to the current @tech{prompt}) before
-restoring the saved continuation. In addition, Racket systems
+restoring the saved continuation. In addition, Scheme systems
 traditionally support a single prompt at the program start, instead of
 allowing new prompts via
 @racket[call-with-continuation-prompt]. Continuations as in Racket

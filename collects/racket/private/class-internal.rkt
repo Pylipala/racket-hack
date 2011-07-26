@@ -3,6 +3,7 @@
 (require (for-syntax racket/base)
          mzlib/etc
          racket/contract/base
+         racket/contract/combinator
          (only-in racket/contract/private/arrow making-a-method)
          racket/list
          racket/stxparam
@@ -58,7 +59,7 @@
            method-in-interface? interface->method-names class->interface class-info
            (struct-out exn:fail:object)
            make-primitive-class
-           class/c ->m ->*m ->dm case->m object/c
+           class/c ->m ->*m ->dm case->m object/c instanceof/c
            
            ;; "keywords":
            private public override augment
@@ -68,39 +69,103 @@
            rename-super rename-inner inherit inherit/super inherit/inner inherit-field
            this this% super inner
            super-make-object super-instantiate super-new
-           inspect))
+           inspect absent))
 
 
 ;;--------------------------------------------------------------------
 ;;  keyword setup
 ;;--------------------------------------------------------------------
 
-(define-for-syntax (do-class-keyword stx)
-  (if (identifier? stx)
-      (raise-syntax-error
-       #f
-       "illegal (unparenthesized) use of a class keyword"
-       stx)
-      (raise-syntax-error
-       #f
-       "use of a class keyword is not in a class top-level"
-       stx)))
+(define-for-syntax (do-class-keyword stx orig-sym)
+  (let ([orig-stx (datum->syntax #f orig-sym stx)])
+    (if (identifier? stx)
+        (raise-syntax-error
+         #f
+         "illegal (unparenthesized) use of a class keyword"
+         orig-stx)
+        (raise-syntax-error
+         #f
+         "use of a class keyword is not in a class top-level"
+         orig-stx))))
 
-(define-syntax provide-class-keyword
+(define-for-syntax (rewrite-renaming-class-keyword stx internal-id)
+  (syntax-case stx ()
+    [(_ elem ...)
+     ;; Set taint mode on elem ...
+     (with-syntax ([internal-id internal-id]
+                   [(elem ...) (for/list ([e (in-list (syntax->list #'(elem ...)))])
+                                 (if (identifier? e)
+                                     e
+                                     (syntax-property e 'taint-mode 'transparent)))])
+       (syntax-property (syntax/loc stx (internal-id elem ...))
+                        'taint-mode
+                        'transparent))]))
+
+(define-syntax provide-renaming-class-keyword
   (syntax-rules ()
-    [(_ id ...)
+    [(_ [id internal-id] ...)
      (begin
-       (define-syntax (id stx) (do-class-keyword stx))
+       (define-syntax (id stx) (rewrite-renaming-class-keyword stx #'internal-id))
+       ...
+       (define-syntax (internal-id stx) (do-class-keyword stx 'id))
        ...
        (provide id ...))]))
 
-(provide-class-keyword private public override augride
-                       pubment overment augment
-                       public-final override-final augment-final
-                       rename-super rename-inner inherit inherit-field
-                       inherit/super inherit/inner
-                       inspect
-                       init-rest)
+(provide-renaming-class-keyword [private -private]
+                                [public -public]
+                                [override -override]
+                                [augride -augride]
+                                [pubment -pubment]
+                                [overment -overment]
+                                [augment -augment]
+                                [public-final -public-final]
+                                [override-final -override-final]
+                                [augment-final -augment-final]
+                                [rename-super -rename-super]
+                                [rename-inner -rename-inner]
+                                [inherit -inherit]
+                                [inherit-field -inherit-field]
+                                [inherit/super -inherit/super]
+                                [inherit/inner -inherit/inner])
+
+(define-for-syntax (rewrite-naming-class-keyword stx internal-id)
+  (syntax-case stx ()
+    [(_ elem ...)
+     (with-syntax ([internal-id internal-id])
+       (syntax-property (syntax/loc stx (internal-id elem ...))
+                        'taint-mode
+                        'transparent))]))
+
+(define-syntax provide-naming-class-keyword
+  (syntax-rules ()
+    [(_ [id internal-id] ...)
+     (begin
+       (define-syntax (id stx) (rewrite-naming-class-keyword stx #'internal-id))
+       ...
+       (define-syntax (internal-id stx) (do-class-keyword stx 'id))
+       ...
+       (provide id ...))]))
+
+(provide-naming-class-keyword [inspect -inspect]
+                              [init-rest -init-rest])
+
+;; Going ahead and doing this in a generic fashion, in case we later realize that
+;; we need more class contract-specific keywords.
+(define-for-syntax (do-class-contract-keyword stx)
+  (raise-syntax-error
+   #f
+   "use of a class contract keyword is not in a class contract"
+   stx))
+
+(define-syntax provide-class-contract-keyword
+  (syntax-rules ()
+    [(_ id ...)
+     (begin
+       (define-syntax (id stx) (do-class-contract-keyword stx))
+       ...
+       (provide id ...))]))
+
+(provide-class-contract-keyword absent)
 
 (define-for-syntax (do-define-like-internal stx)
   (syntax-case stx ()
@@ -121,11 +186,16 @@
                                      (syntax-property
                                       (syntax-case e ()
                                         [((n1 n2) . expr)
-                                         (quasisyntax/loc e
-                                           (#,(syntax-property
-                                               #'(n1 n2)
-                                               'certify-mode 'transparent)
-                                            . expr))]
+                                         (syntax-property
+                                          (quasisyntax/loc e
+                                            (#,(syntax-property
+                                                #'(n1 n2)
+                                                'certify-mode 'transparent)
+                                             . expr))
+                                          'certify-mode 'transparent)]
+                                        [(n . expr)
+                                         (identifier? #'n)
+                                         (syntax-property e 'certify-mode 'transparent)]
                                         [_else e])
                                       'certify-mode 'transparent)))
                                (syntax-e #'(elem ...))))
@@ -252,25 +322,25 @@
                 (quote-syntax #%app) ; scheme/base app, as opposed to #%plain-app
                 (quote-syntax lambda) ; scheme/base lambda, as opposed to #%plain-lambda
                 (quote-syntax -init)
-                (quote-syntax init-rest)
+                (quote-syntax -init-rest)
                 (quote-syntax -field)
                 (quote-syntax -init-field)
-                (quote-syntax inherit-field)
-                (quote-syntax private)
-                (quote-syntax public)
-                (quote-syntax override)
-                (quote-syntax augride)
-                (quote-syntax public-final)
-                (quote-syntax override-final)
-                (quote-syntax augment-final)
-                (quote-syntax pubment)
-                (quote-syntax overment)
-                (quote-syntax augment)
-                (quote-syntax rename-super)
-                (quote-syntax inherit)
-                (quote-syntax inherit/super)
-                (quote-syntax inherit/inner)
-                (quote-syntax rename-inner)
+                (quote-syntax -inherit-field)
+                (quote-syntax -private)
+                (quote-syntax -public)
+                (quote-syntax -override)
+                (quote-syntax -augride)
+                (quote-syntax -public-final)
+                (quote-syntax -override-final)
+                (quote-syntax -augment-final)
+                (quote-syntax -pubment)
+                (quote-syntax -overment)
+                (quote-syntax -augment)
+                (quote-syntax -rename-super)
+                (quote-syntax -inherit)
+                (quote-syntax -inherit/super)
+                (quote-syntax -inherit/inner)
+                (quote-syntax -rename-inner)
                 (quote-syntax super)
                 (quote-syntax inner)
                 (quote-syntax this)
@@ -278,7 +348,7 @@
                 (quote-syntax super-instantiate)
                 (quote-syntax super-make-object)
                 (quote-syntax super-new)
-                (quote-syntax inspect)))]
+                (quote-syntax -inspect)))]
              [expand-context (generate-class-expand-context)]
              [expand
               (lambda (defn-or-expr)
@@ -421,9 +491,9 @@
                                  (or class-name 
                                      ""))) 
          #f))
-      ;; -- tranform loop starts here --
+      ;; -- transform loop starts here --
       (let loop ([stx orig-stx][can-expand? #t][name name][locals null])
-        (syntax-case stx (#%plain-lambda lambda λ case-lambda letrec-values let-values)
+        (syntax-case (disarm stx) (#%plain-lambda lambda λ case-lambda letrec-values let-values)
           [(lam vars body1 body ...)
            (or (and (free-identifier=? #'lam #'#%plain-lambda)
                     (vars-ok? (syntax vars)))
@@ -463,7 +533,7 @@
                               (lambda (the-obj . vars) 
                                 (let-syntax ([the-finder (quote-syntax the-obj)])
                                   body1 body ...)))])
-                     (with-syntax ([l (recertify (add-method-property l) stx)])
+                     (with-syntax ([l (rearm (add-method-property l) stx)])
                        (syntax/loc stx 
                          (let ([name l]) name))))))
                stx)]
@@ -483,7 +553,7 @@
                              (case-lambda [(the-obj . vars) 
                                            (let-syntax ([the-finder (quote-syntax the-obj)])
                                              body1 body ...)] ...))])
-                   (with-syntax ([cl (recertify (add-method-property cl) stx)])
+                   (with-syntax ([cl (rearm (add-method-property cl) stx)])
                      (syntax/loc stx
                        (let ([name cl]) name)))))
                stx)]
@@ -542,7 +612,7 @@
                                  ids new-ids)
                                 null)]
                            [body body])
-               (recertify
+               (rearm
                 (if xform?
                     (if letrec?
                         (syntax/loc stx (letrec-syntax mappings
@@ -561,11 +631,15 @@
     
     (define (add-method-property l)
       (syntax-property l 'method-arity-error #t))
-    
+
+    ;; `class' wants to be priviledged with respect to
+    ;; syntax taints: save the load-time inspector and use it 
+    ;; to disarm syntax taints
     (define method-insp (current-code-inspector))
-    
-    (define (recertify new old)
-      (syntax-recertify new old method-insp #f))
+    (define (disarm stx)
+      (syntax-disarm stx method-insp))
+    (define (rearm new old)
+      (syntax-rearm new old))
     
     ;; --------------------------------------------------------------------------------
     ;; Start here:
@@ -612,12 +686,12 @@
             
             ;; ------ Basic syntax checks -----
             (for-each (lambda (stx)
-                        (syntax-case stx (-init init-rest -field -init-field inherit-field
-                                                private public override augride
-                                                public-final override-final augment-final
-                                                pubment overment augment
-                                                rename-super inherit inherit/super inherit/inner rename-inner
-                                                inspect)
+                        (syntax-case stx (-init -init-rest -field -init-field -inherit-field
+                                                -private -public -override -augride
+                                                -public-final -override-final -augment-final
+                                                -pubment -overment -augment
+                                                -rename-super -inherit -inherit/super -inherit/inner -rename-inner
+                                                -inspect)
                           [(form orig idp ...)
                            (and (identifier? (syntax form))
                                 (or (free-identifier=? (syntax form) (quote-syntax -init))
@@ -640,18 +714,18 @@
                                      form)
                                     idp)]))
                               (syntax->list (syntax (idp ...)))))]
-                          [(inspect expr)
+                          [(-inspect expr)
                            'ok]
-                          [(inspect . rest)
+                          [(-inspect . rest)
                            (bad "ill-formed inspect clause" stx)]
                           [(-init orig . rest)
                            (bad "ill-formed init clause" #'orig)]
-                          [(init-rest)
+                          [(-init-rest)
                            'ok]
-                          [(init-rest rest)
+                          [(-init-rest rest)
                            (identifier? (syntax rest))
                            'ok]
-                          [(init-rest . rest)
+                          [(-init-rest . rest)
                            (bad "ill-formed init-rest clause" stx)]
                           [(-init-field orig . rest)
                            (bad "ill-formed init-field clause" #'orig)]
@@ -669,30 +743,30 @@
                                      (syntax->list (syntax (idp ...))))]
                           [(-field orig . rest)
                            (bad "ill-formed field clause" #'orig)]
-                          [(private id ...)
+                          [(-private id ...)
                            (for-each
                             (lambda (id)
                               (unless (identifier? id)
                                 (bad "private element is not an identifier" id)))
                             (syntax->list (syntax (id ...))))]
-                          [(private . rest)
+                          [(-private . rest)
                            (bad "ill-formed private clause" stx)]
                           [(form idp ...)
                            (and (identifier? (syntax form))
                                 (ormap (lambda (f) (free-identifier=? (syntax form) f))
-                                       (syntax-e (quote-syntax (public
-                                                                 override
-                                                                 augride
-                                                                 public-final
-                                                                 override-final
-                                                                 augment-final
-                                                                 pubment
-                                                                 overment
-                                                                 augment
-                                                                 inherit
-                                                                 inherit/super
-                                                                 inherit/inner
-                                                                 inherit-field)))))
+                                       (syntax-e (quote-syntax (-public
+                                                                -override
+                                                                -augride
+                                                                -public-final
+                                                                -override-final
+                                                                -augment-final
+                                                                -pubment
+                                                                -overment
+                                                                -augment
+                                                                -inherit
+                                                                -inherit/super
+                                                                -inherit/inner
+                                                                -inherit-field)))))
                            (let ([form (syntax-e (syntax form))])
                              (for-each
                               (lambda (idp)
@@ -706,36 +780,36 @@
                                      form)
                                     idp)]))
                               (syntax->list (syntax (idp ...)))))]
-                          [(public . rest)
+                          [(-public . rest)
                            (bad "ill-formed public clause" stx)]
-                          [(override . rest)
+                          [(-override . rest)
                            (bad "ill-formed override clause" stx)]
-                          [(augride . rest)
+                          [(-augride . rest)
                            (bad "ill-formed augride clause" stx)]
-                          [(public-final . rest)
+                          [(-public-final . rest)
                            (bad "ill-formed public-final clause" stx)]
-                          [(override-final . rest)
+                          [(-override-final . rest)
                            (bad "ill-formed override-final clause" stx)]
-                          [(augment-final . rest)
+                          [(-augment-final . rest)
                            (bad "ill-formed augment-final clause" stx)]
-                          [(pubment . rest)
+                          [(-pubment . rest)
                            (bad "ill-formed pubment clause" stx)]
-                          [(overment . rest)
+                          [(-overment . rest)
                            (bad "ill-formed overment clause" stx)]
-                          [(augment . rest)
+                          [(-augment . rest)
                            (bad "ill-formed augment clause" stx)]
-                          [(inherit . rest)
+                          [(-inherit . rest)
                            (bad "ill-formed inherit clause" stx)]
-                          [(inherit/super . rest)
+                          [(-inherit/super . rest)
                            (bad "ill-formed inherit/super clause" stx)]
-                          [(inherit/inner . rest)
+                          [(-inherit/inner . rest)
                            (bad "ill-formed inherit/inner clause" stx)]
-                          [(inherit-field . rest)
+                          [(-inherit-field . rest)
                            (bad "ill-formed inherit-field clause" stx)]
                           [(kw idp ...)
                            (and (identifier? #'kw)
-                                (or (free-identifier=? #'rename-super #'kw)
-                                    (free-identifier=? #'rename-inner #'kw)))
+                                (or (free-identifier=? #'-rename-super #'kw)
+                                    (free-identifier=? #'-rename-inner #'kw)))
                            (for-each 
                             (lambda (idp)
                               (syntax-case idp ()
@@ -745,45 +819,45 @@
                                   (format "~a element is not a pair of identifiers" (syntax-e #'kw))
                                   idp)]))
                             (syntax->list (syntax (idp ...))))]
-                          [(rename-super . rest)
+                          [(-rename-super . rest)
                            (bad "ill-formed rename-super clause" stx)]
-                          [(rename-inner . rest)
+                          [(-rename-inner . rest)
                            (bad "ill-formed rename-inner clause" stx)]
                           [_ 'ok]))
                       defn-and-exprs)
             
             ;; ----- Sort body into different categories -----
             (let*-values ([(decls exprs)
-                           (extract (syntax-e (quote-syntax (inherit-field
-                                                             private
-                                                             public
-                                                             override
-                                                             augride
-                                                             public-final
-                                                             override-final
-                                                             augment-final
-                                                             pubment
-                                                             overment
-                                                             augment
-                                                             rename-super
-                                                             inherit
-                                                             inherit/super
-                                                             inherit/inner
-                                                             rename-inner)))
+                           (extract (syntax-e (quote-syntax (-inherit-field
+                                                             -private
+                                                             -public
+                                                             -override
+                                                             -augride
+                                                             -public-final
+                                                             -override-final
+                                                             -augment-final
+                                                             -pubment
+                                                             -overment
+                                                             -augment
+                                                             -rename-super
+                                                             -inherit
+                                                             -inherit/super
+                                                             -inherit/inner
+                                                             -rename-inner)))
                                     defn-and-exprs
                                     cons)]
                           [(inspect-decls exprs)
-                           (extract (list (quote-syntax inspect))
+                           (extract (list (quote-syntax -inspect))
                                     exprs
                                     cons)]
                           [(plain-inits)
                            ;; Normalize after, but keep un-normal for error reporting
                            (flatten #f (extract* (syntax-e 
-                                                  (quote-syntax (-init init-rest)))
+                                                  (quote-syntax (-init -init-rest)))
                                                  exprs))]
                           [(normal-plain-inits) (map normalize-init/field plain-inits)]
                           [(init-rest-decls _)
-                           (extract (list (quote-syntax init-rest))
+                           (extract (list (quote-syntax -init-rest))
                                     exprs
                                     void)]
                           [(inits)
@@ -801,37 +875,37 @@
                           [(normal-plain-init-fields)
                            (map normalize-init/field plain-init-fields)]
                           [(inherit-fields)
-                           (flatten pair (extract* (list (quote-syntax inherit-field)) decls))]
+                           (flatten pair (extract* (list (quote-syntax -inherit-field)) decls))]
                           [(privates)
-                           (flatten pair (extract* (list (quote-syntax private)) decls))]
+                           (flatten pair (extract* (list (quote-syntax -private)) decls))]
                           [(publics)
-                           (flatten pair (extract* (list (quote-syntax public)) decls))]
+                           (flatten pair (extract* (list (quote-syntax -public)) decls))]
                           [(overrides)
-                           (flatten pair (extract* (list (quote-syntax override)) decls))]
+                           (flatten pair (extract* (list (quote-syntax -override)) decls))]
                           [(augrides)
-                           (flatten pair (extract* (list (quote-syntax augride)) decls))]
+                           (flatten pair (extract* (list (quote-syntax -augride)) decls))]
                           [(public-finals)
-                           (flatten pair (extract* (list (quote-syntax public-final)) decls))]
+                           (flatten pair (extract* (list (quote-syntax -public-final)) decls))]
                           [(override-finals)
-                           (flatten pair (extract* (list (quote-syntax override-final)) decls))]
+                           (flatten pair (extract* (list (quote-syntax -override-final)) decls))]
                           [(pubments)
-                           (flatten pair (extract* (list (quote-syntax pubment)) decls))]
+                           (flatten pair (extract* (list (quote-syntax -pubment)) decls))]
                           [(overments)
-                           (flatten pair (extract* (list (quote-syntax overment)) decls))]
+                           (flatten pair (extract* (list (quote-syntax -overment)) decls))]
                           [(augments)
-                           (flatten pair (extract* (list (quote-syntax augment)) decls))]
+                           (flatten pair (extract* (list (quote-syntax -augment)) decls))]
                           [(augment-finals)
-                           (flatten pair (extract* (list (quote-syntax augment-final)) decls))]
+                           (flatten pair (extract* (list (quote-syntax -augment-final)) decls))]
                           [(rename-supers)
-                           (flatten pair (extract* (list (quote-syntax rename-super)) decls))]
+                           (flatten pair (extract* (list (quote-syntax -rename-super)) decls))]
                           [(inherits)
-                           (flatten pair (extract* (list (quote-syntax inherit)) decls))]
+                           (flatten pair (extract* (list (quote-syntax -inherit)) decls))]
                           [(inherit/supers)
-                           (flatten pair (extract* (list (quote-syntax inherit/super)) decls))]
+                           (flatten pair (extract* (list (quote-syntax -inherit/super)) decls))]
                           [(inherit/inners)
-                           (flatten pair (extract* (list (quote-syntax inherit/inner)) decls))]
+                           (flatten pair (extract* (list (quote-syntax -inherit/inner)) decls))]
                           [(rename-inners)
-                           (flatten pair (extract* (list (quote-syntax rename-inner)) decls))])
+                           (flatten pair (extract* (list (quote-syntax -rename-inner)) decls))])
               
               ;; At most one inspect:
               (unless (or (null? inspect-decls)
@@ -852,7 +926,7 @@
                             (identifier? (stx-car (car l))))
                        (let ([form (stx-car (car l))])
                          (cond
-                           [(free-identifier=? #'init-rest form)
+                           [(free-identifier=? #'-init-rest form)
                             (loop (cdr l) #t)]
                            [(not saw-rest?) (loop (cdr l) #f)]
                            [(free-identifier=? #'-init form)
@@ -1060,7 +1134,7 @@
                     ;;  Non-method definitions to set!
                     ;;  Initializations args access/set!
                     (let ([exprs (map (lambda (e)
-                                        (syntax-case e (define-values -field init-rest)
+                                        (syntax-case e (define-values -field -init-rest)
                                           [(define-values (id ...) expr)
                                            (syntax/loc e (set!-values (id ...) expr))]
                                           [(_init orig idp ...)
@@ -1095,7 +1169,7 @@
                                                              1 ; to ensure a non-empty body
                                                              (set! iid expr)
                                                              ...)))]
-                                          [(init-rest id/rename)
+                                          [(-init-rest id/rename)
                                            (with-syntax ([n (+ (length plain-inits)
                                                                (length plain-init-fields)
                                                                -1)]
@@ -1103,7 +1177,7 @@
                                                                  #'id/rename
                                                                  (stx-car #'id/rename))])
                                              (syntax/loc e (set! id (extract-rest-args n init-args))))]
-                                          [(init-rest)
+                                          [(-init-rest)
                                            (syntax (void))]
                                           [_else e]))
                                       exprs)]
@@ -1188,7 +1262,7 @@
                                     [(plain-init-name-localized ...) (map lookup-localize plain-init-names)]
                                     [(local-plain-init-name ...) (generate-temporaries plain-init-names)])
                         (let ([mappings
-                               ;; make-XXX-map is supplied by private/classidmap.ss
+                               ;; make-XXX-map is supplied by private/classidmap.rkt
                                (with-syntax ([the-obj the-obj]
                                              [the-finder the-finder]
                                              [this-id this-id]
@@ -2500,6 +2574,9 @@
     (for ([m (class/c-methods ctc)])
       (unless (hash-ref method-ht m #f)
         (fail "no public method ~a" m)))
+    (for ([m (class/c-absents ctc)])
+      (when (hash-ref method-ht m #f)
+        (fail "class already contains public method ~a")))
     (for ([m (class/c-inherits ctc)])
       (unless (hash-ref method-ht m #f)
         (fail "no public method ~a" m)))
@@ -2554,6 +2631,9 @@
       (for ([f (class/c-fields ctc)])
         (unless (hash-ref field-ht f #f)
           (fail "no public field ~a" f)))
+      (for ([f (class/c-absent-fields ctc)])
+        (when (hash-ref field-ht f #f)
+          (fail "class already contains public field ~a" f)))
       (for ([f (class/c-inherit-fields ctc)])
         (unless (hash-ref field-ht f #f)
           (fail "no public field ~a" f)))))
@@ -2878,7 +2958,7 @@
    inherits inherit-contracts inherit-fields inherit-field-contracts
    supers super-contracts inners inner-contracts
    overrides override-contracts augments augment-contracts
-   augrides augride-contracts)
+   augrides augride-contracts absents absent-fields)
   #:omit-define-syntaxes
   #:property prop:contract
   (build-contract-property
@@ -2897,6 +2977,15 @@
                (if (null? is)
                    null
                    (list (cons name (pair-ids-ctcs is ctcs)))))]
+            [handle-absents
+             (λ (meths fields)
+               (cond
+                 [(and (null? meths) (null? fields))
+                  null]
+                 [(null? fields)
+                  (list (cons 'absent meths))]
+                 [else
+                  (list (list* 'absent (cons 'field fields) meths))]))]
             [handled-methods
              (for/list ([i (in-list (class/c-methods ctc))]
                         [ctc (in-list (class/c-method-contracts ctc))])
@@ -2915,7 +3004,8 @@
                (handle-optional 'inner (class/c-inners ctc) (class/c-inner-contracts ctc))
                (handle-optional 'override (class/c-overrides ctc) (class/c-override-contracts ctc))
                (handle-optional 'augment (class/c-augments ctc) (class/c-augment-contracts ctc))
-               (handle-optional 'augride (class/c-augrides ctc) (class/c-augride-contracts ctc))))))
+               (handle-optional 'augride (class/c-augrides ctc) (class/c-augride-contracts ctc))
+               (handle-absents (class/c-absents ctc) (class/c-absent-fields ctc))))))
    #:first-order
    (λ (ctc)
      (λ (cls)
@@ -2935,15 +3025,31 @@
        (values #'(quote x) 
                #`(coerce-contract '#,form-name (let ([x ctc]) x)))]
       [_
-       (raise-syntax-error 'class/c "expected identifier or (id contract)" stx)]))
+       (raise-syntax-error form-name "expected identifier or (id contract)" stx)]))
   (define (parse-names-ctcs stx)
     (for/fold ([names null]
                [ctcs null])
       ([stx (in-list (syntax->list stx))])
       (let-values ([(name ctc) (parse-name-ctc stx)])
         (values (cons name names) (cons ctc ctcs)))))
+  (define (parse-absents stx)
+    (for/fold ([meths null]
+               [fields null])
+      ([stx (in-list (syntax->list stx))])
+      (syntax-case stx (field)
+        [(field f-id ...)
+         (let ([symbols (for/list ([id (in-list (syntax->list #'(f-id ...)))])
+                          (unless (identifier? id)
+                            (raise-syntax-error 'class/c "expected identifier" stx))
+                          #`(quote #,id))])
+           (values meths (append (reverse symbols) fields)))]
+        [id
+         (identifier? #'id)
+         (values (cons #'(quote id) meths) fields)]
+        [_
+         (raise-syntax-error 'class/c "expected identifier or (field id ...)" stx)])))
   (define (parse-spec stx)
-    (syntax-case stx (field inherit inherit-field init init-field super inner override augment augride)
+    (syntax-case stx (field inherit inherit-field init init-field super inner override augment augride absent)
       [(field f-spec ...)
        (let-values ([(names ctcs) (parse-names-ctcs #'(f-spec ...))])
          (hash-set! parsed-forms 'fields
@@ -3029,6 +3135,15 @@
                       (append names (hash-ref parsed-forms 'augrides null)))
            (hash-set! parsed-forms 'augride-contracts
                       (append ctcs (hash-ref parsed-forms 'augride-contracts null)))))]
+      [(absent a-spec ...)
+       (begin
+         (when object/c?
+           (raise-syntax-error 'object/c "absent specification not allowed in object/c" stx))
+         (let-values ([(meths fields) (parse-absents #'(a-spec ...))])
+           (hash-set! parsed-forms 'absents
+                      (append meths (hash-ref parsed-forms 'absents null)))
+           (hash-set! parsed-forms 'absent-fields
+                      (append fields (hash-ref parsed-forms 'absent-fields null)))))]
       [m-spec
        (let-values ([(name ctc1) (parse-name-ctc #'m-spec)])
          (hash-set! parsed-forms 'methods
@@ -3064,7 +3179,9 @@
                      [augments #`(list #,@(reverse (hash-ref parsed-forms 'augments null)))]
                      [augment-ctcs #`(list #,@(reverse (hash-ref parsed-forms 'augment-contracts null)))]
                      [augrides #`(list #,@(reverse (hash-ref parsed-forms 'augrides null)))]
-                     [augride-ctcs #`(list #,@(reverse (hash-ref parsed-forms 'augride-contracts null)))])
+                     [augride-ctcs #`(list #,@(reverse (hash-ref parsed-forms 'augride-contracts null)))]
+                     [absents #`(list #,@(reverse (hash-ref parsed-forms 'absents null)))]
+                     [absent-fields #`(list #,@(reverse (hash-ref parsed-forms 'absent-fields null)))])
          (syntax/loc stx
            (let* ([inits+contracts (sort (list (cons i i-c) ...)
                                          (lambda (s1 s2) 
@@ -3079,7 +3196,8 @@
                            inners inner-ctcs
                            overrides override-ctcs
                            augments augment-ctcs
-                           augrides augride-ctcs)))))]))
+                           augrides augride-ctcs
+                           absents absent-fields)))))]))
 
 (define (check-object-contract obj methods fields fail)
   (unless (object? obj)
@@ -3099,11 +3217,15 @@
   (λ (blame)
     (λ (obj)
       (make-wrapper-object ctc obj blame 
-                           (object/c-methods ctc) (object/c-method-contracts ctc)
-                           (object/c-fields ctc) (object/c-field-contracts ctc)))))
+                           (base-object/c-methods ctc) (base-object/c-method-contracts ctc)
+                           (base-object/c-fields ctc) (base-object/c-field-contracts ctc)))))
 
-(define-struct object/c (methods method-contracts fields field-contracts)
-  #:omit-define-syntaxes
+(define (object/c-first-order ctc)
+  (λ (obj)
+    (let/ec ret
+      (check-object-contract obj (base-object/c-methods ctc) (base-object/c-fields ctc) (λ args (ret #f))))))
+
+(define-struct base-object/c (methods method-contracts fields field-contracts)
   #:property prop:contract
   (build-contract-property 
    #:projection object/c-proj
@@ -3122,13 +3244,9 @@
        (apply build-compound-type-name
               'object/c 
               (append
-               (pair-ids-ctcs (object/c-methods ctc) (object/c-method-contracts ctc))
-               (handle-optional 'field (object/c-fields ctc) (object/c-field-contracts ctc))))))
-   #:first-order
-   (λ (ctc)
-     (λ (obj)
-       (let/ec ret
-         (check-object-contract obj (object/c-methods ctc) (object/c-fields ctc) (λ args (ret #f))))))))
+               (pair-ids-ctcs (base-object/c-methods ctc) (base-object/c-method-contracts ctc))
+               (handle-optional 'field (base-object/c-fields ctc) (base-object/c-field-contracts ctc))))))
+   #:first-order object/c-first-order))
 
 (define-syntax (object/c stx)
   (syntax-case stx ()
@@ -3139,7 +3257,39 @@
                      [fields #`(list #,@(reverse (hash-ref parsed-forms 'fields null)))]
                      [field-ctcs #`(list #,@(reverse (hash-ref parsed-forms 'field-contracts null)))])
          (syntax/loc stx
-           (make-object/c methods method-ctcs fields field-ctcs))))]))
+           (make-base-object/c methods method-ctcs fields field-ctcs))))]))
+
+(define (instanceof/c-proj ctc)
+  (let ([proj (contract-projection (base-instanceof/c-class-ctc ctc))])
+    (λ (blame)
+      (let ([p (proj blame)])
+        (λ (val)
+          (unless (object? val)
+            (raise-blame-error blame val "expected an object, got ~v" val))
+          (let ([original-obj (if (has-original-object? val) (original-object val) val)]
+                [new-cls (p (object-ref val))])
+            (impersonate-struct val object-ref (λ (o c) new-cls)
+                                impersonator-prop:contracted ctc
+                                impersonator-prop:original-object original-obj)))))))
+
+(define (instanceof/c-first-order ctc)
+  (let ([cls-ctc (base-instanceof/c-class-ctc ctc)])
+    (λ (val)
+      (and (object? val)
+           (contract-first-order-passes? cls-ctc (object-ref val))))))
+
+(define-struct base-instanceof/c (class-ctc)
+  #:property prop:contract
+  (build-contract-property 
+   #:projection instanceof/c-proj
+   #:name
+   (λ (ctc)
+     (build-compound-type-name 'instanceof/c (base-instanceof/c-class-ctc ctc)))
+   #:first-order instanceof/c-first-order))
+
+(define (instanceof/c cctc)
+  (let ([ctc (coerce-contract 'instanceof/c cctc)])
+    (make-base-instanceof/c ctc)))
 
 ;;--------------------------------------------------------------------
 ;;  interfaces
@@ -3643,10 +3793,8 @@
                      (generate-temporaries (syntax (1 2 3)))])
         (quasisyntax/loc stx
           (let*-values ([(sym) (quasiquote (unsyntax (localize name)))]
-                        [(method receiver)
-                         (find-method/who '(unsyntax form)
-                                          (unsyntax obj)
-                                          sym)])
+                        [(receiver) (unsyntax obj)]
+                        [(method) (find-method/who '(unsyntax form) receiver sym)])
             (unsyntax
              (make-method-call
               traced?
@@ -3712,21 +3860,19 @@
 ;; find-method/who : symbol[top-level-form/proc-name]
 ;;                   any[object] 
 ;;                   symbol[method-name] 
-;;               -> (values method-proc object)
-;; returns the method's procedure and the object.  If the object is a contract
-;; wrapped one and the original class was a primitive one, then the method
-;; will automatically unwrap both the object and any wrapped arguments on entry.
+;;               -> method-proc
+;; returns the method's procedure
 (define (find-method/who who in-object name)
-  (unless (object? in-object)
-    (obj-error who "target is not an object: ~e for method: ~a"
-               in-object name))
-  (let* ([cls (object-ref in-object)]
-         [pos (hash-ref (class-method-ht cls) name #f)])
-    (if pos
-      (values (vector-ref (class-methods cls) pos) in-object)
-      (obj-error who "no such method: ~a~a"
-                 name
-                 (for-class (class-name cls))))))
+  (let ([cls (object-ref in-object #f)])
+    (if cls
+        (let ([pos (hash-ref (class-method-ht cls) name #f)])
+          (if pos
+              (vector-ref (class-methods cls) pos)
+              (obj-error who "no such method: ~a~a"
+                         name
+                         (for-class (class-name cls)))))
+        (obj-error who "target is not an object: ~e for method: ~a"
+                   in-object name))))
 
 (define-values (make-class-field-accessor make-class-field-mutator)
   (let ([check-and-get-index
@@ -3779,8 +3925,7 @@
                        (string->symbol (format "generic:~a~a" name (for-intf (interface-name intf))))
                        (format "instance~a" (for-intf (interface-name intf)))
                        obj))
-                    (let-values ([(mth ths) (find-method/who 'make-generic obj name)])
-                      mth)))
+                    (find-method/who 'make-generic obj name)))
                 (let* ([pos (hash-ref (class-method-ht class) name
                                       (lambda ()
                                         (obj-error 'make-generic "no such method: ~a~a"
@@ -4018,7 +4163,8 @@
                            [trace-flag (if traced? (syntax/loc stx #t) (syntax/loc stx #f))])
                (syntax/loc stx (let-values ([(method method-obj)
                                              (let ([obj obj-expr])
-                                               (find-method/who 'with-method obj `name))]
+                                               (values (find-method/who 'with-method obj `name)
+                                                       obj))]
                                             ...)
                                  (letrec-syntaxes+values ([(id) (make-with-method-map
                                                                  trace-flag
@@ -4670,5 +4816,5 @@
          method-in-interface? interface->method-names class->interface class-info
          (struct-out exn:fail:object)
          make-primitive-class
-         class/c ->m ->*m ->dm case->m object/c)
+         class/c ->m ->*m ->dm case->m object/c instanceof/c)
 

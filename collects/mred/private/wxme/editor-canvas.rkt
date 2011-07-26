@@ -1,13 +1,15 @@
 #lang scheme/base
 (require scheme/class
          scheme/file
-         "../syntax.ss"
-         "editor.ss"
-         "editor-admin.ss"
-         "private.ss"
-         (only-in "cycle.ss" popup-menu%)
-         (only-in "../helper.ss" queue-window-callback)
-         "wx.ss")
+         "../syntax.rkt"
+         "editor.rkt"
+         "editor-admin.rkt"
+         "private.rkt"
+         racket/snip/private/prefs
+         racket/snip/private/private
+         (only-in "cycle.rkt" popup-menu%)
+         (only-in "../helper.rkt" queue-window-callback)
+         "wx.rkt")
 
 (provide editor-canvas%)
 
@@ -130,7 +132,7 @@
 ;; ----------------------------------------
 
 (define default-wheel-amt
-  (let ([v (get-preference 'MrEd:wheelStep)])
+  (let ([v (get-preference* 'GRacket:wheelStep)])
     (if (exact-integer? v)
         (max 3 (min 1000 v))
         3)))
@@ -287,13 +289,16 @@
     (send admin set-canvas #f)
     #|(super ~)|#)
   
-  (define/override (on-size w h)
+  (define/override (on-size)
     (unless noloop?
-      (unless (and (= w lastwidth)
-                   (= h lastheight))
-        (unless (and media
-                     (send media get-printing))
-          (reset-size)))))
+      (unless (and media
+                   (send media get-printing))
+        (let-boxes ([w 0]
+                    [h 0])
+            (get-size w h)
+          (unless (and (= w lastwidth)
+                       (= h lastheight))
+            (reset-size))))))
 
   (define/private (reset-size)
     (reset-visual #f)
@@ -453,6 +458,20 @@
                                      1)))
                            0)])
                (do-scroll x y #t x old-y))))]
+        [(wheel-left wheel-right)
+         (when (and allow-x-scroll?
+                    (not fake-x-scroll?))
+           (let-boxes ([x 0]
+                       [y 0])
+               (get-scroll x y)
+             (let ([old-x x]
+                   [x (max (+ x
+                              (* wheel-amt
+                                 (if (eq? code 'wheel-left)
+                                     -1
+                                     1)))
+                           0)])
+               (do-scroll x y #t old-x y))))]
         [else
          (when (and media (not (send media get-printing)))
            (using-admin

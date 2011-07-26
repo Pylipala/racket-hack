@@ -1,9 +1,6 @@
-#lang scribble/doc
-@(require "mz.ss" 
-          scribble/core 
-          scribble/html-properties
-          scribble/latex-properties
-          scribble/core 
+#lang scribble/manual
+@(require "mz.rkt"
+          scribble/core scribble/html-properties scribble/latex-properties
           racket/list)
 
 @(define (racket-extra-libs)
@@ -12,7 +9,7 @@
       (let ([mods (append-map
                    (lambda (k) (list ", " (resolve-get p ri k)))
                    (sort (resolve-get-keys
-                          p ri (lambda (v) (eq? (car v) 'scheme-extra-lib)))
+                          p ri (lambda (v) (eq? (car v) 'racket-extra-lib)))
                          string<?
                          #:key (lambda (k) (symbol->string (cadr k)))
                          #:cache-keys? #t))])
@@ -25,7 +22,7 @@
                    (make-css-addition "extras.css")
                    (make-tex-addition "extras.tex"))))
 
-@title[#:style (extras)]{@bold{Reference}: Racket}
+@title[#:style (extras)]{@bold{The Racket Reference}}
 
 @author["Matthew Flatt" "PLT"]
 
@@ -45,6 +42,7 @@ language.
                                racket/private/define
                                racket/private/stx
                                racket/private/map
+                               racket/private/list
                                racket/private/base)]{
 
 Unless otherwise noted, the bindings defined in this manual are
@@ -86,6 +84,12 @@ The @racketmodname[racket] library combines
              #:title "Abstracting Control"
              #:location "LISP and Functional Programming"
              #:date "1990")
+
+  (bib-entry #:key "Felleisen88a"
+             #:author "Matthias Felleisen"
+             #:title "The theory and practice of first-class prompts"
+             #:location "Principles of Programming Languages"
+             #:date "1988")
 
   (bib-entry #:key "Felleisen88"
              #:author "Matthias Felleisen, Mitch Wand, Dan Friedman, and Bruce Duba"
@@ -149,7 +153,7 @@ The @racketmodname[racket] library combines
             #:url "http://www.r6rs.org/")
 
   (bib-entry #:key "Sitaram90"
-             #:author "Dorai Sitaram"
+             #:author "Dorai Sitaram and Matthias Felleisen"
              #:title "Control Delimiters and Their Hierarchies"
              #:location @italic{Lisp and Symbolic Computation}
              #:date "1990")

@@ -31,8 +31,7 @@
 
     (define (docked?)
       (and drscheme-frame
-           (get-preference 'test:test-window:docked? 
-                           (lambda () (put-preferences '(test:test-window:docked?) '(#f)) #f))))
+           (preferences:get 'test-engine:test-window:docked?)))
     
     (define/public (report-success)
       (when current-rep
@@ -102,6 +101,9 @@
              [total-checks (send test-info checks-run)]
              [failed-checks (send test-info checks-failed)]
 	     [violated-signatures (send test-info failed-signatures)]
+             [wishes (send test-info unimplemented-wishes)]
+             [total-wishes (length wishes)]
+             [total-wish-calls (send test-info called-wishes)]
 
              [check-outcomes
               (lambda (total failed zero-message ck?)
@@ -121,6 +123,12 @@
 				     (string-constant test-engine-ran-n-tests))
 				 "\n")
 				total)]))
+                (send editor insert
+                      (cond 
+                        [(null? wishes) ""]
+                        [(= 1 total-wishes) (format "Wished for function ~a has not been implemented.\n" (car wishes))]
+                        [(= 2 total-wishes) (format "Wished for functions ~a and ~a have not been implemented.\n" (car wishes) (cadr wishes))]
+                        [else (format "Wished for functions ~a have not been implemented.\n" (format-list wishes))]))
                 (when (> total 0)
                   (send editor insert
                         (cond
@@ -196,6 +204,11 @@
 						editor test-info src-editor))
                  insert-test-results editor test-info src-editor))))
 
+    (define (format-list l)
+      (cond
+        [(null? (cdr l)) (format "and ~a" (car l))]
+        [else (format "~a, ~a" (car l) (format-list (cdr l)))]))
+    
     (define/public (display-check-failures checks editor test-info src-editor)
       (when (pair? checks)
  	(send editor insert (string-append (string-constant test-engine-check-failures) "\n")))
@@ -293,6 +306,10 @@
                  (formatter (not-range-test fail))
                  (formatter (not-range-min fail))
                  (formatter (not-range-max fail)))]
+         [(unimplemented-wish? fail)
+           (print "Test relies on a call to wished for function ~F that has not been implemented, with arguments ~F."
+              (symbol->string (unimplemented-wish-name fail))
+              (formatter (unimplemented-wish-args fail)))]
 	 [(property-fail? fail)
 	  (print-string (string-constant test-engine-property-fail-error))
 	  (for-each (lambda (arguments)
@@ -489,8 +506,7 @@
                          (lambda (b c)
                            (when (eq? 'button (send c get-event-type))
                              (send this show #f)
-                             (put-preferences '(test:test-window:docked?)
-                                              '(#t))
+                             (preferences:set 'test-engine:test-window:docked? #t)
                              (switch-func))))
             (make-object grow-box-spacer-pane% button-panel)))
 
@@ -543,7 +559,7 @@
                  button-panel
                  (lambda (b c)
                    (when (eq? 'button (send c get-event-type))
-                     (put-preferences '(test:test-window:docked?) '(#f))
+                     (preferences:set 'test-engine:test-window:docked? #f)
                      (send frame undock-tests))))
 
     (define/public (update-editor e)
@@ -555,8 +571,7 @@
 
     (define/public (remove)
       (let ([parent (get-parent)])
-        (put-preferences '(test:test-dock-size)
-                         (list (send parent get-percentages)))
+        (preferences:set 'test-engine:test-dock-size (send parent get-percentages))
         (send parent delete-child this)))))
 
 (provide test-panel% test-window% test-display%)

@@ -1,6 +1,6 @@
 /*
   Racket
-  Copyright (c) 2004-2010 PLT Scheme Inc.
+  Copyright (c) 2004-2011 PLT Scheme Inc.
   Copyright (c) 1995-2001 Matthew Flatt
 
     This library is free software; you can redistribute it and/or
@@ -198,7 +198,8 @@ Scheme_Config *scheme_init_error_escape_proc(Scheme_Config *config)
   %Q = truncated-to-256 Scheme string
   %V = scheme_value
   %D = scheme value to display
-  %_ = skip
+  %_ = skip pointer
+  %- = skip int
 
   %L = line number as intptr_t, -1 means no line
   %e = error number for strerror()
@@ -238,6 +239,7 @@ static intptr_t sch_vsprintf(char *s, intptr_t maxlen, const char *msg, va_list 
 	break;
       case 'd':
       case 'o':
+      case '-':
 	ints[ip++] = mzVA_ARG(args, int);
 	break;
       case 'g':
@@ -331,6 +333,13 @@ static intptr_t sch_vsprintf(char *s, intptr_t maxlen, const char *msg, va_list 
 	    tlen = strlen(t);
 	  }
 	  break;
+	case '-':
+	  {
+	    ip++;
+	    t = "";
+	    tlen = 0;
+	  }
+	  break;
 	case 'o':
 	  {
 	    int d;
@@ -349,9 +358,9 @@ static intptr_t sch_vsprintf(char *s, intptr_t maxlen, const char *msg, va_list 
 	    j++;
 	    d = ints[ip++];
             if (as_hex)
-              sprintf(buf, "%" PRINTF_INTPTR_SIZE_PREFIX "x", d);
+              sprintf(buf, "%" PRIxPTR, d);
             else
-              sprintf(buf, "%" PRINTF_INTPTR_SIZE_PREFIX "d", d);
+              sprintf(buf, "%" PRIdPTR, d);
 	    t = buf;
 	    tlen = strlen(t);
 	  }
@@ -370,7 +379,7 @@ static intptr_t sch_vsprintf(char *s, intptr_t maxlen, const char *msg, va_list 
 	    intptr_t d;
 	    d = ints[ip++];
 	    if (d >= 0) {
-	      sprintf(buf, "%" PRINTF_INTPTR_SIZE_PREFIX "d:", d);
+	      sprintf(buf, "%" PRIdPTR ":", d);
 	      t = buf;
 	      tlen = strlen(t);
 	    } else {
@@ -570,7 +579,7 @@ void scheme_init_error(Scheme_Env *env)
   GLOBAL_NONCM_PRIM("raise-user-error",           raise_user_error,      1, -1, env);
   GLOBAL_NONCM_PRIM("raise-syntax-error",         raise_syntax_error,    2,  5, env);
   GLOBAL_NONCM_PRIM("raise-type-error",           raise_type_error,      3, -1, env);
-  GLOBAL_NONCM_PRIM("raise-mismatch-error",       raise_mismatch_error,  3,  3, env);
+  GLOBAL_NONCM_PRIM("raise-mismatch-error",       raise_mismatch_error,  3, -1, env);
 
   scheme_raise_arity_error_proc =                  scheme_make_noncm_prim(raise_arity_error, "raise-arity-error", 2, -1);
   scheme_add_global_constant("raise-arity-error",  scheme_raise_arity_error_proc, env);
@@ -662,23 +671,6 @@ void scheme_init_logger_config() {
 }
 
 static void
-scheme_inescapeable_error(const char *a, const char *b)
-{
-  int al, bl;
-  char *t;
-
-  al = strlen(a);
-  bl = strlen(b);
-  t = scheme_malloc_atomic(al + bl + 2);
-  memcpy(t, a, al);
-  memcpy(t + al, b, bl);
-  t[al + bl] = '\n';
-  t[al + bl + 1] = 0;
-
-  scheme_console_output(t, al + bl + 1);
-}
-
-static void
 call_error(char *buffer, int len, Scheme_Object *exn)
 {
   if (scheme_current_thread->constant_folding) {
@@ -763,9 +755,8 @@ call_error(char *buffer, int len, Scheme_Object *exn)
     scheme_pop_break_enable(&cframe2, 0);
     scheme_pop_continuation_frame(&cframe);
 
-    /* Uh-oh; record the error and fall back to the default escaper */
-    scheme_inescapeable_error("error escape handler did not escape; calling the default error escape handler", "");
-    scheme_longjmp(savebuf, 1); /* force an exit */
+    /* Didn't escape, so fall back to the default escaper: */
+    def_error_escape_proc(0, NULL);
   }
 }
 
@@ -856,7 +847,7 @@ void scheme_warning(char *msg, ...)
 }
 
 void scheme_log(Scheme_Logger *logger, int level, int flags,
-                char *msg, ...)
+                const char *msg, ...)
 {
   GC_CAN_IGNORE va_list args;
   char *buffer;
@@ -875,6 +866,29 @@ void scheme_log(Scheme_Logger *logger, int level, int flags,
   buffer[len] = 0;
 
   scheme_log_message(logger, level, buffer, len, NULL);
+}
+
+void scheme_log_w_data(Scheme_Logger *logger, int level, int flags,
+                       Scheme_Object *data,
+                       const char *msg, ...)
+{
+  GC_CAN_IGNORE va_list args;
+  char *buffer;
+  intptr_t len;
+
+  if (logger) {
+    if (logger->local_timestamp == *logger->timestamp)
+      if (logger->want_level < level)
+        return;
+  }
+
+  HIDE_FROM_XFORM(va_start(args, msg));
+  len = sch_vsprintf(NULL, 0, msg, args, &buffer);
+  HIDE_FROM_XFORM(va_end(args));
+
+  buffer[len] = 0;
+
+  scheme_log_message(logger, level, buffer, len, data);
 }
 
 int scheme_log_level_p(Scheme_Logger *logger, int level)
@@ -1214,6 +1228,10 @@ char *scheme_make_arity_expect_string(Scheme_Object *proc,
   const char *name;
   int namelen = -1;
   int mina, maxa;
+
+  if (SCHEME_CHAPERONEP(proc)) {
+    proc = SCHEME_CHAPERONE_VAL(proc);
+  }
 
   if (SCHEME_PRIMP(proc)) {
     name = ((Scheme_Primitive_Proc *)proc)->name;
@@ -1717,8 +1735,11 @@ static void do_wrong_syntax(const char *where,
 
   if (SCHEME_FALSEP(form))
     form = extra_sources;
-  else
+  else {
+    if (SCHEME_STXP(form))
+      form = scheme_stx_taint(form);
     form = scheme_make_pair(form, extra_sources);
+  }
 
   scheme_raise_exn(MZEXN_FAIL_SYNTAX, 
 		   form,
@@ -1933,8 +1954,11 @@ void scheme_raise_out_of_memory(const char *where, const char *msg, ...)
 void scheme_unbound_global(Scheme_Bucket *b)
 {
   Scheme_Object *name = (Scheme_Object *)b->key;
+  Scheme_Env *home;
 
-  if (((Scheme_Bucket_With_Home *)b)->home->module) {
+  home = scheme_get_bucket_home(b);
+
+  if (home && home->module) {
     const char *errmsg;
     char *phase, phase_buf[20];
     
@@ -1943,8 +1967,8 @@ void scheme_unbound_global(Scheme_Bucket *b)
     else
       errmsg = "reference to an identifier before its definition: %S%_%s";
 
-    if (((Scheme_Bucket_With_Home *)b)->home->phase) {
-      sprintf(phase_buf, " phase: %" PRINTF_INTPTR_SIZE_PREFIX "d", ((Scheme_Bucket_With_Home *)b)->home->phase);
+    if (home->phase) {
+      sprintf(phase_buf, " phase: %" PRIdPTR "", home->phase);
       phase = phase_buf;
     } else
       phase = "";
@@ -1953,7 +1977,7 @@ void scheme_unbound_global(Scheme_Bucket *b)
 		     name,
 		     errmsg,
 		     name,
-		     ((Scheme_Bucket_With_Home *)b)->home->module->modsrc,
+		     home->module->modsrc,
                      phase);
   } else {
     scheme_raise_exn(MZEXN_FAIL_CONTRACT_VARIABLE,
@@ -2156,17 +2180,61 @@ static Scheme_Object *raise_type_error(int argc, Scheme_Object *argv[])
 static Scheme_Object *raise_mismatch_error(int argc, Scheme_Object *argv[])
 {
   Scheme_Object *s;
+  int i; 
 
   if (!SCHEME_SYMBOLP(argv[0]))
     scheme_wrong_type("raise-mismatch-error", "symbol", 0, argc, argv);
   if (!SCHEME_CHAR_STRINGP(argv[1]))
     scheme_wrong_type("raise-mismatch-error", "string", 1, argc, argv);
 
-  s = scheme_char_string_to_byte_string(argv[1]);
+  /* additional arguments: odd ones must be strings */
+  for (i = 3; i < argc; i += 2) {
+    if (!SCHEME_CHAR_STRINGP(argv[i]))
+      scheme_wrong_type("raise-mismatch-error", "string", i, argc, argv);
+  }
 
-  scheme_arg_mismatch(scheme_symbol_val(argv[0]),
-		      SCHEME_BYTE_STR_VAL(s),
-		      argv[2]);
+  if (argc == 3) {
+    /* Simple case: one string & value: */
+    s = scheme_char_string_to_byte_string(argv[1]);
+    
+    scheme_arg_mismatch(scheme_symbol_val(argv[0]),
+                        SCHEME_BYTE_STR_VAL(s),
+                        argv[2]);
+  } else {
+    /* Multiple strings & values: */
+    char *st, **ss;
+    intptr_t slen, *slens, total = 0;
+    int scount = argc - 1;
+
+    ss = (char **)MALLOC_N(char*, scount);
+    slens = (intptr_t *)MALLOC_N_ATOMIC(intptr_t, scount);
+
+    for (i = 1; i < argc; i++) {
+      if (i & 1) {
+        s = scheme_char_string_to_byte_string(argv[i]);
+        st = SCHEME_BYTE_STR_VAL(s);
+        slen = SCHEME_BYTE_STRLEN_VAL(s);
+      } else {
+        st = scheme_make_provided_string(argv[i], scount / 2, &slen);
+      }
+      total += slen;
+      ss[i-1] = st;
+      slens[i-1] = slen;
+    }
+    st = (char *)scheme_malloc_atomic(total + 1);
+
+    total = 0;
+    for (i = 0; i < scount; i++) {
+      slen = slens[i];
+      memcpy(st + total, ss[i], slen);
+      total += slen;
+    }
+    st[total] = 0;
+    
+    scheme_raise_exn(MZEXN_FAIL_CONTRACT,
+                     "%s: %t",
+                     scheme_symbol_val(argv[0]), st, total);
+  }
 
   return NULL;
 }
@@ -2418,9 +2486,9 @@ emergency_error_display_proc(int argc, Scheme_Object *argv[])
 
   s = scheme_char_string_to_byte_string(argv[0]);
 
-  scheme_console_output(SCHEME_BYTE_STR_VAL(s),
-			SCHEME_BYTE_STRTAG_VAL(s));
-  scheme_console_output("\n", 1);
+  scheme_log_message(NULL, SCHEME_LOG_ERROR, 
+                     SCHEME_BYTE_STR_VAL(s), SCHEME_BYTE_STRTAG_VAL(s), 
+                     scheme_false);
 
   return scheme_void;
 }
@@ -2826,7 +2894,7 @@ void scheme_log_message(Scheme_Logger *logger, int level, char *buffer, intptr_t
               intptr_t slen;
               char *cp;
               slen = SCHEME_SYM_LEN(orig_logger->name);
-              cp = scheme_malloc_atomic(slen + len + 2);
+              cp = scheme_malloc_atomic(slen + 2 + len + 1);
               memcpy(cp, SCHEME_SYM_VAL(orig_logger->name), slen);
               memcpy(cp + slen, ": ", 2);
               memcpy(cp + slen + 2, buffer, len + 1);
@@ -2880,6 +2948,49 @@ void scheme_log_abort(char *buffer)
 void scheme_log_warning(char *buffer)
 {
   scheme_log_message(scheme_main_logger, SCHEME_LOG_WARNING, buffer, strlen(buffer), scheme_false);
+}
+
+void scheme_glib_log_message(const char *log_domain,
+                             int log_level,
+                             const char *message,
+                             void *user_data)
+/* This handler is suitable for use as a glib logging handler.
+   Although a handler can be implemented with the FFI,
+   we build one into Racket to avoid potential problems of
+   handlers getting GCed or retaining a namespace. */
+{
+#define mzG_LOG_LEVEL_ERROR    (1 << 2)
+#define mzG_LOG_LEVEL_CRITICAL (1 << 3)
+#define mzG_LOG_LEVEL_WARNING  (1 << 4)
+#define mzG_LOG_LEVEL_MESSAGE  (1 << 5)
+#define mzG_LOG_LEVEL_INFO     (1 << 6)
+#define mzG_LOG_LEVEL_DEBUG    (1 << 7)
+  int level, len1, len2;
+  char *together;
+
+  if (log_level & (mzG_LOG_LEVEL_ERROR))
+    level = SCHEME_LOG_FATAL;
+  else if (log_level & (mzG_LOG_LEVEL_CRITICAL))
+    level = SCHEME_LOG_ERROR;
+  else if (log_level & (mzG_LOG_LEVEL_WARNING | mzG_LOG_LEVEL_MESSAGE))
+    level = SCHEME_LOG_WARNING;
+  else if (log_level & (mzG_LOG_LEVEL_INFO))
+    level = SCHEME_LOG_INFO;
+  else /* if (log_level & (mzG_LOG_LEVEL_DEBUG)) */
+    level = SCHEME_LOG_DEBUG;
+
+  len2 = strlen(message);
+  if (log_domain) {
+    len1 = strlen(log_domain);
+    together = (char *)scheme_malloc_atomic(len1 + len2 + 3);
+    memcpy(together, log_domain, len1);
+    memcpy(together + len1, ": ", 2);
+    memcpy(together + len1 + 2, message, len2);
+    len2 += len1 + 2;
+  } else
+    together = (char *)message;
+  
+  scheme_log_message(scheme_main_logger, level, together, len2, scheme_false);
 }
 
 static int extract_level(const char *who, int which, int argc, Scheme_Object **argv)

@@ -1,5 +1,5 @@
 This is the source code distribution for Racket.  For license
-information, please see the file racket/doc/release-notes/COPYING.LIB.
+information, please see the file racket/doc/release-notes/COPYING.txt.
 
 Compiled binaries, documentation, and up-to-date information are
 available at http://racket-lang.org/; pre-compiled nightly builds are
@@ -53,9 +53,9 @@ the Unix instructions below, but note the following:
 
  * To build an X11- and Gtk-based GRacket, run `configure' with the
    `--enable-xonx' flag.  Frameworks are not used for such builds, so
-   --enable-shared is allowed.  The `--enable-xonx' flag also affects
+   `--enable-shared' is allowed.  The `--enable-xonx' flag also affects
    the Racket build, so that `system-type' reports 'unix. Pre-built
-   libraries are not downloaded in this more; you must have Cairo,
+   libraries are not downloaded in this mode; you must have Cairo,
    Pango, and GTk installed.
 
  * To use `--prefix' without `--enable-xonx', you must also supply
@@ -171,6 +171,11 @@ Detailed instructions:
 
          env CC=cc CXX=CC [here]configure
 
+    To add an include path, be sure to use CPPFLAGS="-I..." instead
+    of CFLAGS="-I...". The CPPFLAGS variable controls C pre-processing,
+    which includes C compilation, and the Racket build normally uses
+    the C pre-processor directly for some parts of the build.
+
     For cross compilation, set the compiler variables to a compiler for
     the target platform compiler, but also set CC_FOR_BUILD to a
     compiler for the host platform (for building binaries to execute
@@ -245,6 +250,21 @@ recorded in a "buildinfo" file in the installation.
 For a build without `--prefix' (or with `--enable-origtree') and without
 `--enable-shared', you can safely move the install tree, because all
 file references within the installation are relative.
+
+========================================================================
+ Cross-compiling
+========================================================================
+
+Cross-compilation requires at least two flags to `configure':
+
+ * `--host=OS', where OS is something like `i386-gnu-linux'
+
+ * `--enable-racket=RACKET', where RACKET is a path to a Racket
+   executable for the version being compiled that runs on the build 
+   (i.e., you must compile on the build machine to cross-compile)
+
+The `--enable-racket' flag is needed because building and installing
+Racket requires running (an intermediate version of) Racket.
 
 ========================================================================
  CGC versus 3m
@@ -346,6 +366,6 @@ Modifying Racket
 ----------------
 
 If you modify Racket and change any primitive syntax or the collection
-of built-in identifers, be sure to turn off USE_COMPILED_MACROS in
+of built-in identifers, be sure to turn off USE_COMPILED_STARTUP in
 "schminc.h".  Otherwise, Racket won't start.  See "schminc.h" for
 details.

@@ -1,8 +1,10 @@
 #lang racket/base
 
 (require "guts.rkt"
+         "blame.rkt"
          "opt.rkt"
-         "base.rkt")
+         "base.rkt"
+         "misc.rkt")
 (require (for-syntax racket/base
                      "opt-guts.rkt"))
 
@@ -20,7 +22,7 @@
                    (raise-blame-error
                     blame
                     val
-                    "expected <~a>, given: ~e"
+                    "expected: ~s, given: ~e"
                     (contract-name ctc)
                     val))))
      null
@@ -100,7 +102,7 @@
                       (raise-blame-error
                        blame
                        val
-                       "expected <~a>, given: ~e"
+                       "expected: ~s, given: ~e"
                        (contract-name ctc)
                        val)))
           (interleave-lifts

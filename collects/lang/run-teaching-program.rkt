@@ -1,7 +1,7 @@
 #lang scheme/base
 
-(require "stepper-language-interface.ss"           
-         "debugger-language-interface.ss"
+(require "stepper-language-interface.rkt"
+         "debugger-language-interface.rkt"
          stepper/private/shared
          scheme/class
          scheme/contract
@@ -16,6 +16,10 @@
                                (symbol? boolean?)
                                any)])
 
+;; this function expands a port providing a program and a bunch of 
+;; arguments describing the user environment, and returns a thunk
+;; that returns the top-level expressions that make up the expanded
+;; program, one on each call.
 (define (expand-teaching-program port reader language-module teachpacks rep [module-name '#%htdp] [enable-testing? #t])
   (let ([state 'init]
         ;; state : 'init => 'require => 'done-or-exn

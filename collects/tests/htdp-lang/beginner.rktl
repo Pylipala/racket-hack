@@ -11,11 +11,11 @@
 ;; Don't try to run other tests from the test suite after loading this
 ;; one into a particular namespace.
 
-;; See also htdp-image.ss, which must be loaded into GRacket (but is in this
+;; See also htdp-image.rkt, which must be loaded into GRacket (but is in this
 ;; directory anyway)
 
-;; Tests that apply to all languages go in beg-adv.ss.
-;; Tests that apply only to beginner through intermediate go in beg-intm.ss,
+;; Tests that apply to all languages go in beg-adv.rkt.
+;; Tests that apply only to beginner through intermediate go in beg-intm.rkt,
 ;;  and so on.
 
 ;; Writing tests:
@@ -91,11 +91,10 @@
 (load-relative "beg-intm.rktl")
 (load-relative "beg-bega.rktl")
 
-(htdp-syntax-test #'quote)
-(htdp-syntax-test #''1)
-(htdp-syntax-test #''"hello")
-(htdp-syntax-test #''(1 2))
-(htdp-syntax-test #'''a)
-
+(htdp-syntax-test #'quote "quote: expected an open parenthesis before quote, but found none")
+(htdp-syntax-test #''1 "quote: expected the name of the symbol after the quote, but found a number")
+(htdp-syntax-test #''"hello" "quote: expected the name of the symbol after the quote, but found a string")
+(htdp-syntax-test #''(1 2) "quote: expected the name of the symbol after the quote, but found a part")
+(htdp-syntax-test #'''a "quote: expected the name of the symbol after the quote, but found a part")
 
 (report-errs)

@@ -1,7 +1,5 @@
 #lang scribble/doc
-@(require "mz.ss"
-          (for-syntax racket/base)
-          (for-label racket/serialize))
+@(require "mz.rkt" (for-syntax racket/base) (for-label racket/serialize))
 
 @(define posn-eval (make-base-eval))
 @(interaction-eval #:eval posn-eval (require (for-syntax racket/base)))
@@ -50,6 +48,21 @@ to @math{4+2n} names:
        @math{m} is the number of @racket[field]s that do not include
        an @racket[#:auto] option.}
 
+ @item{@racket[id], a @tech{transformer binding} that encapsulates
+       information about the structure type declaration. This binding
+       is used to define subtypes, and it also works with the
+       @racket[shared] and @racket[match] forms. For detailed
+       information about the binding of @racket[id], see
+       @secref["structinfo"].
+       
+       The @racket[constructor-id] and @racket[id] can be the same, in
+       which case @racket[id] performs both roles. In that case, the
+       expansion of @racket[id] as an expression produces an otherwise
+       inaccessible identifier that is bound to the constructor
+       procedure; the expanded identifier has a
+       @racket['constructor-for] property whose value is an identifier
+       that is @racket[free-identifier=?] to @racket[id].}
+
  @item{@racket[id]@racketidfont{?}, a @deftech{predicate} procedure
        that returns @racket[#t] for instances of the @tech{structure
        type} (constructed by @racket[constructor-id] or the
@@ -69,16 +82,6 @@ to @math{4+2n} names:
        takes an instance of the @tech{structure type} and a new field
        value. The structure is destructively updated with the new
        value, and @|void-const| is returned.}
-
- @item{@racket[id], a @tech{transformer binding} that encapsulates
-       information about the structure type declaration. This binding
-       is used to define subtypes, and it also works with the
-       @racket[shared] and @racket[match] forms. For detailed
-       information about the binding of @racket[id], see
-       @secref["structinfo"].
-       
-       The @racket[constructor-id] and @racket[id] can be the same, in
-       which case @racket[id] performs both roles.}
 
 ]
 
@@ -109,7 +112,7 @@ multiple times, attaches a property value to the structure type; see
 @racket[#:transparent] option is a shorthand for @racket[#:inspector
 #f].
 
-@margin-note{Use the @racket[prop:procedure] to property implement an
+@margin-note{Use the @racket[prop:procedure] property to implement an
 @as-index{applicable structure}, use @racket[prop:evt] to create a
 structure type whose instances are @tech{synchronizable events}, and
 so on. By convention, property names start with @racketidfont{prop:}.}
@@ -123,8 +126,8 @@ cannot have a guard or properties, so using @racket[#:prefab] with
 must also be a @tech{prefab} structure type.
 
 If @racket[constructor-id] is supplied, then the @tech{transformer
-binding} of @scheme[id] records @scheme[constructor-id] as the
-constructor binding; as a result, for example, @scheme[struct-out]
+binding} of @racket[id] records @racket[constructor-id] as the
+constructor binding; as a result, for example, @racket[struct-out]
 includes @racket[constructor-id] as an export. If
 @racket[constructor-id] is supplied via
 @racket[#:extra-constructor-name] and it is not @racket[id], applying
@@ -212,11 +215,11 @@ position within the structure declaration of the field named by
                                (id super-id)])]{
 
 Like @racket[struct], except that the syntax for supplying a
-@racket[super-id] is different, and a @racket[_constructor-id] that is
+@racket[super-id] is different, and a @racket[_constructor-id] that has
 a @racketidfont{make-} prefix on @racket[id] is implicitly supplied
 via @racket[#:extra-constructor-name].
 
-This form is provided for backward compatibility; @racket[struct] is
+This form is provided for backwards compatibility; @racket[struct] is
 preferred.
 
 @defexamples[
@@ -251,6 +254,7 @@ and the only constraint on the form is that it starts with some
 (posn-x (make-posn 1 2))
 (define-xy-struct posn #:mutable)
 (set-posn-x! (make-posn 1 2) 0)
+(code:comment "this next line will cause an error due to a bad keyword")
 (define-xy-struct posn #:bad-option)
 ]}
 

@@ -1,7 +1,7 @@
 #lang scribble/doc
-@(require scribble/manual
-          scribble/eval
-          "guide-utils.ss")
+@(require scribble/manual scribble/eval "guide-utils.rkt")
+
+@(define swap-eval (make-base-eval))
 
 @title[#:tag "pattern-macros"]{Pattern-Based Macros}
 
@@ -119,7 +119,7 @@ the expansion is
 @racketblock[
 (let ([set!_1 5]
       [other 6])
-  (let ([tmp_1 tmp])
+  (let ([tmp_1 set!_1])
     (set! set!_1 other)
     (set! other tmp_1))
   (list set!_1 other))
@@ -247,9 +247,9 @@ Given our macro definitions, the @racket[swap] or @racket[rotate]
 identifiers must be used after an open parenthesis, otherwise a syntax
 error is reported:
 
-@interaction-eval[(define-syntax swap (syntax-rules ()))]
+@interaction-eval[#:eval swap-eval (define-syntax swap (syntax-rules ()))]
 
-@interaction[(+ swap 3)]
+@interaction[#:eval swap-eval (+ swap 3)]
 
 An @deftech{identifier macro} works in any expression. For example, we
 can define @racket[clock] as an identifier macro that expands to
@@ -481,3 +481,6 @@ Racket with just three small pattern-based macros:
 @racket[define-cbr], @racket[define-for-cbr], and
 @racket[define-get/put-id].
 
+@; -----------------------------------------------------------------
+
+@close-eval[swap-eval]

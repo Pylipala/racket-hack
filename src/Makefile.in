@@ -17,6 +17,14 @@ builddir = @builddir@
 
 NOOP = :
 
+# RUN_RACKET_<X> typically redirects to RUN_THIS_RACKET_<X>,
+# but it can also redirect to an existing Racket executable
+# that is the same as the version being built (which is
+# useful for cross-compilation, for example).
+RUN_THIS_RACKET_CGC = racket/racket@CGC@
+RUN_THIS_RACKET_MMM = racket/racket@MMM@
+RUN_THIS_RACKET_MAIN_VARIANT = racket/racket@MAIN_VARIANT@
+
 ALLDIRINFO = "$(DESTDIR)$(bindir)" \
              "$(DESTDIR)$(collectsdir)" \
              "$(DESTDIR)$(docdir)" \
@@ -71,9 +79,6 @@ CFLAGS = @CFLAGS@ @COMPFLAGS@ @PREFLAGS@
 LDFLAGS = @LDFLAGS@
 WITH_ENV_VARS = env CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)"
 
-# build for iPhoneOS/iPhoneSimulator
-IPHONE = @IPHONE@
-
 
 install:
 	$(MAKE) install-@MAIN_VARIANT@
@@ -109,17 +114,10 @@ no-run:
 	$(NOOP)
 
 copytree-run:
-ifeq ($(IPHONE),)
-	  racket/racket@CGC@ -u \
+	@RUN_RACKETCGC@ -u \
           "$(srcdir)/../collects/setup/unixstyle-install.rkt" \
           make-install-copytree "$(srcdir)/.." \
           $(ALLDIRINFO) "@INSTALL_ORIG_TREE@"
-else
-	  $(srcdir)/host-precompiled/racket/racket@CGC@ -u \
-          "$(srcdir)/../collects/setup/unixstyle-install.rkt" \
-          make-install-copytree "$(srcdir)/.." \
-          $(ALLDIRINFO) "@INSTALL_ORIG_TREE@"
-endif
 
 install-gracket-post-collects:
 	cd gracket; $(MAKE) install-post-collects
@@ -129,7 +127,7 @@ install-no-post-collects:
 
 fix-paths:
 	if [ "$(DESTDIR)" != "" ]; then \
-          racket/racket@CGC@ -u \
+          @RUN_RACKET_CGC@ -u \
             "$(srcdir)/../collects/setup/unixstyle-install.rkt" \
             make-install-destdir-fix "$(srcdir)/.." \
             $(ALLDIRINFO) "@INSTALL_ORIG_TREE@"; \
@@ -145,7 +143,7 @@ install-3m-common:
 
 install-3m:
 	$(MAKE) install-3m-common
-	$(WITH_ENV_VARS) racket/racket@MMM@ $(SETUP_ARGS)
+	$(WITH_ENV_VARS) @RUN_RACKET_MMM@ $(SETUP_ARGS)
 	$(MAKE) install-common-last
 
 plain-install-3m:
@@ -168,7 +166,7 @@ install-cgc-common:
 
 install-cgc:
 	$(MAKE) install-cgc-common
-	$(WITH_ENV_VARS) racket/racket@CGC@ $(SETUP_ARGS)
+	$(WITH_ENV_VARS) @RUN_RACKET_CGC@ $(SETUP_ARGS)
 	$(MAKE) install-common-last
 
 plain-install-cgc:
@@ -191,7 +189,7 @@ install-both-common:
 
 install-both:
 	$(MAKE) install-both-common
-	$(WITH_ENV_VARS) racket/racket@MAIN_VARIANT@ $(SETUP_ARGS)
+	$(WITH_ENV_VARS) @RUN_RACKET_MAIN_VARIANT@ $(SETUP_ARGS)
 	$(MAKE) install-common-last
 
 plain-install-both:

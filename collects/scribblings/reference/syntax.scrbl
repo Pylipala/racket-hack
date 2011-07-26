@@ -1,6 +1,5 @@
 #lang scribble/doc
-@(require "mz.ss"
-          scribble/bnf
+@(require "mz.rkt" scribble/bnf scribble/core
           (for-label (only-in racket/require-transform
                               make-require-transformer)
                      racket/require-syntax
@@ -25,10 +24,29 @@
 @(define unquote-id (racket unquote))
 @(define unquote-splicing-id (racket unquote-splicing))
 
+@(define-syntax-rule (equiv-to-block b)
+    (tabular #:style (make-style #f (list (make-table-columns
+                                           (list (make-style #f '(baseline))
+                                                 (make-style #f '(baseline))))))
+             (list (list (para (hspace 2) " is equivalent to" (hspace 1))
+                         (racketblock0 b)))))
+
+@(define-syntax-rule (subeqivs [a0 b0] [a b] ...)
+   (tabular (map
+             list
+             (apply
+              append
+              (list (list (racketblock a0)
+                          (equiv-to-block b0))
+                    (list (para 'nbsp)
+                          (racketblock a)
+                          (equiv-to-block b))
+                    ...)))))
+
 @title[#:tag "syntax" #:style 'toc]{Syntactic Forms}
 
 This section describes the core syntax forms that appear in a fully
-expanded expression, plus a many closely-related non-core forms.
+expanded expression, plus many closely related non-core forms.
 See @secref["fully-expanded"] for the core grammar.
 
 @local-table-of-contents[]
@@ -205,7 +223,7 @@ corresponding compiled and/or declared module. The third component of
 the vector should be printable and @racket[read]able, so that it can
 be preserved in marshaled bytecode. The @racketmodname[racket/base]
 and @racketmodname[racket] languages attach
-@scheme['#(racket/language-info get-info #f)] to a @racket[module]
+@racket['#(racket/language-info get-info #f)] to a @racket[module]
 form. See also @racket[module-compiled-language-info],
 @racket[module->language-info], and
 @racketmodname[racket/language-info].}
@@ -413,7 +431,7 @@ bindings of each @racket[require-spec] are visible for expanding later
 
  @specsubform[#:literals (for-meta)
               (for-meta phase-level require-spec ...)]{Like the combination of
-  @racket[require-spec]s, but constrained each binding specified by
+  @racket[require-spec]s, but the binding specified by
   each @racket[require-spec] is shifted by @racket[phase-level]. The
   @tech{label phase level} corresponds to @racket[#f], and a shifting
   combination that involves @racket[#f] produces @racket[#f].
@@ -655,7 +673,7 @@ an identifier can be either imported or defined for a given
 
 @defform[(local-require require-spec ...)]{
 
-Like @scheme[require], but for use in a @tech{internal-definition context} to
+Like @racket[require], but for use in a @tech{internal-definition context} to
 import just into the local context. Only bindings from @tech{phase
 level} 0 are imported.}
 
@@ -711,10 +729,8 @@ follows.
  ]
 
  If @racket[id] has a transformer binding to a @tech{rename
- transformer}, then the exported binding is the target identifier of
- the @tech{rename transformer}, instead of @racket[id], unless the
- target identifier has a true value for the
- @racket['not-free-identifier=?] @tech{syntax property}.}
+ transformer}, then the transformer affects the exported binding. See
+ @racket[make-rename-transformer] for more information.}
 
  @defsubform[(all-defined-out)]{ Exports all identifiers that are
  defined at @tech{phase level} 0 or @tech{phase level} 1 within the
@@ -1041,10 +1057,11 @@ context of the @racket[phaseless-spec] form.}
 The following forms support more complex selection and manipulation of
 sets of imported identifiers.
 
-@defform[(matching-identifiers-in regexp require-spec)]{ Like
-  @racket[require-spec], but including only imports whose names match
-  @racket[regexp].  The @racket[regexp] must be a literal regular
-  expression (see @secref["regexp"]).
+@defform[(matching-identifiers-in regexp require-spec)]{
+
+Like @racket[require-spec], but including only imports whose names
+ match @racket[regexp].  The @racket[regexp] must be a literal regular
+ expression (see @secref["regexp"]).
 
 @defexamples[#:eval (syntax-eval)
 (module zoo racket/base
@@ -1064,8 +1081,9 @@ blowfish
 monkey
 ]}
 
-@defform[(subtract-in require-spec subtracted-spec ...)]{ Like
-  @racket[require-spec], but omitting those imports that would be
+@defform[(subtract-in require-spec subtracted-spec ...)]{
+
+Like @racket[require-spec], but omitting those imports that would be
   imported by one of the @racket[subtracted-spec]s.
 
 @defexamples[#:eval (syntax-eval)
@@ -1093,7 +1111,7 @@ aliens
 @defform[(filtered-in proc-expr require-spec)]{ 
 
   Applies an arbitrary transformation on the import names (as strings)
-  of @scheme[require-spec]. The @racket[proc-expr] must evaluate at
+  of @racket[require-spec]. The @racket[proc-expr] must evaluate at
   expansion time to a single-argument procedure, which is applied on
   each of the names from @racket[require-spec].  For each name, the
   procedure must return either a string for the import's new name or
@@ -1107,7 +1125,7 @@ aliens
                      (regexp-replace #rx"-" (string-titlecase name) "")))
               racket/base))]
   imports only bindings from @racketmodname[racket/base] that match the
-  pattern @scheme[#rx"^[a-z-]+$"], and it converts the names to ``camel case.''}
+  pattern @racket[#rx"^[a-z-]+$"], and it converts the names to ``camel case.''}
 
 @defform[(path-up rel-string ...)]{
 
@@ -1119,17 +1137,18 @@ directory, etc., all the way to the root directory. The discovered
 path relative to the enclosing source becomes part of the expanded
 form.
 
-This form is useful in setting up a ``project environment''.  For
-example, you can write a @filepath{config.ss} file in the root
-directory of your project with:
+This form is useful in setting up a ``project environment.''  For
+example, using the following @filepath{config.rkt} file in the root
+directory of your project:
 @racketmod[
   racket/base
-  (require racket/require-syntax (for-syntax "utils/in-here.ss"))
+  (require racket/require-syntax 
+           (for-syntax "utils/in-here.rkt"))
   ;; require form for my utilities
   (provide utils-in)
   (define-require-syntax utils-in in-here-transformer)
 ]
-and in @filepath{utils/in-here.ss} in the root:
+and using @filepath{utils/in-here.rkt} under the same root directory:
 @racketmod[
   racket/base
   (require racket/runtime-path)
@@ -1139,22 +1158,56 @@ and in @filepath{utils/in-here.ss} in the root:
     (syntax-case stx ()
       [(_ sym)
        (identifier? #'sym)
-       (let ([path (build-path here (format "~a.ss" (syntax-e #'sym)))])
+       (let ([path (build-path here (format "~a.rkt" (syntax-e #'sym)))])
          (datum->syntax stx `(file ,(path->string path)) stx))]))
 ]
-Finally, you can use it via @racket[path-up]:
+then @racket[path-up] works for any other module under the project
+ directory to find @filepath{config.rkt}:
 @racketblock[
-  (require racket/require (path-up "config.ss") (utils-in foo))]
-Note that the order of requires in this example is important, as each of
+  (require racket/require 
+           (path-up "config.rkt")
+           (utils-in foo))]
+Note that the order of requires in the example is important, as each of
 the first two bind the identifier used in the following.
 
 An alternative in this scenario is to use @racket[path-up] directly to
-get to the utility module:
+find the utility module:
 @racketblock[
-  (require racket/require (path-up "utils/foo.ss"))]
-but then you need to be careful with subdirectories that are called
-@filepath{utils}, which will override the one in the project's root.
-In other words, the previous method requires a single unique name.}
+  (require racket/require 
+           (path-up "utils/foo.rkt"))]
+but then sub-directories that are called
+@filepath{utils} override the one in the project's root.
+In other words, the previous method requires only a single unique name.}
+
+@defform/subs[(multi-in subs ...+)
+              ([subs sub-path
+                     (sub-path ...)]
+               [sub-path rel-string
+                         id])]{
+
+Specifies multiple files to be required from a hierarchy of
+directories or collections. The set of required module paths is computed
+as the cartesian product of the @racket[subs] groups, where each
+@racket[sub-path] is combined with other @racket[sub-path]s in order
+using a @litchar{/} separator. A @racket[sub-path] as a @racket[subs]
+is equivalent to @racket[(sub-path)]. All @racket[sub-path]s in a given
+@racket[multi-in] form must be either strings or identifiers.
+
+Examples:
+
+@subeqivs[
+[(require (multi-in racket (dict @#,racketidfont{list})))
+ (require racket/dict racket/list)]
+[(require (multi-in "math" "matrix" "utils.rkt"))
+ (require "math/matrix/utils.rkt")]
+[(require (multi-in "utils" ("math.rkt" "matrix.rkt")))
+ (require "utils/math.rkt" "utils/matrix.rkt")]
+[(require (multi-in ("math" "matrix") "utils.rkt"))
+ (require "math/utils.rkt" "matrix/utils.rkt")]
+[(require (multi-in ("math" "matrix") ("utils.rkt" "helpers.rkt")))
+ (require "math/utils.rkt" "math/helpers.rkt"
+          "matrix/utils.rkt" "matrix/helpers.rkt")]
+]}
 
 @; --------------------
 
@@ -1169,7 +1222,7 @@ In other words, the previous method requires a single unique name.}
 
 @defform[(filtered-out proc-expr provide-spec)]{
 
- Analogous to @scheme[filtered-in], but for filtering and renaming
+ Analogous to @racket[filtered-in], but for filtering and renaming
  exports.
 
   For example,
@@ -1181,7 +1234,7 @@ In other words, the previous method requires a single unique name.}
                       #rx"-" (string-titlecase name) "")))
               (all-defined-out)))]
   exports only bindings that match the
-  pattern @scheme[#rx"^[a-z-]+$"], and it converts the names to ``camel case.''}
+  pattern @racket[#rx"^[a-z-]+$"], and it converts the names to ``camel case.''}
 
 @;------------------------------------------------------------------------
 @section[#:tag "quote"]{Literals: @racket[quote] and @racket[#%datum]}
@@ -1243,7 +1296,7 @@ expression.
 
 Refers to a module-level or local binding, when @racket[id] is
 not bound as a transformer (see @secref["expansion"]). At run-time,
-the reference evaluates to the value in the location associated with
+the reference evaluates to the value in the @tech{location} associated with
 the binding.
 
 When the expander encounters an @racket[id] that is not bound by a
@@ -1281,7 +1334,7 @@ introduces @racketidfont{#%top} identifiers.
            (#%variable-reference)]]{
 
 Produces an opaque @deftech{variable reference} value representing the
-location of @racket[id], which must be bound as a @tech{top-level
+@tech{location} of @racket[id], which must be bound as a @tech{top-level
 variable} or @tech{module-level variable}. If no @racket[id] is
 supplied, the resulting value refers to an ``anonymous'' variable
 defined within the enclosing context (i.e., within the enclosing
@@ -1290,9 +1343,9 @@ module, or at the top level if the form is not inside a module).
 A @tech{variable reference} can be used with
 @racket[variable-reference->empty-namespace],
 @racket[variable-reference->resolved-module-path], and
-@racket[variable-reference->top-level-namespace], but facilities like
+@racket[variable-reference->namespace], but facilities like
 @racket[define-namespace-anchor] and
-@racket[namespace-anchor->namespace] wrap those to provide an clearer
+@racket[namespace-anchor->namespace] wrap those to provide a clearer
 interface. A @tech{variable reference} is also useful to low-level
 extensions; see @other-manual['(lib
 "scribblings/inside/inside.scrbl")].}
@@ -1502,7 +1555,7 @@ exceptions, not the result of @racket[procedure-arity].}
                         (id ...+ . rest-id)
                         rest-id])]{
                
-Produces a procedure. Each @racket[[forms body ...+]]
+Produces a procedure. Each @racket[[formals body ...+]]
 clause is analogous to a single @racket[lambda] procedure; applying
 the @racket[case-lambda]-generated procedure is the same as applying a
 procedure that corresponds to one of the clauses---the first procedure
@@ -1540,7 +1593,7 @@ Like @racket[lambda], but without support for keyword or optional arguments.
            (let proc-id ([id init-expr] ...) body ...+)]]{
 
 The first form evaluates the @racket[val-expr]s left-to-right, creates
-a new location for each @racket[id], and places the values into the
+a new @tech{location} for each @racket[id], and places the values into the
 locations. It then evaluates the @racket[body]s, in which the
 @racket[id]s are bound. The last @racket[body] expression is in
 tail position with respect to the @racket[let] form. The @racket[id]s
@@ -1569,7 +1622,7 @@ within the @racket[body]s to the procedure itself.}
 @defform[(let* ([id val-expr] ...) body ...+)]{
 
 Similar to @racket[let], but evaluates the @racket[val-expr]s one by
-one, creating a location for each @racket[id] as soon as the value is
+one, creating a @tech{location} for each @racket[id] as soon as the value is
 available. The @racket[id]s are bound in the remaining @racket[val-expr]s
 as well as the @racket[body]s, and the @racket[id]s need not be
 distinct; later bindings shadow earlier bindings.
@@ -1582,7 +1635,7 @@ distinct; later bindings shadow earlier bindings.
 
 @defform[(letrec ([id val-expr] ...) body ...+)]{
 
-Similar to @racket[let], but the locations for all @racket[id]s are
+Similar to @racket[let], but the @tech{locations} for all @racket[id]s are
 created first and filled with @|undefined-const|, and all
 @racket[id]s are bound in all @racket[val-expr]s as well as the
 @racket[body]s. The @racket[id]s must be distinct according to
@@ -1601,7 +1654,7 @@ created first and filled with @|undefined-const|, and all
 @defform[(let-values ([(id ...) val-expr] ...) body ...+)]{ Like
 @racket[let], except that each @racket[val-expr] must produce as many
 values as corresponding @racket[id]s, otherwise the
-@exnraise[exn:fail:contract]. A separate location is created for each
+@exnraise[exn:fail:contract]. A separate @tech{location} is created for each
 @racket[id], all of which are bound in the @racket[body]s.
 
 @mz-examples[
@@ -1611,7 +1664,7 @@ values as corresponding @racket[id]s, otherwise the
 
 @defform[(let*-values ([(id ...) val-expr] ...) body ...+)]{ Like
 @racket[let*], except that each @racket[val-expr] must produce as many
-values as corresponding @racket[id]s. A separate location is created
+values as corresponding @racket[id]s. A separate @tech{location} is created
 for each @racket[id], all of which are bound in the later
 @racket[val-expr]s and in the @racket[body]s.
 
@@ -1623,7 +1676,7 @@ for each @racket[id], all of which are bound in the later
 
 @defform[(letrec-values ([(id ...) val-expr] ...) body ...+)]{ Like
 @racket[letrec], except that each @racket[val-expr] must produce as
-many values as corresponding @racket[id]s. A separate location is
+many values as corresponding @racket[id]s. A separate @tech{location} is
 created for each @racket[id], all of which are initialized to
 @|undefined-const| and bound in all @racket[val-expr]s
 and in the @racket[body]s.
@@ -1685,17 +1738,39 @@ within all @racket[trans-expr]s.}
                                  ([(val-id ...) val-expr] ...)
             body ...+)]{
 
-Combines @racket[letrec-syntaxes] with @racket[letrec-values]: each
-@racket[trans-id] and @racket[val-id] is bound in all
-@racket[trans-expr]s and @racket[val-expr]s.
+Combines @racket[letrec-syntaxes] with a variant of
+@racket[letrec-values]: each @racket[trans-id] and @racket[val-id] is
+bound in all @racket[trans-expr]s and @racket[val-expr]s.
 
 The @racket[letrec-syntaxes+values] form is the core form for local
 compile-time bindings, since forms like @racket[letrec-syntax] and
-internal @racket[define-syntax] expand to it. In a fully expanded
+@tech{internal-definition contexts} expand to it. In a fully expanded
 expression (see @secref["fully-expanded"]), the @racket[trans-id]
-bindings are discarded and the form reduces to @racket[letrec], but
+bindings are discarded and the form reduces to a combination of
+@racket[letrec-values] or @racket[let-values], but
 @racket[letrec-syntaxes+values] can appear in the result of
 @racket[local-expand] with an empty stop list.
+
+For variables bound by @racket[letrec-syntaxes+values], the
+@tech{location}-creation rules differ slightly from
+@racket[letrec-values]. The @racket[[(val-id ...) val-expr]] binding
+clauses are partitioned into minimal sets of clauses that satisfy the
+following rule: if a clause has a @racket[val-id] binding that is
+referenced (in a full expansion) by the @racket[val-expr] of an
+earlier clause, the two clauses and all in between are in the same
+set. If a set consists of a single clause whose @racket[val-expr] does
+not refer to any of the clause's @racket[val-id]s, then
+@tech{locations} for the @racket[val-id]s are created @emph{after} the
+@racket[val-expr] is evaluated. Otherwise, @tech{locations} for all
+@racket[val-id]s in a set are created just before the first
+@racket[val-expr] in the set is evaluated.
+
+The end result of the @tech{location}-creation rules is that scoping
+and evaluation order are the same as for @racket[letrec-values], but
+the compiler has more freedom to optimize away @tech{location}
+creation. The rules also correspond to a nesting of
+@racket[let-values] and @racket[letrec-values], which is how
+@racket[letrec-syntaxes+values] for a fully-expanded expression.
 
 See also @racket[local], which supports local bindings with
 @racket[define], @racket[define-syntax], and more.}
@@ -1707,9 +1782,9 @@ See also @racket[local], which supports local bindings with
 
 @defform[(local [definition ...] body ...+)]{
 
-Like @racket[letrec], except that the bindings are expressed in the
-same way as in the top-level or in a module body: using
-@racket[define], @racket[define-values], @racket[define-syntax],
+Like @racket[letrec-syntaxes+values], except that the bindings are
+expressed in the same way as in the top-level or in a module body:
+using @racket[define], @racket[define-values], @racket[define-syntax],
 @racket[struct], etc.  Definitions are distinguished from
 non-definitions by partially expanding @racket[definition] forms (see
 @secref["partial-expansion"]). As in the top-level or in a module
@@ -1774,7 +1849,7 @@ evaluated in order, and the results from all but the last
 form.}
 
 @specsubform[#:literals (=>) [test-expr => proc-expr]]{The @racket[proc-expr] is
-evaluated, and it must produce a procedure that accepts on argument,
+evaluated, and it must produce a procedure that accepts one argument,
 otherwise the @exnraise[exn:fail:contract]. The procedure is applied
 to the result of @racket[test-expr] in tail position with respect to
 the @racket[cond] expression.}
@@ -1841,7 +1916,7 @@ respect to the original @racket[and] form.
 If no @racket[expr]s are provided, then result is @racket[#f].
 
 If a single @racket[expr] is provided, then it is in tail position, so
-the results of the @racket[and] expression are the results of the
+the results of the @racket[or] expression are the results of the
 @racket[expr].
 
 Otherwise, the first @racket[expr] is evaluated. If it produces a
@@ -1930,7 +2005,7 @@ defined as follows:
 
 In an @tech{internal-definition context} (see @secref["intdef-body"]), 
 a @racket[define] form introduces a local binding.
-At the top level, the top-level binding @racket[id] is created after
+At the top level, the top-level binding for @racket[id] is created after
 evaluating @racket[expr], if it does not exist already, and the
 top-level mapping of @racket[id] (in the @techlink{namespace} linked
 with the compiled definition) is set to the binding at the same time.
@@ -2287,7 +2362,7 @@ x
 
 Assuming that all @racket[id]s refer to variables, this form evaluates
 @racket[expr], which must produce as many values as supplied
-@racket[id]s.  The location of each @racket[id] is filled wih to the
+@racket[id]s.  The location of each @racket[id] is filled with the
 corresponding value from @racket[expr] in the same way as for
 @racket[set!].
 
@@ -2455,7 +2530,10 @@ provides a hook to control interactive evaluation through
 
 Like @racket[(let () defn-or-expr ...)] for an
 @tech{internal-definition context} sequence, except that an expression
-is not allowed to precede a definition.
+is not allowed to precede a definition, and all definitions are
+treated as referring to all other definitions (i.e., @tech{locations}
+for variables are all allocated first, like @racket[letrec] and
+unlike @racket[letrec-syntaxes+values]).
 
 The @racket[#%stratified-body] form is useful for implementing
 syntactic forms or languages that supply a more limited kind of

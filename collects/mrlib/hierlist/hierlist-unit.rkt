@@ -1,14 +1,13 @@
-
 (module hierlist-unit mzscheme
   (require (all-except mzlib/unit rename)
-	   mzlib/class
-	   mzlib/class100
-	   mred/mred-sig
-	   mrlib/include-bitmap
-	   "hierlist-sig.ss")
+           mzlib/class
+           mzlib/class100
+           mred/mred-sig
+           mrlib/include-bitmap
+           "hierlist-sig.rkt")
 
   (require (rename mzlib/list sort* sort)
-	   mzlib/etc)
+           mzlib/etc)
 
   (define turn-up (include-bitmap "../../icons/turn-up.png" 'png/mask))
   (define turn-down (include-bitmap "../../icons/turn-down.png" 'png/mask))
@@ -187,13 +186,14 @@
             [select (lambda (on?) (send snip select on?))]
             [click-select (lambda (on?) (send snip click-select on?))]
             [scroll-to (lambda () (let* ([admin (send snip get-admin)]
-                                         [dc (send admin get-dc)]
+                                         [dc (and admin (send admin get-dc))]
                                          [h-box (box 0.0)])
-                                    (send snip get-extent dc 0 0 #f h-box #f #f #f #f)
-                                    (send admin
-                                          scroll-to
-                                          snip
-                                          0 0 0 (unbox h-box) #t)))]
+                                    (when dc
+                                      (send snip get-extent dc 0 0 #f h-box #f #f #f #f)
+                                      (send admin
+                                            scroll-to
+                                            snip
+                                            0 0 0 (unbox h-box) #t))))]
             [user-data (case-lambda [() data][(x) (set! data x)])]
             [get-parent (lambda () 
                           (let ([parent-of-snip (send snip get-parent)])

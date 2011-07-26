@@ -11,7 +11,7 @@ method returns #f, then you get a black circle out.
 improvments/changes wrt to htdp/image:
 
   - copying and pasting does not introduce jaggies
-  - equal comparisions are more efficient
+  - equal comparisons are more efficient
   - added rotation & scaling
   - got rid of pinholes (see the new overlay, beside, and above functions)
   - a bunch of new polygon functions
@@ -33,18 +33,23 @@ and they all have good sample contracts. (It is amazing what we can do with kids
 |#
 
 
-(require (except-in "../mrlib/image-core.ss" make-color color make-pen pen)
-         "private/image-more.ss"
-         "private/img-err.ss"
+(require (except-in "../mrlib/image-core.rkt" make-color color make-pen pen)
+         "private/image-more.rkt"
+         "private/img-err.rkt"
          (only-in lang/prim provide-primitive provide-primitives define-primitive)
          htdp/error)
 
 (provide-primitives
          overlay
          overlay/align
+         overlay/offset
+         overlay/align/offset
          overlay/xy
+         
          underlay
          underlay/align
+         underlay/offset
+         underlay/align/offset
          underlay/xy
          
          beside
@@ -106,7 +111,8 @@ and they all have good sample contracts. (It is amazing what we can do with kids
          pen-style? 
          pen-cap?
          pen-join?
-         color-red color-blue color-green color? color
+         real-valued-posn?
+         color-red color-blue color-green color-alpha color? color
          pen-color pen-width pen-style pen-cap pen-join 
 
          image-width
@@ -125,7 +131,10 @@ and they all have good sample contracts. (It is amazing what we can do with kids
          make-pen pen
          pen?
          step-count?
-         save-image)
+         save-image
+         
+         freeze
+         bitmap/url)
 
 (provide bitmap
          empty-image)

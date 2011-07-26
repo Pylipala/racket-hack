@@ -1,13 +1,13 @@
 #lang scheme/base
 
-(require "test-utils.ss" (for-syntax scheme/base)
+(require "test-utils.rkt" (for-syntax scheme/base)
          (rep type-rep)
-	 (types comparison abbrev union)
+         (types comparison abbrev numeric-tower union)
          rackunit)
 
 (provide type-equal-tests)
 
-(define (-base x) (make-Base x #'dummy))
+(define (-base x) (make-Base x #'dummy values #'values))
 
 
 (define-syntax (te-tests stx)
@@ -36,14 +36,14 @@
    [(Un -Number -Symbol -Boolean) (Un -Boolean (Un -Symbol -Number))]
    [(Un -Number -Symbol) (Un -Symbol -Number)]
    [(-poly (x) (-> (Un -Symbol -Number) x)) (-poly (xyz) (-> (Un -Number -Symbol) xyz))]
-   [(-mu x (Un -Number -Symbol x)) (-mu y (Un -Number -Symbol y))]     
+   [(-mu x (Un -Number -Symbol x)) (-mu y (Un -Number -Symbol y))]
    ;; found bug
-   [FAIL (Un (-mu heap-node 
+   [FAIL (Un (-mu heap-node
                   (-struct 'heap-node #f
                            (map fld* (list (-base 'comparator) -Number (-v a) (Un heap-node (-base 'heap-empty))))
-                           #'values)) 
+                           #'values))
              (-base 'heap-empty))
-         (Un (-mu heap-node 
+         (Un (-mu heap-node
                   (-struct 'heap-node #f
                            (map fld* (list (-base 'comparator) -Number (-pair -Number -Number) (Un heap-node (-base 'heap-empty)))) #'values))
              (-base 'heap-empty))]))

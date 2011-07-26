@@ -32,23 +32,27 @@
 (define-struct (other-author-element author-element) ())
          
 (define (add-cite group bib-entry which with-specific?)
-  (hash-set! (bib-group-ht group) bib-entry #t)
-  (make-delayed-element
-   (lambda (renderer part ri)
-     (let ([s (resolve-get part ri `(,which ,(auto-bib-key bib-entry)))])
-       (list (make-link-element #f 
-                                (list (or s "???") 
-                                      (if with-specific?
-                                          (auto-bib-specific bib-entry)
-                                          ""))
-                                `(autobib ,(auto-bib-key bib-entry))))))
-   (lambda () "(???)")
-   (lambda () "(???)")))
+  (let ([key (auto-bib-key bib-entry)])
+    (hash-set! (bib-group-ht group) key bib-entry)
+    (make-delayed-element
+     (lambda (renderer part ri)
+       (let ([s (resolve-get part ri `(,which ,key))])
+         (list (make-link-element #f 
+                                  (list (or s "???") 
+                                        (if with-specific?
+                                            (auto-bib-specific bib-entry)
+                                            ""))
+                                  `(autobib ,(auto-bib-key bib-entry))))))
+     (lambda () "(???)")
+     (lambda () "(???)"))))
 
 (define (add-inline-cite group bib-entries)
-  (for ([i bib-entries]) (hash-set! (bib-group-ht group) i #t))
-  (when (and (pair? (cdr bib-entries)) (not (apply equal? (map auto-bib-author bib-entries))))
-    (error 'citet "citet must be used with identical authors, given ~a" (map auto-bib-author bib-entries)))
+  (for ([i bib-entries]) 
+    (hash-set! (bib-group-ht group) (auto-bib-key i) i))
+  (when (and (pair? (cdr bib-entries)) 
+             (not (apply equal? (map (compose author-element-names auto-bib-author)  bib-entries))))
+    (error 'citet "citet must be used with identical authors, given ~a" 
+           (map (compose author-element-names auto-bib-author) bib-entries)))
   (make-element 
    #f
    (list (add-cite group (car bib-entries) 'autobib-author #f)
@@ -64,24 +68,27 @@
                       (loop (cdr keys))))))
          ")")))
 
-(define (add-cites group bib-entries)
-  (define groups (for/fold ([h (hash)]) ([b (reverse bib-entries)])
-                   (hash-update h (author-element-names (auto-bib-author b))
-                                (lambda (cur) (cons b cur)) null)))  
+(define (add-cites group bib-entries sort?)
+  (define-values (groups keys)
+    (for/fold ([h (hash)] [ks null]) ([b (reverse bib-entries)])
+      (let ([k (author-element-names (auto-bib-author b))])
+        (values (hash-update h k (lambda (cur) (cons b cur)) null)
+                (cons k (remove k ks))))))
   (make-element
    #f
    (append 
     (list 'nbsp "(")
     (add-between
-     (for/list ([(k v) groups])
-       (make-element 
-        #f 
-        (list* 
-         (add-cite group (car v) 'autobib-author #f)
-         " "
-         (add-between
-          (for/list ([b v]) (add-cite group b 'autobib-date #t))
-          ", "))))
+     (for/list ([k (if sort? (sort keys string-ci<?) keys)])
+       (let ([v (hash-ref groups k)])
+         (make-element 
+          #f 
+          (list* 
+           (add-cite group (car v) 'autobib-author #f)
+           " "
+           (add-between
+            (for/list ([b v]) (add-cite group b 'autobib-date #t))
+            ", ")))))
      "; ")
    (list ")"))))
 
@@ -92,21 +99,21 @@
   (string->number (auto-bib-date b)))
 
 
-(define (gen-bib tag group)
+(define (gen-bib tag group sec-title)
   (let* ([author/date<? 
           (lambda (a b)
             (or
-             (string<? (extract-bib-key a) (extract-bib-key b))
-             (and (string=? (extract-bib-key a) (extract-bib-key b))
+             (string-ci<? (extract-bib-key a) (extract-bib-key b))
+             (and (string-ci=? (extract-bib-key a) (extract-bib-key b))
                   (extract-bib-year a) (extract-bib-year b)
                   (< (extract-bib-year a) (extract-bib-year b)))))]
          [bibs (sort (hash-map (bib-group-ht group)
-                               (lambda (k v) k))
+                               (lambda (k v) v))
                      author/date<?)])
     (make-part
      #f
      `((part ,tag))
-     '("Bibliography")
+     (list sec-title)
      (make-style #f '(unnumbered))
      null
      (list
@@ -142,12 +149,12 @@
 (define-syntax-rule (define-cite ~cite citet generate-bibliography)
   (begin
     (define group (make-bib-group (make-hasheq)))
-    (define (~cite bib-entry . bib-entries)
-      (add-cites group (cons bib-entry bib-entries)))
+    (define (~cite #:sort? [sort? #t] bib-entry . bib-entries)
+      (add-cites group (cons bib-entry bib-entries) sort?))
     (define (citet bib-entry . bib-entries)
       (add-inline-cite group (cons bib-entry bib-entries)))
-    (define (generate-bibliography #:tag [tag "doc-bibliography"])
-      (gen-bib tag group))))
+    (define (generate-bibliography #:tag [tag "doc-bibliography"] #:sec-title [sec-title "Bibliography"])
+      (gen-bib tag group sec-title))))
 
 (define (ends-in-punc? e)
   (regexp-match? #rx"[.!?,]$" (content->string e)))

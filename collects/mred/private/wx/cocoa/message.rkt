@@ -4,6 +4,7 @@
          ffi/unsafe/objc
          racket/draw/private/bitmap
           "../../syntax.rkt"
+          "../../lock.rkt"
           "window.rkt"
           "item.rkt"
           "utils.rkt"
@@ -15,20 +16,51 @@
 
 ;; ----------------------------------------
 
-(import-class NSTextField NSImageView NSWorkspace)
+(import-class NSTextField NSImageView NSWorkspace NSRunningApplication)
 
 (define _OSType _uint32)
 
 (define-cocoa NSFileTypeForHFSTypeCode (_fun _OSType -> _id))
 
 (define (get-app-icon)
-  (tell (tell NSWorkspace sharedWorkspace)
-        iconForFile:
-        (tell (tell (tell NSWorkspace sharedWorkspace)
-                    activeApplication)
-              objectForKey:
-              #:type _NSString
-              "NSApplicationPath")))
+  (tell (tell NSRunningApplication currentApplication) icon))
+
+(define (make-icon label)
+  (let ([icon
+         (if (eq? label 'app)
+             (get-app-icon)
+             (let ([id (integer-bytes->integer
+                        (case label
+                          [(caution) #"caut"]
+                          [(stop) #"stop"])
+                        #f
+                        #t)])
+               (tell (tell NSWorkspace sharedWorkspace)
+                     iconForFileType:
+                     (NSFileTypeForHFSTypeCode id))))])
+    (tellv icon retain) 
+    (tellv icon setSize: #:type _NSSize (make-NSSize 64 64))
+    (unless (eq? label 'app)
+      ;; Add badge:
+      (let ([app-icon (get-icon 'app)])
+        (tellv icon lockFocus)
+        (tellv app-icon drawInRect: #:type _NSRect (make-NSRect (make-NSPoint 32 0)
+                                                                (make-NSSize 32 32))
+               fromRect: #:type _NSRect (make-NSRect (make-NSPoint 0 0)
+                                                     (make-NSSize 64 64))
+               operation: #:type _int 2 ; NSCompositeSourceOver 
+               fraction: #:type _CGFloat 1.0)
+        (tellv icon unlockFocus)))
+    icon))
+
+(define icons (make-hash))
+(define (get-icon label)
+  (or (hash-ref icons label #f)
+      (let ([icon (atomically (make-icon label))])
+        (hash-set! icons label icon)
+        icon)))
+
+;; ----------------------------------------
 
 (define-objc-class MyTextField NSTextField
   #:mixins (KeyMouseResponder CursorDisplayer)
@@ -47,23 +79,8 @@
   (super-new [parent parent]
              [cocoa (let* ([label (cond
                                    [(string? label) label]
-                                   [(symbol? label)
-                                    (let ([icon
-                                           (if (eq? label 'app)
-                                               (get-app-icon)
-                                               (let ([id (integer-bytes->integer
-                                                          (case label
-                                                            [(caution) #"caut"]
-                                                            [(stop) #"stop"])
-                                                          #f
-                                                          #t)])
-                                                 (tell (tell NSWorkspace sharedWorkspace)
-                                                       iconForFileType:
-                                                       (NSFileTypeForHFSTypeCode id))))])
-                                      (tellv icon setSize: #:type _NSSize (make-NSSize 64 64))
-                                      icon)]
-                                   [(send label ok?) label]
-                                   [else "<bad>"])]
+                                   [(symbol? label) (get-icon label)]
+                                   [else label])]
                            [cocoa
                             (if (string? label)
                                 (as-objc-allocation
@@ -102,4 +119,9 @@
 
   (define/override (gets-focus?) #f)
 
+  (define/public (set-preferred-size)
+    (tellv (get-cocoa) sizeToFit)
+    #t)
+
   (def/public-unimplemented get-font))
+

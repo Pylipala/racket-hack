@@ -20,24 +20,25 @@
          wxme/wxme
          setup/dirs
          test-engine/racket-tests
-         
+
          ;; this module is shared between the drscheme's namespace (so loaded here) 
          ;; and the user's namespace in the teaching languages
-         "private/set-result.ss"
+         "private/set-result.rkt"
+         "private/rewrite-error-message.rkt"
 
          "private/continuation-mark-key.rkt"
 
-         "stepper-language-interface.ss"           
-         "debugger-language-interface.ss"
-         "run-teaching-program.ss"
+         "stepper-language-interface.rkt"
+         "debugger-language-interface.rkt"
+         "run-teaching-program.rkt"
          stepper/private/shared
-         
+
          (only-in test-engine/scheme-gui make-formatter)
-         (only-in test-engine/scheme-tests 
-		  scheme-test-data error-handler test-format test-execute display-results
-		  build-test-engine)
+         (only-in test-engine/scheme-tests
+                  scheme-test-data error-handler test-format test-execute display-results
+                  build-test-engine)
          (lib "test-engine/test-display.scm")
-	 deinprogramm/signature/signature
+         deinprogramm/signature/signature
          )
   
   
@@ -159,17 +160,25 @@
 		 ;; hack: the test-engine code knows about the test~object name; we do, too
 		 (namespace-set-variable-value! 'test~object (build-test-engine))
 		 ;; record signature violations with the test engine
-		 (signature-violation-proc
-		  (lambda (obj signature message blame)
-		    (cond
-		     ((namespace-variable-value 'test~object #f (lambda () #f))
-		      => (lambda (engine)
-			   (send (send engine get-info) signature-failed
-				 obj signature message blame))))))
+                 (signature-violation-proc
+                  (lambda (obj signature message blame)
+                    (cond
+                      ((namespace-variable-value 'test~object #f (lambda () #f))
+                       => (lambda (engine)
+                            (send (send engine get-info) signature-failed
+                                  obj signature message blame))))))
                  (scheme-test-data (list (drscheme:rep:current-rep) drs-eventspace test-display%))
                  (test-execute (get-preference 'tests:enable? (lambda () #t)))
+		 (signature-checking-enabled? (get-preference 'signatures:enable-checking? (lambda () #t)))
                  (test-format (make-formatter (lambda (v o) (render-value/format v settings o 40)))))))
-            (super on-execute settings run-in-user-thread))
+            (super on-execute settings run-in-user-thread)
+            
+            ;; set the global-port-print-handler after the super class because the super sets it too
+            (run-in-user-thread
+             (lambda ()
+               (global-port-print-handler
+                (λ (value port [depth 0])
+                  (teaching-language-render-value/format value settings port 'infinity))))))
           
           (define/private (teaching-languages-error-value->string settings v len)
             (let ([sp (open-output-string)])
@@ -431,8 +440,7 @@
           
           (define/override (first-opened settings)
             (for ([tp (in-list (htdp-lang-settings-teachpacks settings))])
-              (with-handlers ((exn:fail? void)) ;; swallow errors here; drracket is not ready to display errors at this point
-                (for-each namespace-require/constant tp))))
+              (namespace-require/constant tp)))
           
           (inherit get-module get-transformer-module get-init-code
                    use-namespace-require/copy?)
@@ -511,7 +519,7 @@
                        (string-append no-ext-name ".scm")]
                       [(file-exists? no-ext-name)
                        no-ext-name]
-                      [else (error 'htdp-lang.ss "could not find language filename ~s" no-ext-name)])]
+                      [else (error 'htdp-lang.rkt "could not find language filename ~s" no-ext-name)])]
                    [base-dir (let-values ([(base _1 _2) (split-path full-name)]) base)]
                    [stx
                     (call-with-input-file full-name
@@ -1027,9 +1035,8 @@
       ;;    (string (union TST exn) -> void) -> string exn -> void
       ;; adds in the bug icon, if there are contexts to display
       (define (teaching-languages-error-display-handler msg exn)
-          
           (if (exn? exn)
-              (display (exn-message exn) (current-error-port))
+              (display (get-rewriten-error-message exn) (current-error-port))
               (fprintf (current-error-port) "uncaught exception: ~e" exn))
           (fprintf (current-error-port) "\n")
 
@@ -1117,63 +1124,10 @@
                 (parameterize ([current-eventspace drs-eventspace])
                   (queue-callback
                    (λ ()
-                     (let ([on-sd (make-object style-delta%)]
-                           [off-sd (make-object style-delta%)])
-                       (cond
-                         [(preferences:get 'framework:white-on-black?)
-                          (send on-sd set-delta-foreground "white")
-                          (send off-sd set-delta-foreground "indianred")]
-                         [else
-                          ;; picture 1.png
-                          #;
-                          (begin
-                            (send on-sd set-delta-foreground "black")
-                            (send off-sd set-delta-foreground "lightgray")
-                            (send off-sd set-delta-background "firebrick"))
-                          
-                          ;; picture 2.png
-                          #;
-                          (begin
-                            (send on-sd set-delta-foreground "darkgreen")
-                            (send off-sd set-delta-foreground "firebrick")
-                            (send off-sd set-delta-background "Khaki"))
-                          
-                          ;; picture 3.png
-                          #;
-                          (begin
-                            (send on-sd set-delta-foreground "darkgreen")
-                            (send off-sd set-delta-foreground "Khaki")
-                            (send off-sd set-delta-background "black"))
-                          
-                          ;; picture 4.png
-                          #;
-                          (begin
-                            (send on-sd set-delta-foreground "black")
-                            (send off-sd set-delta-foreground "Khaki")
-                            (send off-sd set-delta-background "darkblue"))
-                          
-                          ;; picture 5.png
-                          #;
-                          (begin
-                            (send on-sd set-delta-foreground (make-object color% 0 80 0))
-                            (send off-sd set-delta-foreground "orange")
-                            (send off-sd set-delta-background "black"))
-                          
-                          ;; variation on 5.
-                          (begin
-                            (send on-sd set-delta-foreground "black")
-                            (send on-sd set-transparent-text-backing-off #f)
-                            (send on-sd set-transparent-text-backing-on #t)
-                            (send off-sd set-delta-foreground "orange")
-                            (send off-sd set-delta-background "black"))
-                          
-                          ;; mike's preferred color scheme, but looks just like the selection
-                          #;
-                          (begin
-                            (send on-sd set-delta-foreground "black")
-                            (send off-sd set-delta-background "lightblue")
-                            (send off-sd set-delta-foreground "black"))])
-                       (send rep set-test-coverage-info ht on-sd off-sd #f)))))))))
+                     (define sl (editor:get-standard-style-list))
+                     (define on-s (send sl find-named-style test-coverage-on-style-name))
+                     (define off-s (send sl find-named-style test-coverage-off-style-name))
+                     (send rep set-test-coverage-info ht on-s off-s #f))))))))
         (let ([ht (thread-cell-ref current-test-coverage-info)])
           (when ht
             (hash-set! ht expr #;(box #f) (mcons #f #f)))))
@@ -1355,4 +1309,54 @@
            (reader-module '(lib "htdp-beginner-reader.ss" "lang"))
 	   (stepper:supported #t)
            (stepper:enable-let-lifting #t)
-	   (stepper:show-lambdas-as-lambdas #f))))))
+	   (stepper:show-lambdas-as-lambdas #f))))
+      
+      (define test-coverage-on-style-name "plt:htdp:test-coverage-on")
+      (define test-coverage-off-style-name "plt:htdp:test-coverage-off")
+      (define test-coverage-on-style-pref (string->symbol test-coverage-on-style-name))
+      (define test-coverage-off-style-pref (string->symbol test-coverage-off-style-name))
+      
+      (color-prefs:register-color-preference test-coverage-on-style-pref
+                                             test-coverage-on-style-name
+                                             (send the-color-database find-color "black")
+                                             (send the-color-database find-color "white"))
+      (color-prefs:register-color-preference test-coverage-off-style-pref
+                                             test-coverage-off-style-name
+                                             (send the-color-database find-color "orange")
+                                             (send the-color-database find-color "indianred")
+                                             #:background (send the-color-database find-color "black"))
+      (color-prefs:add-to-preferences-panel 
+       "HtDP Languages"
+       (λ (parent)
+         (color-prefs:build-color-selection-panel parent
+                                                  test-coverage-on-style-pref
+                                                  test-coverage-on-style-name
+                                                  (string-constant test-coverage-on))
+         (color-prefs:build-color-selection-panel parent
+                                                  test-coverage-off-style-pref
+                                                  test-coverage-off-style-name
+                                                  (string-constant test-coverage-off)
+                                                  #:background? #t)))
+      
+      (define (update-sds white-on-black?)
+        (define sl (editor:get-standard-style-list))
+        (define on-s (send sl find-named-style test-coverage-on-style-name))
+        (define off-s (send sl find-named-style test-coverage-off-style-name))
+        (define on-sd (make-object style-delta%))
+        (define off-sd (make-object style-delta%))
+        (send on-s get-delta on-sd)
+        (send off-s get-delta off-sd)
+        (cond
+          [white-on-black?
+           (send on-sd set-delta-foreground "white")
+           (send off-sd set-delta-foreground "indianred")
+           (send off-sd set-delta-background "black")]
+          [else
+           (send on-sd set-delta-foreground "black")
+           (send off-sd set-delta-foreground "orange")
+           (send off-sd set-delta-background "black")])
+        (preferences:set test-coverage-on-style-pref on-sd)
+        (preferences:set test-coverage-off-style-pref off-sd))
+      
+      (preferences:add-callback 'framework:white-on-black?
+                                (λ (p v) (update-sds v)))))

@@ -1,23 +1,22 @@
-
 (module toolbar mzscheme
   (require (prefix mred: mred)
-	   mzlib/class
-	   mzlib/file
-	   mzlib/pretty
-	   mzlib/etc
-	   mzlib/list
-	   "utils.ss")
+           mzlib/class
+           mzlib/file
+           mzlib/pretty
+           mzlib/etc
+           mzlib/list
+           "utils.rkt")
 
   ;; These modules implement snips for the various
   ;;  kinds of windows and controls.
-  (require "base.ss"
-	   "panel.ss"
-	   "simple-control.ss"
-	   "text-field.ss"
-	   "multiple-choice.ss"
-	   "slider-guage.ss"
-	   "canvas.ss")
-  
+  (require "base.rkt"
+           "panel.rkt"
+           "simple-control.rkt"
+           "text-field.rkt"
+           "multiple-choice.rkt"
+           "slider-guage.rkt"
+           "canvas.rkt")
+
   ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
   ;; Frame
   ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -35,7 +34,7 @@
   (define toolbar%
     (class mred:canvas%
       (inherit min-height stretchable-height get-dc)
-      (init [style '()])
+      (init parent [style '()])
       (private-field
        [margin 2]
        [icon-size 16]
@@ -130,7 +129,7 @@
 			   #f))))])
 	    (hash-table-put! icons name icon)
 	    (set! tools (append tools (list (make-tool icon cb #f))))))])
-      (super-new [style (cons 'no-focus style)])
+      (super-new [parent parent] [style (cons 'no-focus style)])
       (min-height (+ icon-size (* margin 2)))
       (stretchable-height #f)))
 

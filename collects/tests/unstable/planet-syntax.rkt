@@ -1,10 +1,9 @@
 #lang racket
 
 (require mzlib/etc
-         planet/util
          rackunit
          rackunit/text-ui
-         unstable/planet-syntax
+         planet/syntax
          "helpers.rkt")
 
 (define here
@@ -15,7 +14,7 @@
          1 1 1 1)))
 
 (run-tests
- (test-suite "planet-syntax.ss"
+ (test-suite "planet-syntax.rkt"
 
    (test-suite "syntax-source-planet-package"
      (test-case "fail"

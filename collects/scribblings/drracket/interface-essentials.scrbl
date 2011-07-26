@@ -1,11 +1,7 @@
 #lang scribble/doc
-@(require "common.ss"
-          scribble/decode
-          scribble/eval
-          scribble/struct
-          scribble/racket
-          (for-label htdp/convert
-                     racket/gui/base))
+@(require "common.rkt"
+          scribble/decode scribble/eval scribble/struct scribble/racket
+          (for-label htdp/convert racket/gui/base))
 
 @(define (ioinputfont . s)
    (apply tt s))
@@ -118,7 +114,7 @@ annotations:
        the context the macro is used in.
 
        @index['("alpha renaming")]{Additionally}, right-clicking (or
-       Control-clicking under Mac OS X) on a variable activates a
+       Control-clicking on Mac OS X) on a variable activates a
        pop-up menu that lets you jump from binding location to bound
        location and vice versa, @as-index{@"\u03B1"-rename} the
        variable, or tack the arrows so they do not disappear.}
@@ -130,7 +126,7 @@ annotations:
        expression.}
 
   @item{@bold{Require Annotations:} Right-clicking (or
-        Control-clicking under Mac OS X) on the argument to
+        Control-clicking on Mac OS X) on the argument to
         @racket[require] activates a pop-up menu that lets you open the
         file that contains the @racket[require]d module.
 
@@ -322,7 +318,7 @@ separate tabs} causes DrRacket to open files in new tabs in the
 frontmost window, rather than opening a new window for the file.
 
 The key bindings Control-Pageup and Control-Pagedown move between
-tabs. Under Mac OS X, Command-Shift-Left and Command-Shift-Right also
+tabs. On Mac OS X, Command-Shift-Left and Command-Shift-Right also
 move between tabs.
 
 @; ----------------------------------------------------------------------
@@ -711,8 +707,9 @@ file cannot be included in another debugging session.
 @section[#:tag "module-browser"]{The Module Browser}
 
 The module browser shows you the structure of all of the files in your program.
-It can be opened via the @onscreen{Show} menu, or via the @onscreen{Module Browser ...} 
-menu item in the @onscreen{Racket} menu.
+It can be opened via the @onscreen{Show} menu, or via the 
+@onscreen{Module Browser} 
+menu items in the @onscreen{Racket} menu.
 
 A module browser window contains a square for each
   module. The squares are colored based on the number of
@@ -726,13 +723,18 @@ A module browser window contains a square for each
   right, but since modules can be moved around
   interactively, that property might not be preserved.
 
-  To open the file corresponding to the module, right-click or
-  control-click (Mac OS X) on the box for that module.
+  To open the file corresponding to the module, double click
+  on the box for that module.
   
   The module browser will also show you the phases that each
   module is loaded in; choose the ``Long, with phases'' menu item
   in the ``Names'' pop-up menu. The integers indicate the phases and
   if @racket[#f] is present, it means the module is loaded @racket[for-label].
+  
+  The bar along the bottom helps you find your way in a module graph. Specifically,
+  if you type something there, then all of the modules whose filenames match
+  what you type will turn green in the module window. This bar is only visible
+  in the stand alone module browser window (via the @onscreen{Racket} menu)
 
 @section[#:tag "create-exe"]{Creating Executables}
 

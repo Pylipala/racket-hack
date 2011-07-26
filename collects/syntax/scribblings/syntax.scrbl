@@ -1,7 +1,7 @@
 #lang scribble/doc
-@(require "common.ss")
+@(require "common.rkt")
 
-@title{@bold{Syntax}: Meta-Programming Helpers}
+@title{Syntax: Meta-Programming Helpers}
 
 @table-of-contents[]
 
@@ -21,5 +21,7 @@
 @include-section["docprovide.scrbl"]
 
 @include-section["parse.scrbl"]
+
+@include-section["srcloc.scrbl"]
 
 @index-section[]

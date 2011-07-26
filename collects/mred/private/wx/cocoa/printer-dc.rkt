@@ -151,6 +151,9 @@
     (define/override (get-size)
       (values (/ page-width page-scaling) (/ page-height page-scaling)))
 
+    (define/override (get-device-scale)
+      (values page-scaling page-scaling))
+
     (define current-page 0)
 
     (define/public (get-page-count) (length pages))
@@ -174,9 +177,10 @@
                                        (+ (NSPoint-y (NSRect-origin b))
                                           (NSSize-height (NSRect-size b))))
                                     page-scaling))
-          (let* ([surface (cairo_quartz_surface_create_for_cg_context cg 
-                                                                      (inexact->exact (ceiling page-width))
-                                                                      (inexact->exact (ceiling page-height)))]
+          (let* ([surface (cairo_quartz_surface_create_for_cg_context 
+                           cg 
+                           (inexact->exact (ceiling (/ page-width page-scaling)))
+                           (inexact->exact (ceiling (/ page-height page-scaling))))]
                  [cr (cairo_create surface)])
             (cairo_surface_destroy surface)
             (let ([dc (make-object (dc-mixin

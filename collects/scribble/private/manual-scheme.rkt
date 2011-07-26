@@ -1,12 +1,12 @@
 #lang racket/base
-(require "../decode.ss"
-         "../struct.ss"
-         "../scheme.ss"
-         "../search.ss"
-         "../basic.ss"
+(require "../decode.rkt"
+         "../struct.rkt"
+         "../scheme.rkt"
+         "../search.rkt"
+         "../basic.rkt"
          racket/list
-         "manual-utils.ss"
-         "manual-style.ss"
+         "manual-utils.rkt"
+         "manual-style.rkt"
          (for-syntax racket/base)
          (for-label racket/base))
 
@@ -16,7 +16,9 @@
          RACKETRESULTBLOCK RACKETRESULTBLOCK0
          racketblockelem
          racketinput RACKETINPUT
+         racketinput0 RACKETINPUT0
          racketmod
+         racketmod0
          racket RACKET racket/form racketresult racketid 
          racketmodname
          racketmodlink indexed-racket
@@ -42,10 +44,15 @@
                      [racketlink schemelink]))
 
 (define-code racketblock0 to-paragraph)
-(define-code racketblock (to-paragraph/prefix (hspace 2) (hspace 2) ""))
-(define-code RACKETBLOCK (to-paragraph/prefix (hspace 2) (hspace 2) "")
-                         UNSYNTAX)
+(define-code racketblock to-block-paragraph)
+(define-code RACKETBLOCK to-block-paragraph UNSYNTAX)
 (define-code RACKETBLOCK0 to-paragraph UNSYNTAX)
+
+(define (code-inset b)
+  (make-blockquote 'code-inset (list b)))
+
+(define (to-block-paragraph v)
+  (code-inset (to-paragraph v)))
 
 (define (to-result-paragraph v)
   (to-paragraph v 
@@ -67,19 +74,22 @@
 (define-code RACKETRESULTBLOCK0 to-result-paragraph UNSYNTAX)
 
 (define interaction-prompt (make-element 'tt (list "> " )))
-(define-code racketinput
-  (to-paragraph/prefix
-   (make-element #f (list (hspace 2) interaction-prompt))
-   (hspace 4)
-   ""))
-(define-code RACKETINPUT
-  (to-paragraph/prefix
-   (make-element #f (list (hspace 2) interaction-prompt))
-   (hspace 4)
-   "")
-  UNSYNTAX)
+(define-code racketinput to-input-paragraph/inset)
+(define-code RACKETINPUT to-input-paragraph/inset)
+(define-code racketinput0 to-input-paragraph)
+(define-code RACKETINPUT0 to-input-paragraph)
 
-(define-syntax (racketmod stx)
+(define to-input-paragraph
+  (to-paragraph/prefix
+   (make-element #f interaction-prompt)
+   (hspace 2)
+   ""))
+  
+(define to-input-paragraph/inset
+  (lambda (v)
+    (code-inset (to-input-paragraph v))))
+
+(define-syntax (racketmod0 stx)
   (syntax-case stx ()
     [(_ #:file filename lang rest ...)
      (with-syntax ([modtag (datum->syntax
@@ -99,9 +109,12 @@
              (filebox
               filename
               #,(syntax/loc stx (racketblock0 modtag rest ...))))
-           (syntax/loc stx (racketblock modtag rest ...))))]
+           (syntax/loc stx (racketblock0 modtag rest ...))))]
     [(_ lang rest ...)
-     (syntax/loc stx (racketmod #:file #f lang rest ...))]))
+     (syntax/loc stx (racketmod0 #:file #f lang rest ...))]))
+
+(define-syntax-rule (racketmod rest ...)
+  (code-inset (racketmod0 rest ...)))
 
 (define (to-element/result s)
   (make-element result-color (list (to-element/no-color s))))
@@ -143,13 +156,41 @@
 (define-code racketid to-element/id unsyntax keep-s-expr add-sq-prop)
 (define-code *racketmodname to-element unsyntax keep-s-expr add-sq-prop)
 
+(define-syntax (**racketmodname stx)
+  (syntax-case stx ()
+    [(_ form)
+     (let ([stx #'form])
+       #`(*racketmodname
+          ;; We want to remove lexical context from identifiers
+          ;; that correspond to module names, but keep context
+          ;; for `lib' or `planet' (which are rarely used)
+          #,(if (identifier? stx)
+                (datum->syntax #f (syntax-e stx) stx stx)
+                (if (and (pair? (syntax-e stx))
+                         (memq (syntax-e (car (syntax-e stx))) '(lib planet file)))
+                    (let ([s (car (syntax-e stx))]
+                          [rest (let loop ([a (cdr (syntax-e stx))] [head? #f])
+                                  (cond
+                                   [(identifier? a) (datum->syntax #f (syntax-e a) a a)]
+                                   [(and head? (pair? a) (free-identifier=? #'unsyntax (car a)))
+                                    a]
+                                   [(pair? a) (cons (loop (car a) #t) 
+                                                    (loop (cdr a) #f))]
+                                   [(syntax? a) (datum->syntax a
+                                                               (loop (syntax-e a) head?)
+                                                               a 
+                                                               a)]
+                                   [else a]))])
+                      (datum->syntax stx (cons s rest) stx stx))
+                    stx))))]))
+
 (define-syntax racketmodname
   (syntax-rules (unsyntax)
     [(racketmodname #,n)
      (let ([sym n])
        (as-modname-link sym (to-element sym)))]
     [(racketmodname n)
-     (as-modname-link 'n (*racketmodname n))]))
+     (as-modname-link 'n (**racketmodname n))]))
 
 (define-syntax racketmodlink
   (syntax-rules (unsyntax)

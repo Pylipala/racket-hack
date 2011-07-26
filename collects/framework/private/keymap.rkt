@@ -5,20 +5,27 @@
          mzlib/list
          mred/mred-sig
          mzlib/match
-         "../preferences.ss"
+         "../preferences.rkt"
          mrlib/tex-table
          (only-in srfi/13 string-prefix? string-prefix-length)
-         "sig.ss")
+         "sig.rkt")
+
 
   (import mred^
           [prefix finder: framework:finder^]
           [prefix handler: framework:handler^]
           [prefix frame: framework:frame^]
-          [prefix editor: framework:editor^])
+          [prefix editor: framework:editor^]
+          [prefix text: framework:text^])
   (export (rename framework:keymap^
                   [-get-file get-file]))
   (init-depend mred^)
-  
+
+;; if I put this in main.rkt with the others, it doesn't happen
+;; early enough... ? JBC, 2011-07-12
+(preferences:set-default 'framework:automatic-parens #f boolean?)  
+
+
   (define user-keybindings-files (make-hash))
   
   (define (add-user-keybindings-file spec)
@@ -50,7 +57,9 @@
   (define (valid-keybindings-lang? x)
     (member x
             (list `(lib "keybinding-lang.ss" "framework")
+                  `(lib "keybinding-lang.rkt" "framework")
                   `(lib "framework/keybinding-lang.ss")
+                  `(lib "framework/keybinding-lang.rkt")
                   `framework/keybinding-lang)))
   
   (define (spec->path p)
@@ -1013,7 +1022,36 @@
                           (send text end-edit-sequence))))))))]
            
            [greek-letters "αβγδεζηθι κλμνξοπρςστυφχψω"]
-           [Greek-letters "ΑΒΓΔΕΖΗΘΙ ΚΛΜΝΞΟΠΡ ΣΤΥΦΧΨΩ"]) ;; don't have a capital ς, just comes out as \u03A2 (or junk) 
+           [Greek-letters "ΑΒΓΔΕΖΗΘΙ ΚΛΜΝΞΟΠΡ ΣΤΥΦΧΨΩ"]
+           ;; don't have a capital ς, just comes out as \u03A2 (or junk) 
+     
+           
+           [find-beginning-of-line
+            (λ (txt)
+              (define pos-to-start-with
+                (cond
+                  [(= (send txt get-extend-start-position)
+                      (send txt get-start-position))
+                   (send txt get-end-position)]
+                  [else
+                   (send txt get-start-position)]))
+              
+              (cond
+                [(is-a? txt text:basic<%>)
+                 (send txt get-start-of-line pos-to-start-with)]
+                [(is-a? txt text%)
+                 (send txt line-start-position (send txt position-line pos-to-start-with))]
+                [else #f]))]
+           [beginning-of-line
+             (λ (txt event)
+               (define pos (find-beginning-of-line txt))
+               (when pos
+                 (send txt set-position pos pos)))]
+           [select-to-beginning-of-line
+            (λ (txt event)
+              (define pos (find-beginning-of-line txt))
+              (when pos
+                (send txt extend-position pos)))])
       
       (λ (kmap)
         (let* ([map (λ (key func) 
@@ -1061,6 +1099,15 @@
           (add "insert-\"\"-pair" (make-insert-brace-pair "\"" "\""))
           (add "insert-||-pair" (make-insert-brace-pair "|" "|"))
           (add "insert-lambda-template" insert-lambda-template)
+          ;; HACK: in order to allow disabling of insert-pair bindings,
+          ;; I'm adding functions that simply insert the corresponding
+          ;; character. I bet there's a much cleaner way to do this;
+          ;; there may be existing functions that insert single characters,
+          ;; or a way to "pop" bindings off of a keybindings.
+          (add "insert (" (lambda (txt evt) (send txt insert #\()))
+          (add "insert {" (lambda (txt evt) (send txt insert #\{)))
+          (add "insert \"" (lambda (txt evt) (send txt insert #\")))
+         
           
           (add "toggle-anchor" toggle-anchor)
           (add "center-view-on-line" center-view-on-line)
@@ -1103,6 +1150,9 @@
           (add "mouse-popup-menu" mouse-popup-menu)
           
           (add "make-read-only" make-read-only)
+        
+          (add "beginning-of-line" beginning-of-line)
+          (add "select-to-beginning-of-line" select-to-beginning-of-line)
           
           ; Map keys to functions
           
@@ -1133,6 +1183,7 @@
           
           (map "~m:c:\\" "TeX compress")
           (map "~c:m:\\" "TeX compress")
+          (map "c:x;t" "TeX compress")
           
           (map "c:j" "newline")
           
@@ -1230,7 +1281,8 @@
           (map "del" "delete-key")
           
           (map-meta "d" "kill-word")
-          (map-meta "del" "backward-kill-word")
+          (map-meta "del" "kill-word")
+          (map-meta "backspace" "backward-kill-word")
           (map-meta "c" "capitalize-word")
           (map-meta "u" "upcase-word")
           (map-meta "l" "downcase-word")
@@ -1303,6 +1355,25 @@
           (map "c:f6" "shift-focus")
           (map "a:tab" "shift-focus")
           (map "a:s:tab" "shift-focus-backwards")
+          
+          (let ()
+            (define (add-automatic-paren-bindings)
+              (map "~c:s:(" "insert-()-pair")
+              (map "~c:s:{" "insert-{}-pair")
+              (map "~c:s:\"" "insert-\"\"-pair"))
+            (define (remove-automatic-paren-bindings)
+              ;; how the heck is this going to work? we want to "pop" these bindings off...
+              ;; this is a crude approximation:
+              (map "~c:s:(" "insert (")
+              (map "~c:s:{" "insert {")
+              (map "~c:s:\"" "insert \""))
+            (when (preferences:get 'framework:automatic-parens)
+              (add-automatic-paren-bindings))
+            (preferences:add-callback 
+             'framework:automatic-parens
+             (lambda (id new-val)
+               (cond [new-val (add-automatic-paren-bindings)]
+                     [else    (remove-automatic-paren-bindings)]))))
           ))))
   
   (define setup-search
@@ -1419,7 +1490,7 @@
                     (case (system-type)
                       [(macosx macos) "d:"]
                       [(windows unix) "c:"]
-                      [else (error 'keymap.ss "unknown platform: ~s" (system-type))])
+                      [else (error 'keymap.rkt "unknown platform: ~s" (system-type))])
                     key)
                    func))])
       (add/map "editor-undo" 'undo "z")
@@ -1441,13 +1512,13 @@
   (define global (make-object aug-keymap%))
   (define global-main (make-object aug-keymap%))
   (send global chain-to-keymap global-main #f)
-  (setup-global global-main)
   (generic-setup global-main)
+  (setup-global global-main)
   (define (get-global) global)
   
   (define file (make-object aug-keymap%))
-  (setup-file file)
   (generic-setup file)
+  (setup-file file)
   (define (-get-file) file)
   
   (define search (make-object aug-keymap%))

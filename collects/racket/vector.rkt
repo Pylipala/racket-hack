@@ -41,13 +41,13 @@
                                end))
        (vector)]
       [else
-       (unless (and (<= 0 start) (< start len))
+       (unless (and (<= 0 start len))
          (raise-mismatch-error
           'vector-copy
           (format "start index ~e out of range [~e, ~e] for vector: "
                   start 0 len)
           v))
-       (unless (and (<= start end) (<= end len))
+       (unless (and (<= start end len))
          (raise-mismatch-error
           'vector-copy
           (format "end index ~e out of range [~e, ~e] for vector: "
@@ -69,19 +69,14 @@
 ;; uses name for error reporting
 (define (varargs-check f v vs name)
   (unless (procedure? f)
-    (raise-type-error name "procedure" 0 f))
-  (unless (procedure-arity-includes? f (add1 (length vs)))
-    (raise-type-error
-     name
-     (format "procedure (arity ~a)" (add1 (length vs)))
-     0 f))
+    (apply raise-type-error name "procedure" 0 f v vs))
   (unless (vector? v)
-    (raise-type-error name "vector" 1 v))
+    (apply raise-type-error name "vector" 1 f v vs))
   (let ([len (unsafe-vector-length v)])
     (for ([e (in-list vs)]
           [i (in-naturals 2)])
       (unless (vector? e)
-        (raise-type-error name "vector" e i))
+        (apply raise-type-error name "vector" e i f v vs))
       (unless (= len (unsafe-vector-length e))
         (raise
          (make-exn:fail:contract
@@ -96,6 +91,13 @@
                       (format "given ~a arguments total"
                               (sub1 (length args))))))
           (current-continuation-marks)))))
+    (unless (procedure-arity-includes? f (add1 (length vs)))
+      (raise-mismatch-error
+       name
+       (format 
+        "arity mismatch (expected arity ~a to match number of supplied vectors): "
+        (add1 (length vs)))
+       f))
     len))
 
 (define (vector-map f v . vs)
@@ -208,7 +210,9 @@
   (let ([init-min-var (f (unsafe-vector-ref xs 0))])
     (unless (real? init-min-var)
       (raise-type-error name "procedure that returns real numbers" f))
-    (let-values ([(min* min-var*)
+    (if (unsafe-fx= (unsafe-vector-length xs) 1)
+        (unsafe-vector-ref xs 0)
+        (let-values ([(min* min-var*)
                   (for/fold ([min (unsafe-vector-ref xs 0)]
                              [min-var init-min-var])
                       ([e (in-vector xs 1)])
@@ -219,7 +223,7 @@
                       (cond [(cmp new-min min-var)
                              (values e new-min)]
                             [else (values min min-var)])))])
-      min*)))
+      min*))))
 
 (define (vector-argmin f xs) (mk-min < 'vector-argmin f xs))
 (define (vector-argmax f xs) (mk-min > 'vector-argmax f xs))

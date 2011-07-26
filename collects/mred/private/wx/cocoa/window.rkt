@@ -68,13 +68,15 @@
   [-a _BOOL (resignFirstResponder)
       (and (super-tell resignFirstResponder)
            (let ([wx (->wx wxb)])
-             (when wx (send wx is-responder wx #f))
+             (when wx
+               (send wx is-responder wx #f)
+               (send wx set-saved-marked #f #f))
              #t))]
   [-a _void (changeColor: [_id sender])
       (let ([wx (->wx wxb)])
         (when wx (send wx on-color-change)))])
 
-(import-class NSArray)
+(import-class NSArray NSPanel NSTextView)
 (import-protocol NSTextInput)
 
 (define current-insert-text (make-parameter #f))
@@ -96,7 +98,10 @@
   [wxb]
   [-a _void (mouseDown: [_id event]) 
       (unless (do-mouse-event wxb event 'left-down #t #f #f 'right-down)
-        (super-tell #:type _void mouseDown: event))]
+        (super-tell #:type _void mouseDown: event)
+        (let ([wx (->wx wxb)])
+         (when wx
+           (send wx post-mouse-down))))]
   [-a _void (mouseUp: [_id event]) 
       (unless (do-mouse-event wxb event 'left-up #f #f #f 'right-up)
         (super-tell #:type _void mouseUp: event))]
@@ -122,8 +127,9 @@
        ;; Make sure we're in the right eventspace:
        (let ([wx (->wx wxb)])
          (and wx
-              (eq? (current-eventspace)
-                   (send wx get-eventspace))))
+              (eq? (current-thread)
+                   (eventspace-handler-thread
+                    (send wx get-eventspace)))))
        ;; Right event space, so handle the event:
        (do-mouse-event wxb event 'motion #f #f #f))]
   [-a _void (mouseEntered: [_id event]) 
@@ -152,9 +158,19 @@
         (super-tell #:type _void otherMouseDragged: event))]
 
   [-a _void (scrollWheel: [_id event])
-      (unless (and (not (zero? (tell #:type _CGFloat event deltaY)))
-                   (do-key-event wxb event self #f #t))
-        (super-tell #:type _void scrollWheel: event))]
+      (let ([delta-y (tell #:type _CGFloat event deltaY)]
+            [delta-x (tell #:type _CGFloat event deltaX)])
+        (let ([evts (append (cond
+                             [(zero? delta-y) '()]
+                             [(positive? delta-y) '(wheel-up)]
+                             [else '(wheel-down)])
+                            (cond
+                             [(zero? delta-x) '()]
+                             [(positive? delta-x) '(wheel-left)]
+                             [else '(wheel-right)]))])
+          (unless (and (pair? evts)
+                       (do-key-event wxb event self #f evts))
+            (super-tell #:type _void scrollWheel: event))))]
   
   [-a _void (keyDown: [_id event])
       (unless (do-key-event wxb event self #t #f)
@@ -163,6 +179,7 @@
       (unless (do-key-event wxb event self #f #f)
         (super-tell #:type _void keyUp: event))]
   [-a _void (insertText: [_NSStringOrAttributed str])
+      (set-saved-marked! wxb #f #f)
       (let ([cit (current-insert-text)])
         (if cit
             (set-box! cit str)
@@ -177,17 +194,22 @@
   [-a _id (validAttributesForMarkedText)
       (tell NSArray array)]
   [-a _void (unmarkText) 
-      (set-saved-marked! wxb #f)]
+      (set-saved-marked! wxb #f #f)]
   [-a _NSRange (markedRange)
       (let ([saved-marked (get-saved-marked wxb)])
-        (make-NSRange 0 (if saved-marked 0 (length saved-marked))))]
-  [-a _NSRange (selectedRange) (make-NSRange 0 0)]
+        (make-NSRange 0 (if saved-marked (string-length saved-marked) 0)))]
+  [-a _NSRange (selectedRange) 
+      (or (let ([s (get-saved-selected wxb)])
+            (and s
+                 (make-NSRange (car s) (cdr s))))
+          (make-NSRange 0 0))]
   [-a _void (setMarkedText: [_NSStringOrAttributed aString] selectedRange: [_NSRange selRange])
       ;; We interpreter a call to `setMarkedText:' as meaning that the
       ;; key is a dead key for composing some other character.
       (let ([m (current-set-mark)]) (when m (set-box! m #t)))
       ;; At the same time, we need to remember the text:
-      (set-saved-marked! wxb (range-substring aString selRange))
+      (set-saved-marked! wxb aString (cons (NSRange-location selRange) 
+                                           (NSRange-length selRange)))
       (void)]
   [-a _id (validAttributesForMarkedText) #f]
   [-a _id (attributedSubstringFromRange: [_NSRange theRange])
@@ -233,18 +255,29 @@
                                          (lambda ()
                                            (send wx do-on-drop-file s)))))))))))
       #t])
-(define (set-saved-marked! wxb str)
+(define (set-saved-marked! wxb str sel)
   (let ([wx (->wx wxb)])
     (when wx
-      (send wx set-saved-marked str))))
+      (send wx set-saved-marked str sel))))
 (define (get-saved-marked wxb)
   (let ([wx (->wx wxb)])
     (and wx
          (send wx get-saved-marked))))
+(define (get-saved-selected wxb)
+  (let ([wx (->wx wxb)])
+    (and wx
+         (send wx get-saved-selected))))
 (define (range-substring s range)
   (let ([start (min (max 0 (NSRange-location range)) (string-length s))])
-    (substring s start (max (min start (NSRange-length range)) (string-length s)))))
+    (substring s start (max (+ start (NSRange-length range)) 
+                            (string-length s)))))
 
+(define-objc-class InputMethodPanel NSPanel
+  []
+  [-a _BOOL (canBecomeKeyWindow) #f]
+  [-a _BOOL (canBecomeMainWindow) #f]
+  [-a _void (windowDidResize: [_id notification])
+      (reset-input-method-window-size)])
 
 (define-objc-mixin (KeyMouseTextResponder Superclass)
   #:mixins (KeyMouseResponder)
@@ -258,13 +291,14 @@
         (when wx
           (send wx reset-cursor-rects)))])
 
-(define (do-key-event wxb event self down? wheel?)
+(define (do-key-event wxb event self down? wheel)
   (let ([wx (->wx wxb)])
     (and
      wx
      (let ([inserted-text (box #f)]
-           [set-mark (box #f)])
-       (unless wheel?
+           [set-mark (box #f)]
+           [had-saved-text? (and (send wx get-saved-marked) #t)])
+       (when down?
          ;; Calling `interpretKeyEvents:' allows key combinations to be
          ;; handled, such as option-e followed by e to produce é. The
          ;; call to `interpretKeyEvents:' typically calls `insertText:',
@@ -283,19 +317,17 @@
               [bit? (lambda (m b) (positive? (bitwise-and m b)))]
               [pos (tell #:type _NSPoint event locationInWindow)]
               [str (cond
-                    [wheel? #f]
+                    [wheel #f]
                     [(unbox set-mark) ""] ; => dead key for composing characters
                     [(unbox inserted-text)]
                     [else
                      (tell #:type _NSString event characters)])]
+              [dead-key? (unbox set-mark)]
               [control? (bit? modifiers NSControlKeyMask)]
               [option? (bit? modifiers NSAlternateKeyMask)]
-              [delta-y (and wheel?
-                            (tell #:type _CGFloat event deltaY))]
               [codes (cond
-                      [wheel? (if (positive? delta-y)
-                                  '(wheel-up)
-                                  '(wheel-down))]
+                      [wheel wheel]
+                      [had-saved-text? str]
                       [(map-key-code (tell #:type _ushort event keyCode))
                        => list]
                       [(string=? "" str) '(#\nul)]
@@ -309,7 +341,7 @@
                                               (string-ref alt-str 0)))))))
                        => list]
                       [else str])])
-         (for/fold ([result #f]) ([one-code codes])
+         (for/fold ([result dead-key?]) ([one-code codes])
            (or
             ;; Handle one key event
             (let-values ([(x y) (send wx window-point-to-view pos)])
@@ -323,7 +355,7 @@
                             [y (->long y)]
                             [time-stamp (->long (* (tell #:type _double event timestamp) 1000.0))]
                             [caps-down (bit? modifiers NSAlphaShiftKeyMask)])])
-                (unless wheel?
+                (unless wheel
                   (let ([alt-str (tell #:type _NSString event charactersIgnoringModifiers)])
                     (when (and (string? alt-str)
                                (= 1 (string-length alt-str)))
@@ -465,6 +497,9 @@
     (define/public (get-parent)
       parent)
 
+    (define/public (set-parent p)
+      (set! parent p))
+
     (define/public (get-eventspace) eventspace)
 
     (define is-on? #f)
@@ -590,7 +625,9 @@
             [y (if (= y -11111) (get-y) y)])
         (tellv cocoa setNeedsDisplay: #:type _BOOL #t)
         (tellv cocoa setFrame: #:type _NSRect (make-NSRect (make-NSPoint x (flip y h))
-                                                           (make-NSSize w h)))))
+                                                           (make-NSSize w h))))
+      (queue-on-size))
+
     (define/public (internal-move x y)
       (set-size x y (get-width) (get-height)))
     (define/public (move x y)
@@ -672,7 +709,7 @@
       (dispatch-on-event e #f))
     (define/public (dispatch-on-event e just-pre?) 
       (cond
-       [(other-modal? this) #t]
+       [(other-modal? this e) #t]
        [(call-pre-on-event this e) #t]
        [just-pre? block-all-mouse-events?]
        [else (when enabled? (on-event e)) #t]))
@@ -699,9 +736,11 @@
                              [caps-down #f])
                         #f))
 
+    (define/public (post-mouse-down) (void))
+
     (define/public (on-char s) (void))
     (define/public (on-event m) (void))
-    (define/public (on-size x y) (void))
+    (define/public (queue-on-size) (void))
 
     (define last-l? #f)
     (define last-m? #f)
@@ -724,6 +763,7 @@
       (send (get-parent) end-no-cursor-rects))
 
     (define/public (get-handle) (get-cocoa))
+    (define/public (get-client-handle) (get-cocoa-content))
 
     (define/public (popup-menu m x y)
       (send m do-popup (get-cocoa-content) (get-cocoa-window) x (flip-client y)
@@ -790,8 +830,66 @@
 
     ;; For multi-key character composition:
     (define saved-marked #f)
-    (define/public (set-saved-marked v) (set! saved-marked v))
-    (define/public (get-saved-marked) saved-marked)))
+    (define saved-sel #f)
+    (define/public (set-saved-marked v sel) 
+      (set! saved-marked v) 
+      (set! saved-sel sel)
+      (if (and v 
+               (not (string=? v ""))
+               ;; Don't show the window for an empty string or certain
+               ;; simple combinations (probably a better way than this);
+               (not (member v '("¨" "ˆ" "´" "`" "˜"))))
+          (create-compose-window)
+          (when compose-cocoa
+            (tellv compose-cocoa orderOut: #f))))
+    (define/public (get-saved-marked) saved-marked)
+    (define/public (get-saved-selected) saved-sel)
+
+    (define/private (create-compose-window)
+      (unless compose-cocoa
+        (set! compose-cocoa (tell (tell InputMethodPanel alloc)
+                                  initWithContentRect: #:type _NSRect (make-NSRect
+                                                                       (make-NSPoint 0 20)
+                                                                       (make-NSSize 300 20))
+                                  styleMask: #:type _int (bitwise-ior NSUtilityWindowMask
+                                                                      NSResizableWindowMask
+                                                                      NSClosableWindowMask)
+                                  backing: #:type _int NSBackingStoreBuffered
+                                  defer: #:type _BOOL NO))
+        (set! compose-text (tell (tell NSTextView alloc)
+                                 initWithFrame: #:type _NSRect (make-NSRect
+                                                                (make-NSPoint 0 0)
+                                                                (make-NSSize 10 10))))
+        (tellv compose-cocoa setFloatingPanel: #:type _BOOL #t)
+        (tellv (tell compose-cocoa contentView) addSubview: compose-text)
+        (tellv compose-text sizeToFit)
+        (tellv compose-cocoa setContentBorderThickness: #:type _CGFloat 5.0 forEdge: #:type _int 1)
+        (let ([h (+ (NSSize-height
+                     (NSRect-size
+                      (tell #:type _NSRect
+                            compose-cocoa frameRectForContentRect: 
+                            #:type _NSRect (make-NSRect (make-NSPoint 0 0)
+                                                        (make-NSSize 0 0)))))
+                    (NSSize-height (NSRect-size (tell #:type _NSRect compose-text frame))))])
+          (tellv compose-cocoa setMinSize: #:type _NSSize (make-NSSize 1 h))
+          (tellv compose-cocoa setMaxSize: #:type _NSSize (make-NSSize 32000 h))
+          (tellv compose-cocoa setFrame: #:type _NSRect (make-NSRect (make-NSPoint 0 20)
+                                                                     (make-NSSize 300 h))
+                 display: #:type _BOOL #t))
+        (reset-input-method-window-size)
+        (tellv compose-cocoa setDelegate: compose-cocoa))
+      (tellv compose-text 
+             setMarkedText: #:type _NSString saved-marked 
+             selectedRange: #:type _NSRange (make-NSRange (car saved-sel) (cdr saved-sel)))
+      (tellv compose-cocoa orderFront: #f))))
+
+(define (reset-input-method-window-size)
+  (when compose-text
+    (tell compose-text setFrame: #:type _NSRect
+          (tell #:type _NSRect (tell compose-cocoa contentView) frame))))
+
+(define compose-cocoa #f)
+(define compose-text #f)
 
 ;; ----------------------------------------
 
@@ -810,8 +908,9 @@
   (do-request-flush-delay 
    cocoa-win
    (lambda (cocoa-win)
-     (tellv cocoa-win disableFlushWindow)
-     #t)
+     (and (tell #:type _bool cocoa-win isVisible)
+          (tellv cocoa-win disableFlushWindow)
+          #t))
    (lambda (cocoa-win)
      (tellv cocoa-win enableFlushWindow))))
 

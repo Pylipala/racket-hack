@@ -23,7 +23,7 @@ LPWSTR schemeUCS4ToUTF16 (const mzchar * buffer, int nchars, long * result_lengt
   LPWSTR s;
   intptr_t rl;
   s = (LPWSTR) scheme_ucs4_to_utf16 (buffer, 0, nchars, NULL, 0, &rl, 1);
-  if(result_length) *result_length = rl;
+  *result_length = rl;
   s[*result_length] = 0;
   return s;
 }
@@ -215,16 +215,9 @@ Scheme_Object * BSTRToSchemeSymbol (BSTR bstr)
   return scheme_intern_exact_char_symbol (string, nchars);
 }
 
-// This parameter controls whether strings returned by
-// COM are converted to scheme symbols or to scheme strings.
-Scheme_Object * mx_unmarshal_strings_as_symbols;
-
 Scheme_Object * unmarshalBSTR (BSTR bstr)
 {
-  return
-      scheme_apply (mx_unmarshal_strings_as_symbols, 0, NULL) == scheme_false
-      ? BSTRToSchemeString (bstr)
-      : BSTRToSchemeSymbol (bstr);
+  return BSTRToSchemeString (bstr);
 }
 
 static

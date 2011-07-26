@@ -17,6 +17,9 @@
 (load-in-sandbox "date.rktl")
 (load-in-sandbox "compat.rktl")
 (load-in-sandbox "cmdline.rktl")
+(load-in-sandbox "stream.rktl")
+(load-in-sandbox "sequence.rktl")
+(load-in-sandbox "generator.rktl")
 (load-in-sandbox "pconvert.rktl")
 (load-in-sandbox "pretty.rktl")
 (load-in-sandbox "control.rktl")
@@ -27,5 +30,7 @@
 (load-in-sandbox "shared.rktl")
 (load-in-sandbox "kw.rktl")
 (load-in-sandbox "macrolib.rktl")
+(load-in-sandbox "resource.rktl")
+(load-in-sandbox "syntaxlibs.rktl")
 
 (report-errs)

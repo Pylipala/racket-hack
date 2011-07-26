@@ -1,9 +1,6 @@
 #lang scribble/doc
-@(require scribble/manual
-          scribble/eval
-          "utils.ss"
-          (for-label scribble/manual
-                     scribble/eval))
+@(require scribble/manual scribble/eval "utils.rkt"
+          (for-label scribble/manual scribble/eval))
 
 @title[#:tag "reference-style"]{Style Guide}
 
@@ -40,7 +37,7 @@ Use the word ``list'' only when you mean a run-time value consisting
 of the empty list and cons cells; use the word ``sequence'' in other
 cases, if you must use any word. For example, do not write that
 @racket[begin] has a ``list of sub-forms;'' instead, it has a
-``sequence of subforms.'' Similarly, do not refer to a ``list of
+``sequence of sub-forms.'' Similarly, do not refer to a ``list of
 arguments'' in a function call; just write ``arguments'' if possible,
 or write ``sequence of argument expressions.''  (Unfortunately,
 ``@tech[#:doc '(lib
@@ -55,6 +52,17 @@ explicit prose abstraction, such as ``@racket[x] is like @racket[y],
 except that ...,'' instead of abstracting the source and instantiating
 it multiple times; often, a prose abstraction is clearer to the reader
 than a hidden abstraction in the document implementation.
+
+Hyphenate the words ``sub-form'' and ``sub-expression.''
+
+Use ``Windows,'' ``Mac OS X,'' and ``Unix'' for the three
+``platforms'' (as opposed to ``systems'') on which Racket runs. Use
+``Unix'' as a generic term for Unix-like operating systems---notably
+including Linux---other than Mac OS X. Use ``Unix'' even when ``Gtk''
+or ``the X11 windowing system'' would be more precisely correct, but
+use ``X11'' as adjective when necessary, such as ``X11 display.''
+Racket runs ``on'' a platform, as opposed to ``under'' a platform.
+
 
 @section{Typesetting Code}
 
@@ -76,6 +84,11 @@ syntactic form or procedure, because each @racket[defform] or
 procedure should have a single definition point. (Scribble issues a
 warning when a binding has multiple definition points.) Instead, use
 @racket[defproc*] or @racket[defform*].
+
+For function arguments, use @racket[v] as the meta-variable for ``any
+value.'' Use @racket[x] as a meta-variable only for numerical
+values. Other conventions include @racket[lst] for a list and
+@racket[proc] for a procedure.
 
 Pay attention to the difference between identifiers and meta-variables
 when using @racket[racket], especially outside of @racket[defproc] or
@@ -125,9 +138,8 @@ Refrain from referring to documentation ``above'' or ``below,'' and
 instead have a hyperlink point to the right place.
 
 In prose, use @litchar{``} and @litchar{''} quotation marks instead of
-@litchar{"}. Use @litchar{---} for an em-dash, and do not include
-spaces on either side, though it will typeset as an en-dash and spaces
-in HTML output. Use American style for quotation marks and punctuation
+@litchar{"}. Use @litchar{---} for an em dash, and do not include
+spaces on either side. Use American style for quotation marks and punctuation
 @; [Eli] BTW, I've asked several people about this, and the general
 @;   agreement that I've seen is that this is a rather arbitrary rule
 @;   and there's no harm in doing the more logical thing of putting
@@ -144,6 +156,10 @@ noun; use it as an annotation.
 Do not start a sentence with a Racket variable name, since it is
 normally lowercase. For example, use ``The @racket[_thing] argument
 is...'' instead of ``@racket[_thing] is...''
+
+Use @racket[etc] for ``@|etc|'' when it does not end a sentence, and
+include a comma after ``@|etc|'' unless it ends a sentence of is
+followed by other punctuation (such as a parenthesis).
 
 @section{Section Titles}
 

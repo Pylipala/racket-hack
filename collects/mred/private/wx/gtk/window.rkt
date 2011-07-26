@@ -1,6 +1,7 @@
 #lang racket/base
 (require ffi/unsafe
          racket/class
+	 net/uri-codec
          ffi/unsafe/atomic
          "../../syntax.rkt"
          "../../lock.rkt"
@@ -57,6 +58,7 @@
 ;; ----------------------------------------
 
 (define-gtk gtk_container_add (_fun _GtkWidget _GtkWidget -> _void))
+(define-gtk gtk_container_remove (_fun _GtkWidget _GtkWidget -> _void))
 (define-gtk gtk_widget_realize (_fun _GtkWidget -> _void))
 (define-gtk gtk_widget_add_events (_fun _GtkWidget _int -> _void))
 
@@ -120,7 +122,10 @@
 	    => (lambda (m)
 		 (queue-window-event wx
 				     (lambda ()
-				       (let ([path (bytes->path (cadr m))])
+				       (let ([path 
+					      (string->path
+					       (uri-decode
+						(bytes->string/utf-8 (cadr m))))])
 					 (send wx on-drop-file path)))))]))))))
 
 ;; ----------------------------------------
@@ -130,6 +135,7 @@
   (lambda (gtk event)
     (let ([wx (gtk->wx gtk)])
       (when wx
+        (send wx focus-change #t)
         (send (send wx get-top-win) on-focus-child #t)
         (queue-window-event wx (lambda () (send wx on-set-focus))))
       #f)))
@@ -138,6 +144,7 @@
   (lambda (gtk event)
     (let ([wx (gtk->wx gtk)])
       (when wx
+        (send wx focus-change #f)
         (send (send wx get-top-win) on-focus-child #f)
         (queue-window-event wx (lambda () (send wx on-kill-focus))))
       #f)))
@@ -171,69 +178,79 @@
 (define-signal-handler connect-scroll "scroll-event"
   (_fun _GtkWidget _GdkEventScroll-pointer -> _gboolean)
   (lambda (gtk event)
-    (and (member (GdkEventScroll-direction event)
-                 (list GDK_SCROLL_UP
-                       GDK_SCROLL_DOWN))
-         (do-key-event gtk event #f #t))))
+    (do-key-event gtk event #f #t)))
 
 (define (do-key-event gtk event down? scroll?)
   (let ([wx (gtk->wx gtk)])
     (and
      wx
-     (let* ([modifiers (if scroll?
-                           (GdkEventScroll-state event)
-                           (GdkEventKey-state event))]
-            [bit? (lambda (m v) (positive? (bitwise-and m v)))]
-            [keyval->code (lambda (kv)
-                            (or
-                             (map-key-code kv)
-                             (integer->char (gdk_keyval_to_unicode kv))))]
-            [key-code (if scroll?
-                          (if (= (GdkEventScroll-direction event)
-                                 GDK_SCROLL_UP)
-                              'wheel-up
-                              'wheel-down)
-                          (keyval->code (GdkEventKey-keyval event)))]
-            [k (new key-event%
-                    [key-code key-code]
-                    [shift-down (bit? modifiers GDK_SHIFT_MASK)]
-                    [control-down (bit? modifiers GDK_CONTROL_MASK)]
-                    [meta-down (bit? modifiers GDK_MOD1_MASK)]
-                    [alt-down (bit? modifiers GDK_META_MASK)]
-                    [x 0]
-                    [y 0]
-                    [time-stamp (if scroll?
-                                    (GdkEventScroll-time event)
-                                    (GdkEventKey-time event))]
-                    [caps-down (bit? modifiers GDK_LOCK_MASK)])])
-       (when (or (and (not scroll?)
-                      (let-values ([(s ag sag cl) (get-alts event)]
-                                   [(keyval->code*) (lambda (v)
-                                                      (and v
-                                                           (let ([c (keyval->code v)])
-                                                             (and (not (equal? #\u0000 c))
-                                                                  c))))])
-                        (let ([s (keyval->code* s)]
-                              [ag (keyval->code* ag)]
-                              [sag (keyval->code* sag)]
-                              [cl (keyval->code* cl)])
-                          (when s (send k set-other-shift-key-code s))
-                          (when ag (send k set-other-altgr-key-code ag))
-                          (when sag (send k set-other-shift-altgr-key-code sag))
-                          (when cl (send k set-other-caps-key-code cl))
-                          (or s ag sag cl))))
-                 (not (equal? #\u0000 key-code)))
-         (unless (or scroll? down?)
-           ;; swap altenate with main
-           (send k set-key-release-code (send k get-key-code))
-           (send k set-key-code 'release))
-         (if (send wx handles-events? gtk)
-             (begin
-               (queue-window-event wx (lambda () (send wx dispatch-on-char k #f)))
-               #t)
-             (constrained-reply (send wx get-eventspace)
-                                (lambda () (send wx dispatch-on-char k #t))
-                                #t)))))))
+     (let ([im-str (if scroll?
+		       'none
+		       ;; Result from `filter-key-event' is one of
+		       ;;  - #f => drop the event
+		       ;;  - 'none => no replacement; handle as usual
+		       ;;  - a string => use as the keycode
+		       (send wx filter-key-event event))])
+       (when im-str
+	 (let* ([modifiers (if scroll?
+			       (GdkEventScroll-state event)
+			       (GdkEventKey-state event))]
+		[bit? (lambda (m v) (positive? (bitwise-and m v)))]
+		[keyval->code (lambda (kv)
+				(or
+				 (map-key-code kv)
+				 (integer->char (gdk_keyval_to_unicode kv))))]
+		[key-code (if scroll?
+			      (let ([dir (GdkEventScroll-direction event)])
+                                (cond
+                                 [(= dir GDK_SCROLL_UP) 'wheel-up]
+                                 [(= dir GDK_SCROLL_DOWN) 'wheel-down]
+                                 [(= dir GDK_SCROLL_LEFT) 'wheel-left]
+                                 [(= dir GDK_SCROLL_RIGHT) 'wheel-right]))
+			      (keyval->code (GdkEventKey-keyval event)))]
+		[k (new key-event%
+			[key-code (if (and (string? im-str)
+					   (= 1 (string-length im-str)))
+				      (string-ref im-str 0)
+				      key-code)]
+			[shift-down (bit? modifiers GDK_SHIFT_MASK)]
+			[control-down (bit? modifiers GDK_CONTROL_MASK)]
+			[meta-down (bit? modifiers GDK_MOD1_MASK)]
+			[alt-down (bit? modifiers GDK_META_MASK)]
+			[x 0]
+			[y 0]
+			[time-stamp (if scroll?
+					(GdkEventScroll-time event)
+					(GdkEventKey-time event))]
+			[caps-down (bit? modifiers GDK_LOCK_MASK)])])
+	   (when (or (and (not scroll?)
+			  (let-values ([(s ag sag cl) (get-alts event)]
+				       [(keyval->code*) (lambda (v)
+							  (and v
+							       (let ([c (keyval->code v)])
+								 (and (not (equal? #\u0000 c))
+								      c))))])
+			    (let ([s (keyval->code* s)]
+				  [ag (keyval->code* ag)]
+				  [sag (keyval->code* sag)]
+				  [cl (keyval->code* cl)])
+			      (when s (send k set-other-shift-key-code s))
+			      (when ag (send k set-other-altgr-key-code ag))
+			      (when sag (send k set-other-shift-altgr-key-code sag))
+			      (when cl (send k set-other-caps-key-code cl))
+			      (or s ag sag cl))))
+		     (not (equal? #\u0000 key-code)))
+	     (unless (or scroll? down?)
+	       ;; swap altenate with main
+	       (send k set-key-release-code (send k get-key-code))
+	       (send k set-key-code 'release))
+	     (if (send wx handles-events? gtk)
+		 (begin
+		   (queue-window-event wx (lambda () (send wx dispatch-on-char k #f)))
+		   #t)
+		 (constrained-reply (send wx get-eventspace)
+				    (lambda () (send wx dispatch-on-char k #t))
+				    #t)))))))))
 
 (define-signal-handler connect-button-press "button-press-event"
   (_fun _GtkWidget _GdkEventButton-pointer -> _gboolean)
@@ -283,72 +300,82 @@
                   (if crossing?
                       (GdkEventCrossing-type event)
                       (GdkEventButton-type event)))])
-    (unless (or (= type GDK_2BUTTON_PRESS)
-                (= type GDK_3BUTTON_PRESS))
-      (let ([wx (gtk->wx gtk)])
-        (and
-         wx
-         (let* ([modifiers (if motion?
-                               (GdkEventMotion-state event)
-                               (if crossing?
-                                   (GdkEventCrossing-state event)
-                                   (GdkEventButton-state event)))]
-                [bit? (lambda (m v) (positive? (bitwise-and m v)))]
-                [type (cond
-                       [(= type GDK_MOTION_NOTIFY)
-                        'motion]
-                       [(= type GDK_ENTER_NOTIFY)
-                        'enter]
-                       [(= type GDK_LEAVE_NOTIFY)
-                        'leave]
-                       [(= type GDK_BUTTON_PRESS)
-                        (case (GdkEventButton-button event)
-                          [(1) 'left-down]
-                          [(3) 'right-down]
-                          [else 'middle-down])]
-                       [else
-                        (case (GdkEventButton-button event)
-                          [(1) 'left-up]
-                          [(3) 'right-up]
-                          [else 'middle-up])])]
-                [m (new mouse-event%
-                        [event-type type]
-                        [left-down (case type
-                                     [(left-down) #t]
-                                     [(left-up) #f]
-                                     [else (bit? modifiers GDK_BUTTON1_MASK)])]
-                        [middle-down (case type
-                                       [(middle-down) #t]
-                                       [(middle-up) #f]
-                                       [else (bit? modifiers GDK_BUTTON2_MASK)])]
-                        [right-down (case type
-                                      [(right-down) #t]
-                                      [(right-up) #f]
-                                      [else (bit? modifiers GDK_BUTTON3_MASK)])]
-                        [x (->long ((if motion? 
-                                        GdkEventMotion-x 
-                                        (if crossing? GdkEventCrossing-x GdkEventButton-x))
-                                    event))]
-                        [y (->long ((if motion? GdkEventMotion-y 
-                                        (if crossing? GdkEventCrossing-y GdkEventButton-y))
-                                    event))]
-                        [shift-down (bit? modifiers GDK_SHIFT_MASK)]
-                        [control-down (bit? modifiers GDK_CONTROL_MASK)]
-                        [meta-down (bit? modifiers GDK_META_MASK)]
-                        [alt-down (bit? modifiers GDK_MOD1_MASK)]
-                        [time-stamp ((if motion? GdkEventMotion-time 
-                                         (if crossing? GdkEventCrossing-time GdkEventButton-time))
-                                     event)]
-                        [caps-down (bit? modifiers GDK_LOCK_MASK)])])
-           (if (send wx handles-events? gtk)
-               (begin
-                 (queue-window-event wx (lambda ()
-                                          (send wx dispatch-on-event m #f)))
-                 #t)
-               (constrained-reply (send wx get-eventspace)
-                                  (lambda () (or (send wx dispatch-on-event m #t)
-                                                 (send wx internal-pre-on-event gtk m)))
-                                  #t))))))))
+    (let ([wx (gtk->wx gtk)])
+      (and
+       wx
+       (if (or (= type GDK_2BUTTON_PRESS)
+	       (= type GDK_3BUTTON_PRESS))
+	   #t
+           (let* ([modifiers (if motion?
+                                 (GdkEventMotion-state event)
+                                 (if crossing?
+                                     (GdkEventCrossing-state event)
+                                     (GdkEventButton-state event)))]
+                 [bit? (lambda (m v) (positive? (bitwise-and m v)))]
+                 [type (cond
+                        [(= type GDK_MOTION_NOTIFY)
+                         'motion]
+                        [(= type GDK_ENTER_NOTIFY)
+                         'enter]
+                        [(= type GDK_LEAVE_NOTIFY)
+                         'leave]
+                        [(= type GDK_BUTTON_PRESS)
+                         (case (GdkEventButton-button event)
+                           [(1) 'left-down]
+                           [(3) 'right-down]
+                           [else 'middle-down])]
+                        [else
+                         (case (GdkEventButton-button event)
+                           [(1) 'left-up]
+                           [(3) 'right-up]
+                           [else 'middle-up])])]
+		 [m (new mouse-event%
+			 [event-type type]
+			 [left-down (case type
+				      [(left-down) #t]
+				      [(left-up) #f]
+				      [else (bit? modifiers GDK_BUTTON1_MASK)])]
+			 [middle-down (case type
+					[(middle-down) #t]
+					[(middle-up) #f]
+					[else (bit? modifiers GDK_BUTTON2_MASK)])]
+			 [right-down (case type
+				       [(right-down) #t]
+				       [(right-up) #f]
+				       [else (bit? modifiers GDK_BUTTON3_MASK)])]
+			 [x (->long ((if motion? 
+					 GdkEventMotion-x 
+					 (if crossing? GdkEventCrossing-x GdkEventButton-x))
+				     event))]
+			 [y (->long ((if motion? GdkEventMotion-y 
+					 (if crossing? GdkEventCrossing-y GdkEventButton-y))
+				     event))]
+			 [shift-down (bit? modifiers GDK_SHIFT_MASK)]
+			 [control-down (bit? modifiers GDK_CONTROL_MASK)]
+			 [meta-down (bit? modifiers GDK_META_MASK)]
+			 [alt-down (bit? modifiers GDK_MOD1_MASK)]
+			 [time-stamp ((if motion? GdkEventMotion-time 
+					  (if crossing? GdkEventCrossing-time GdkEventButton-time))
+				      event)]
+			 [caps-down (bit? modifiers GDK_LOCK_MASK)])])
+	     (if (send wx handles-events? gtk)
+		 (begin
+		   (queue-window-event wx (lambda ()
+					    (send wx dispatch-on-event m #f)))
+		   #t)
+		 (constrained-reply (send wx get-eventspace)
+				    (lambda () (or (send wx dispatch-on-event m #t)
+						   (send wx internal-pre-on-event gtk m)))
+				    #t
+				    #:fail-result 
+				    ;; an enter event is synthesized when a button is
+				    ;; enabled and the mouse is over the button, and the
+				    ;; event is not dispatched via the eventspace; leave
+				    ;; events are perhaps similarly synthesized, so allow
+				    ;; them, too
+				    (if (or (eq? type 'enter) (eq? type 'leave))
+					#f
+					#t)))))))))
 
 ;; ----------------------------------------
 
@@ -400,10 +427,11 @@
     (connect-size-allocate gtk)
 
     (when add-to-parent?
-      (gtk_container_add (send parent get-client-gtk) gtk))
+      (gtk_container_add (send parent get-container-gtk) gtk))
 
     (define/public (get-gtk) gtk)
     (define/public (get-client-gtk) gtk)
+    (define/public (get-container-gtk) (get-client-gtk))
     (define/public (get-window-gtk) (send parent get-window-gtk))
 
     (define/public (move x y)
@@ -420,7 +448,8 @@
         (unless (= h -1) (set! save-h h))
         (set! save-w (max save-w client-delta-w))
         (set! save-h (max save-h client-delta-h))
-        (really-set-size gtk x y save-x save-y save-w save-h)))
+        (really-set-size gtk x y save-x save-y save-w save-h)
+        (queue-on-size)))
 
     (define/public (save-size x y w h)
       (set! save-w w)
@@ -441,13 +470,7 @@
         (set! save-h h)
         (queue-on-size)))
 
-    (define on-size-queued? #f)
-    (define/public (queue-on-size)
-      (unless on-size-queued?
-        (set! on-size-queued? #t)
-        (queue-window-event this (lambda () 
-                                   (set! on-size-queued? #f)
-                                   (on-size 0 0)))))
+    (define/public (queue-on-size) (void))
 
     (define client-delta-w 0)
     (define client-delta-h 0)
@@ -461,7 +484,7 @@
             [creq (make-GtkRequisition 0 0)]
             [hreq (make-GtkRequisition 0 0)])
         (gtk_widget_size_request gtk req)
-        (gtk_widget_size_request (get-client-gtk) creq)
+        (gtk_widget_size_request (get-container-gtk) creq)
         (when sub-h-gtk
           (gtk_widget_size_request sub-h-gtk hreq))
         (when w?
@@ -508,6 +531,15 @@
     (define/public (get-height) save-h)
 
     (define/public (get-parent) parent)
+    (define/public (set-parent p)
+      ;; in atomic mode
+      (g_object_ref gtk)
+      (gtk_container_remove (send parent get-container-gtk) gtk)
+      (set! parent p)
+      (gtk_container_add (send parent get-container-gtk) gtk)
+      (set! save-x 0)
+      (set! save-y 0)
+      (g_object_unref gtk))
 
     (define/public (get-top-win) (send parent get-top-win))
 
@@ -567,6 +599,9 @@
     (define/public (on-set-focus) (void))
     (define/public (on-kill-focus) (void))
 
+    (define/public (focus-change on?) (void))
+    (define/public (filter-key-event e) 'none)
+
     (define/private (pre-event-refresh)
       ;; Since we break the connection between the
       ;; Gtk queue and event handling, we
@@ -586,7 +621,7 @@
     (define/public (dispatch-on-event e just-pre?) 
       (pre-event-refresh)
       (cond
-       [(other-modal? this) #t]
+       [(other-modal? this e) #t]
        [(call-pre-on-event this e) #t]
        [just-pre? #f]
        [else (when enabled? (on-event e)) #t]))
@@ -605,8 +640,6 @@
     (define/public (on-char e) (void))
     (define/public (on-event e) (void))
 
-    (define/public (on-size w h) (void))
-
     (define/public (register-child child on?)
       (void))
     (define/public (register-child-in-parent on?)
@@ -619,6 +652,7 @@
     (define/public (on-drop-file path) (void))
 
     (define/public (get-handle) (get-gtk))
+    (define/public (get-client-handle) (get-container-gtk))
 
     (define/public (popup-menu m x y)
       (let ([gx (box x)]

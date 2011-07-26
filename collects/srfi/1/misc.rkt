@@ -1,28 +1,16 @@
 ;;;
-;;; <misc.ss> ---- Miscellaneous list procedures
+;;; <misc.rkt> ---- Miscellaneous list procedures
 ;;; Time-stamp: <02/03/01 13:52:22 noel>
 ;;;
 ;;; Copyright (C) 2002 by Noel Welsh.
 ;;;
 ;;; This file is part of SRFI-1.
 
-;;; SRFI-1 is free software; you can redistribute it and/or
-;;; modify it under the terms of the GNU Lesser General Public
-;;; License as published by the Free Software Foundation; either
-;;; version 2.1 of the License, or (at your option) any later version.
-
-;;; SRFI-1 is distributed in the hope that it will be useful,
-;;; but WITHOUT ANY WARRANTY; without even the implied warranty of
-;;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-;;; Lesser General Public License for more details.
-
-;;; You should have received a copy of the GNU Lesser General Public
-;;; License along with SRFI-1; if not, write to the Free Software
-;;; Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307  USA
+;;; This SRFI-1 implementation is distributed under the same terms as
+;;; Racket.
 
 ;;; Author: Noel Welsh <noelwelsh@yahoo.com>
-;;
-;;
+
 ;; Commentary:
 
 ;; Based on the reference implementation by Olin Shiver and hence:
@@ -32,14 +20,17 @@
 ;; hold me liable for its use. Please send bug reports to shivers@ai.mit.edu.
 ;;     -Olin
 
+;; Olin Shivers verified that he is fine with redistributing this code
+;; under the LGPL.  (Verified personally by Eli Barzilay.)
+
 #lang scheme/base
 
 (require srfi/optional
-         "predicate.ss"
-         "selector.ss"
-         "util.ss"
-         (only-in "fold.ss" reduce-right)
-         (rename-in "fold.ss" [map s:map] [for-each s:for-each])
+         "predicate.rkt"
+         "selector.rkt"
+         "util.rkt"
+         (only-in "fold.rkt" reduce-right)
+         (rename-in "fold.rkt" [map s:map] [for-each s:for-each])
          (only-in scheme/list count append*))
 
 (provide length+
@@ -184,4 +175,4 @@
           (set-cdr! lis ans)
           (lp tail lis)))))
 
-;;; misc.ss ends here
+;;; misc.rkt ends here

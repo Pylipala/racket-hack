@@ -1,18 +1,23 @@
 #lang racket/base
 (require (for-syntax racket/base)
          racket/serialize
-         racket/pretty)
+         racket/pretty
+         racket/contract)
 
 (provide set seteq seteqv
          set? set-eq? set-eqv? set-equal?
          set-empty? set-count
          set-member? set-add set-remove
-         set-union set-intersect set-subtract
-         subset?
+         set-union set-intersect set-subtract set-symmetric-difference
+         subset? proper-subset?
          set-map set-for-each 
          (rename-out [*in-set in-set])
          for/set for/seteq for/seteqv
-         for*/set for*/seteq for*/seteqv)
+         for*/set for*/seteq for*/seteqv
+         (rename-out [*set/c set/c])
+         set=?
+         set->list
+         list->set list->seteq list->seteqv)
 
 (define-serializable-struct set (ht)
   #:omit-define-syntaxes
@@ -24,9 +29,19 @@
                          [(integer? mode) (lambda (p port) (print p port mode))]
                          [else write]))
     (define (print-prefix port)
-      (if (equal? 0 mode)
-          (write-string "(set" port)
-          (write-string "#<set:" port)))
+      (cond
+        [(equal? 0 mode)
+         (write-string "(set" port)
+         (print-prefix-id port)]
+        [else
+         (write-string "#<set" port)
+         (print-prefix-id port)
+         (write-string ":" port)]))
+    (define (print-prefix-id port)
+      (cond
+        [(set-equal? s) (void)]
+        [(set-eqv? s) (write-string "eqv" port)]
+        [(set-eq? s) (write-string "eq" port)]))
     (define (print-suffix port)
       (if (equal? 0 mode)
           (write-string ")" port)
@@ -210,17 +225,27 @@
     (for/fold ([set set]) ([set2 (in-list sets)])
       (set-subtract set set2))]))
 
-(define (subset? set2 set1)
-  (unless (set? set2) (raise-type-error 'subset? "set" 0 set2 set1))
-  (unless (set? set1) (raise-type-error 'subset? "set" 0 set2 set1))
+(define (subset* who set2 set1 proper?)
+  (unless (set? set2) (raise-type-error who "set" 0 set2 set1))
+  (unless (set? set1) (raise-type-error who "set" 0 set2 set1))
   (let ([ht1 (set-ht set1)]
         [ht2 (set-ht set2)])
     (unless (and (eq? (hash-eq? ht1) (hash-eq? ht2))
                  (eq? (hash-eqv? ht1) (hash-eqv? ht2)))
-      (raise-mismatch-error 'set-subset? "second set's equivalence predicate is not the same as the first set: "
+      (raise-mismatch-error who
+                            "second set's equivalence predicate is not the same as the first set: "
                             set2))
-    (for/and ([v (in-hash-keys ht2)])
-      (hash-ref ht1 v #f))))
+    (and (for/and ([v (in-hash-keys ht2)])
+           (hash-ref ht1 v #f))
+         (if proper?
+             (< (hash-count ht2) (hash-count ht1))
+             #t))))
+
+(define (subset? one two)
+  (subset* 'subset? one two #f))
+
+(define (proper-subset? one two)
+  (subset* 'proper-subset? one two #t))
 
 (define (set-map set proc)
   (unless (set? set) (raise-type-error 'set-map "set" 0 set proc))
@@ -281,3 +306,146 @@
 (define-for for*/fold/derived for*/seteq seteq)
 (define-for for/fold/derived for/seteqv seteqv)
 (define-for for*/fold/derived for*/seteqv seteqv)
+
+(define (get-pred a-set/c)
+  (case (set/c-cmp a-set/c)
+    [(dont-care) set?]
+    [(eq) set-eq?]
+    [(eqv) set-eqv?]
+    [(equal) set-equal?]))
+
+(define (get-name a-set/c)
+  (case (set/c-cmp a-set/c)
+    [(dont-care) 'set]
+    [(eq) 'set-eq]
+    [(eqv) 'set-eqv]
+    [(equal) 'set-equal]))
+
+(define *set/c
+  (let ()
+    (define (set/c ctc #:cmp [cmp 'dont-care])
+      (unless (memq cmp '(dont-care equal eq eqv))
+        (raise-type-error 'set/c 
+                          "(or/c 'dont-care 'equal? 'eq? 'eqv)" 
+                          cmp))
+      (if (flat-contract? ctc)
+          (flat-set/c ctc cmp (flat-contract-predicate ctc))
+          (make-set/c ctc cmp)))
+    set/c))
+
+(define (set/c-name c)
+  `(set/c ,(contract-name (set/c-ctc c))
+          ,@(if (eq? (set/c-cmp c) 'dont-care)
+                '()
+                `(#:cmp ',(set/c-cmp c)))))
+
+(define (set/c-stronger this that)
+  (and (set/c? that)
+       (or (eq? (set/c-cmp this)
+                (set/c-cmp that))
+           (eq? (set/c-cmp that) 'dont-care))
+       (contract-stronger? (set/c-ctc this)
+                           (set/c-ctc that))))
+
+(define (set/c-proj c)
+  (let ([proj (contract-projection (set/c-ctc c))]
+        [pred (get-pred c)])
+    (λ (blame)
+      (let ([pb (proj blame)])
+        (λ (s)
+          (if (pred s)
+              (cond
+                [(set-equal? s)
+                 (for/set ((e (in-set s)))
+                          (pb e))]
+                [(set-eqv? s)
+                 (for/seteqv ((e (in-set s)))
+                             (pb e))]
+                [(set-eq? s)
+                 (for/seteq ((e (in-set s)))
+                            (pb e))])
+              (raise-blame-error
+               blame
+               s
+               "expected a <~a>, got ~v" 
+               (get-name c)
+               s)))))))
+
+(define-struct set/c (ctc cmp)
+  #:property prop:contract
+  (build-contract-property 
+   #:name set/c-name
+   #:first-order get-pred
+   #:stronger set/c-stronger
+   #:projection set/c-proj))
+
+(define (flat-first-order c)
+  (let ([inner-pred (flat-set/c-pred c)]
+        [pred (get-pred c)])
+    (λ (s)
+      (and (pred s)
+           (for/and ((e (in-set s)))
+             (inner-pred e))))))
+
+(define-values (flat-set/c flat-set/c-pred)
+  (let ()
+    (define-struct (flat-set/c set/c)  (pred)
+      #:property prop:flat-contract
+      (build-flat-contract-property 
+       #:name set/c-name
+       #:first-order flat-first-order
+       #:stronger set/c-stronger
+       #:projection set/c-proj))
+    (values make-flat-set/c flat-set/c-pred)))
+
+;; ----
+
+(define (set=? one two)
+  (unless (set? one) (raise-type-error 'set=? "set" 0 one two))
+  (unless (set? two) (raise-type-error 'set=? "set" 1 one two))
+  ;; Sets implement prop:equal+hash
+  (equal? one two))
+
+(define set-symmetric-difference
+  (case-lambda
+    [(set)
+     (unless (set? set) (raise-type-error 'set-symmetric-difference "set" 0 set))
+     set]
+    [(set set2)
+     (unless (set? set) (raise-type-error 'set-symmetric-difference "set" 0 set set2))
+     (unless (set? set2) (raise-type-error 'set-symmetric-difference "set" 1 set set2))
+     (let ([ht1 (set-ht set)]
+           [ht2 (set-ht set2)])
+      (unless (and (eq? (hash-eq? ht1) (hash-eq? ht2))
+                   (eq? (hash-eqv? ht1) (hash-eqv? ht2)))
+        (raise-mismatch-error 'set-symmetric-difference
+                              "set's equivalence predicate is not the same as the first set: "
+                              set2))
+      (let-values ([(big small)
+                    (if (>= (hash-count ht1) (hash-count ht2))
+                        (values ht1 ht2)
+                        (values ht2 ht1))])
+        (make-set
+         (for/fold ([ht big]) ([e (in-hash-keys small)])
+           (if (hash-ref ht e #f)
+               (hash-remove ht e)
+               (hash-set ht e #t))))))]
+    [(set . sets)
+     (for ([s (in-list (cons set sets))]
+           [i (in-naturals)])
+       (unless (set? s) (apply raise-type-error 'set-symmetric-difference "set" i (cons s sets))))
+     (for/fold ([set set]) ([set2 (in-list sets)])
+       (set-symmetric-difference set set2))]))
+
+(define (set->list set)
+  (unless (set? set) (raise-type-error 'set->list "set" 0 set))
+  (for/list ([elem (in-hash-keys (set-ht set))]) elem))
+(define (list->set elems)
+  (unless (list? elems) (raise-type-error 'list->set "list" 0 elems))
+  (apply set elems))
+(define (list->seteq elems)
+  (unless (list? elems) (raise-type-error 'list->seteq "list" 0 elems))
+  (apply seteq elems))
+(define (list->seteqv elems)
+  (unless (list? elems) (raise-type-error 'list->seteqv "list" 0 elems))
+  (apply seteqv elems))

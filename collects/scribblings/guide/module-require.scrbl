@@ -1,7 +1,5 @@
 #lang scribble/doc
-@(require scribble/manual
-          scribble/eval
-          "guide-utils.ss")
+@(require scribble/manual scribble/eval "guide-utils.rkt")
 
 @title[#:tag "module-require"]{Imports: @racket[require]}
 
@@ -115,4 +113,4 @@ Equivalently, the @racket[prefix-in] could be applied before
 @racket[except-in], as long as the omission with @racket[except-in] is
 specified using the @racket[m:] prefix:
 
-@racketblock[(require (except-in (prefix m: 'm) m:ghost))]
+@racketblock[(require (except-in (prefix-in m: 'm) m:ghost))]

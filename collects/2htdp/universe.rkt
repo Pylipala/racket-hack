@@ -1,10 +1,11 @@
 #lang racket/gui
 
-;; DONT USE to-draw IN THIS FILE 
+;; ---------------------------------------------------------------------------------------------------
+;; the universe library provides the functionality to create interactive and distributed FPs in HtDP
+
+;; DONT USE ___to-draw___ IN THIS FILE 
 
 #| TODO: 
-   -- check that on-release is only defined if on-key is defined 
-
    -- run callbacks in user eventspace
    -- make timer fire just once; restart after on-tick callback finishes
    -- take out counting; replace by 0.25 delay
@@ -12,15 +13,18 @@
    -- make window resizable :: why
 |#
 
-(require (for-syntax "private/syn-aux.ss")
-         "private/syn-aux-aux.ss" 
-         "private/syn-aux.ss"
-         "private/check-aux.ss"
-         "private/universe-image.ss"
-         "private/world.ss"
-         "private/universe.ss"
-         "private/launch-many-worlds.ss"
-         "private/stop.ss"
+(require (for-syntax "private/clauses-spec-and-process.rkt"
+                     stepper/private/shared)
+         "private/define-keywords.rkt"
+         "private/clauses-spec-aux.rkt" 
+         ;; ---
+         "private/world.rkt"
+         "private/universe.rkt"
+         "private/universe-image.rkt"
+         ;; 
+         (only-in "private/launch-many-worlds.rkt" launch-many-worlds)
+         (only-in "private/stop.rkt" make-stop-the-world)
+         (only-in "private/check-aux.rkt" sexp?)
          htdp/error
          (rename-in lang/prim (first-order->higher-order f2h)))
 
@@ -54,7 +58,7 @@
                 (num> 'on-tick rate (lambda (x) (and (real? x) (positive? x)))
                       "positive number" "rate"))])]
   ;; -- state specifies whether to display the current state 
-  [state DEFAULT #'#f (expr-with-check bool> "expected a boolean")]
+  [state DEFAULT #'#f (expr-with-check any> "expected a boolean or a string")]
   ;; Any -> Boolean 
   ;; -- check-with: all states should specify this predicate 
   [check-with DEFAULT #'True (function-with-arity 1)])
@@ -151,7 +155,8 @@
 (provide-primitives
  make-package ;; World Sexp -> Package
  package?     ;; Any -> Boolean 
- run-movie    ;; [Listof Image] -> true 
+ run-movie    ;; [r Positive] [m [Listof Image]] -> true
+ ;; run movie m at rate r images per second 
  mouse-event?  ;; Any -> Boolean : MOUSE-EVTS
  mouse=?       ;; MOUSE-EVTS MOUSE-EVTS -> Boolean 
  key-event?    ;; Any -> Boolean : KEY-EVTS
@@ -213,7 +218,7 @@
     "wheel-down"))
 
 (define-syntax (big-bang stx)
-  (define world0 "big-bang needs at least an initial world")
+  (define world0 "expects an expression for the initial world and at least one clause, but nothing's there")
   (syntax-case stx ()
     [(big-bang) (raise-syntax-error #f world0 stx)]
     [(big-bang w clause ...)
@@ -225,8 +230,15 @@
                    [(V) (set! rec? #'V)]
                    [_ (err '#'record? stx)])))]
             [args 
-             (->args 'big-bang stx #'w #'(clause ...) WldSpec ->rec? "world")])
-       #`(run-it ((new-world (if #,rec? aworld% world%)) w #,@args)))]))
+             (->args 'big-bang stx #'w #'(clause ...) WldSpec ->rec?)]
+            [dom (syntax->list #'(clause ...))])
+       (cond
+         [(and (not (contains-clause? #'to-draw dom)) (not (contains-clause? #'on-draw dom)))
+          (raise-syntax-error #f "expects at least one clause after the initial world, but nothing's there" stx)]
+         [else 
+          (stepper-syntax-property
+           #`(run-it ((new-world (if #,rec? aworld% world%)) w #,@args))
+           'stepper-skip-completely #t)]))]))
 
 (define (run-simulation f)
   (check-proc 'run-simulation f 1 "first" "one argument")
@@ -236,7 +248,7 @@
 
 (define (run-movie r m*)
   (check-arg 'run-movie (positive? r) "positive number" "first" r)
-  (check-arg 'run-movie (list? m*) "list (of images)" "second" m*)
+  (check-arg 'run-movie (list? m*) "list of images" "second" m*)
   (for-each (lambda (m) (check-image 'run-movie m "first" "list of images")) m*)
   (let* ([fst (car m*)]
          [wdt (image-width fst)]
@@ -302,17 +314,16 @@
 
 (define-syntax (universe stx)
   (syntax-case stx ()
-    [(universe) (raise-syntax-error #f "not a legal universe description" stx)]
-    [(universe u) (raise-syntax-error #f "not a legal universe description" stx)]
+    [(universe) (raise-syntax-error #f "expects an expression for the initial world and at least one clause, but nothing's there" stx)]
+    [(universe u) (raise-syntax-error #f "expects at least one clause after the initial world, but nothing's there" stx)]
     [(universe u bind ...)
-     (let* ([args
-             (->args 'universe stx #'u #'(bind ...) UniSpec void "universe")]
-            [dom (map (compose car syntax->datum) (syntax->list #'(bind ...)))])
+     (let* ([args (->args 'universe stx #'u #'(bind ...) UniSpec void)]
+            [dom (syntax->list #'(bind ...))])
        (cond
-         [(not (memq 'on-new dom))
-          (raise-syntax-error #f "missing on-new clause" stx)]
-         [(not (memq 'on-msg dom))
-          (raise-syntax-error #f "missing on-msg clause" stx)]
+         [(not (contains-clause? #'on-new dom))
+          (raise-syntax-error #f "expects a on-new clause, but found none" stx)]
+         [(not (contains-clause? #'on-msg dom))
+          (raise-syntax-error #f "expects a on-msg clause, but found none" stx)]
          [else ; (and (memq #'on-new dom) (memq #'on-msg dom))
           #`(run-it ((new-universe universe%) u #,@args))]))]))
 

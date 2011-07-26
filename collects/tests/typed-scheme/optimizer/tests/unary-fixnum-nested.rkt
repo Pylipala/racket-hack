@@ -1,11 +1,12 @@
 #;
 (
-unary-fixnum-nested.rkt line 11 col 6 - bitwise-not - unary fixnum
-unary-fixnum-nested.rkt line 11 col 1 - abs - unary fixnum
-4
+TR opt: unary-fixnum-nested.rkt 12:1 bitwise-not -- unary fixnum
+TR opt: unary-fixnum-nested.rkt 12:14 bitwise-not -- unary fixnum
+TR opt: unary-fixnum-nested.rkt 12:27 length -- known-length list length
+3
 )
 
 #lang typed/scheme
 #:optimize
 
-(abs (bitwise-not (length '(1 2 3))))
+(bitwise-not (bitwise-not (length '(1 2 3))))

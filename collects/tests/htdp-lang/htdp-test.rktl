@@ -64,7 +64,14 @@
 		    #,(strip-context stx))
 		(lambda (x)
 		  (and (exn:fail:syntax? x)
-		       (regexp-match rx (exn-message x)))))]))
+                       (regexp-match (if (string? rx) (regexp-quote rx) rx) (exn-message x))
+                       (let ([locs ((exn:srclocs-accessor x) x)])
+                         (and (not (empty? locs))
+                              (andmap (lambda (s) (and (srcloc-source s)
+                                                       (regexp-match #rx"collects[/\\]tests" (srcloc-source s))
+                                                       (srcloc-position s) (srcloc-span s))) 
+
+                                      locs))))))]))
 
 (require (only-in mzscheme 
                   [let mz-let]
@@ -105,6 +112,12 @@
      #'(do-htdp-test #'expr #f exn:application:type?)]
     [(_ expr exn?)
      #'(do-htdp-test #'expr #f (htdp-string-to-pred exn?))]))
+
+(define (exn-type-and-msg type-pred msg)
+  (lambda (exn)
+    (and (type-pred exn)
+         (regexp-match (if (string? msg) (regexp-quote msg) msg) (exn-message exn)))))
+
 
 (define (htdp-error-test stx)
   (do-htdp-test stx #t #f))

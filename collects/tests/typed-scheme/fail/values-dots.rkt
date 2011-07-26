@@ -1,8 +1,8 @@
 #;
-(exn-pred 7)
+(exn-pred 10)
 #lang typed-scheme
 
-(require typed-scheme/private/extra-procs)
+(require typed-scheme/base-env/extra-procs)
 
 (: map-with-funcs (All (b ...) ((b ... b -> b) ... b -> (b ... b -> (values b ... b)))))
 (define (map-with-funcs . fs)

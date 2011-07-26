@@ -308,6 +308,11 @@ static int finish_cmd_line_run(FinishArgs *fa, Repl_Proc repl)
             a[0] = scheme_make_pair(scheme_intern_symbol(name),
                                     scheme_make_pair(scheme_make_utf8_string(fa->evals_and_loads[i]),
                                                      scheme_make_null()));
+            if (!scheme_is_module_path(a[0])) {
+              scheme_signal_error("require: bad module path: %V derived from command-line argument: %s",
+                                  a[0],
+                                  fa->evals_and_loads[i]);
+            }
             if (!did_config)
               configure_environment(a[0]);
             scheme_apply(nsreq, 1, a);
@@ -979,6 +984,12 @@ static int run_from_cmd_line(int argc, char *_argv[],
 	  argv++;
 	  --argc;
 	  sprog = argv[0];
+          if (!*sprog) {
+            PRINTF("%s: empty path after %s switch\n", 
+		   prog, 
+		   real_switch);
+	    goto show_need_help;
+          }
           was_config_flag = 1;
 	  break;
 	case 'q':
@@ -1129,6 +1140,9 @@ static int run_from_cmd_line(int argc, char *_argv[],
       stderr_level = get_log_level(prog, NULL, "PLTSTDERR", "stderr", s);
     }
   }
+  if (getenv("PLTDISABLEGC")) {
+    scheme_enable_garbage_collection(0);
+  }
 #endif
 
   scheme_set_logging(syslog_level, stderr_level);
@@ -1171,6 +1185,9 @@ static int run_from_cmd_line(int argc, char *_argv[],
     sprog = prog;
   
   (void)scheme_set_run_cmd(sprog);
+#ifdef CAN_SET_OS_PROCESS_NAME
+  set_os_process_name(sprog);
+#endif
   
   if (no_compiled)
     scheme_set_compiled_file_paths(scheme_make_null());
@@ -1269,7 +1286,7 @@ static int run_from_cmd_line(int argc, char *_argv[],
          "  -c, --no-compiled : Disable loading of compiled files\n"
 	 "  -q, --no-init-file : Skip load of " INIT_FILENAME " for -i\n"
 # ifdef CMDLINE_STDIO_FLAG
-	 "  -z, --text-repl : Use text read-eval-print loop for -i\n"
+	 "  -z, --text-repl : Use text `read-eval-print-loop' for -i\n"
 # endif
          "  -I <path> : Set <init-lib> to <path>\n"
 	 "  -X <dir>, --collects <dir> : Main collects at <dir>\n"

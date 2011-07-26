@@ -28,15 +28,17 @@ has been moved out).
 |#
 
 (require racket/class
-         racket/gui/base
+         racket/draw
+         (for-syntax racket/base)
+         file/convertible
          racket/math
          racket/contract
-         "private/image-core-bitmap.ss"
-         "image-core-wxme.ss"
+         "private/image-core-bitmap.rkt"
+         "image-core-wxme.rkt"
          "private/image-core-snipclass.rkt"
          "private/regmk.rkt"
-         (prefix-in cis: "cache-image-snip.ss")
-         (for-syntax racket/base))
+         racket/snip
+         (prefix-in cis: "cache-image-snip.rkt"))
 
 
 
@@ -76,7 +78,20 @@ has been moved out).
       (is-a? p image-snip%)
       (is-a? p bitmap%)))
 
+(define (un/cache-image img bitmap-cache?)
+  (unless (image? img)
+    (error 'un/cache-image "expected an image as the first argument, got ~e" img))
+  (define res (send img copy))
+  (send res set-use-bitmap-cache?! (and bitmap-cache? #t))
+  res)
 
+(define (compute-image-cache img)
+  (unless (image? img)
+    (error 'compute-cached-bitmap "expected an image as the first argument, got ~e" img))
+  (when (is-a? img image<%>)
+    (send img compute-cached-bitmap))
+  (void))
+  
 ;; a shape is either:
 ;;
 ;;  - (make-overlay shape shape)
@@ -176,8 +191,13 @@ has been moved out).
 ;; an color is
 ;;  - (make-color (<=/c 0 255) (<=/c 0 255) (<=/c 0 255))
 ;;  - string
-(define-struct/reg-mk color (red green blue) #:transparent)
-
+(define-struct/reg-mk color (red green blue alpha) #:transparent)
+(define -make-color
+  ;; this let is here just for the name
+  (let ([make-color
+         (λ (r g b [a 255])
+           (make-color r g b a))])
+    make-color))
 ;                                                   
 ;                                                   
 ;                                                   
@@ -197,10 +217,42 @@ has been moved out).
 (define skip-image-equality-fast-path (make-parameter #f))
 (define render-normalized (make-parameter #f))
 
+(define png-convertible<%>
+  (interface* ()
+              ([prop:convertible
+                (lambda (img format default)
+                  (case format
+                    [(png-bytes)
+                     (let ([s (open-output-bytes)])
+                       (send (to-bitmap (to-img img)) save-file s 'png)
+                       (get-output-bytes s))]
+                    [else default]))])))
+
+(define (to-bitmap img)  
+  (let* ([bb (send img get-bb)]
+         [bm (make-bitmap
+              (add1 (inexact->exact (ceiling (bb-right bb)))) 
+              (add1 (inexact->exact (ceiling (bb-bottom bb)))))]
+         [bdc (new bitmap-dc% [bitmap bm])])
+    (send bdc erase)
+    (render-image img bdc 0 0)
+    (begin0
+        (send bdc get-bitmap)
+      (send bdc set-bitmap #f))))
+
+(define-local-member-name 
+  set-use-bitmap-cache?!
+  set-cached-bitmap
+  compute-cached-bitmap)
+
 (define image%
-  (class* snip% (equal<%> image<%>)
+  (class* snip% (png-convertible<%> image<%>)
     (init-field shape bb normalized? pinhole)
-    (define/public (equal-to? that eq-recur)
+    
+    (define/override (equal-to? that eq-recur) (compare-em that eq-recur))
+    (define/override (other-equal-to? that eq-recur) (compare-em that eq-recur))
+    
+    (define/private (compare-em that eq-recur)
       (or (eq? this that)
           (let ([that 
                  (cond
@@ -213,7 +265,7 @@ has been moved out).
                  (or (and (not (skip-image-equality-fast-path))  ;; this is here to make testing more effective
                           (equal? (get-normalized-shape) (send that get-normalized-shape)))
                      (let ([w (+ 1 (round (inexact->exact (bb-right bb))))]    ;; some shapes (ie, rectangles) draw 1 outside the bounding box
-                           [h (+ 1 (round (inexact->exact (bb-bottom bb))))])  ;; so we make the bitmap slightly bigger to accomodate that.
+                           [h (+ 1 (round (inexact->exact (bb-bottom bb))))])  ;; so we make the bitmap slightly bigger to accommodate that.
                        (or ;(zero? w)
                            ;(zero? h)
                            (let ([bm1 (make-bitmap w h #t)]
@@ -227,12 +279,15 @@ has been moved out).
     
     (define/private (draw-into bm bdc bytes obj)
       (send bdc set-bitmap bm)
-      (send bdc clear)
+      (send bdc erase)
       (render-image obj bdc 0 0)
       (send bdc get-argb-pixels 0 0 (send bm get-width) (send bm get-height) bytes))
     
-    (define/public (equal-hash-code-of y) 42)
-    (define/public (equal-secondary-hash-code-of y) 3)
+    ;; this could render the image into a bitmap and then get the hash code of the bytes
+    ;; cannot render the tree into a string and then get the hash code of that string
+    ;;   b/c that might make equal things have the same code.
+    (define/override (equal-hash-code-of y) 42)
+    (define/override (equal-secondary-hash-code-of y) 3)
 
     (define/public (get-shape) shape)
     (define/public (set-shape s) (set! shape s))
@@ -260,10 +315,7 @@ has been moved out).
               (when standard
                 (let ([dc (make-object bitmap-dc% (make-object bitmap% 1 1))])
                   (let-values ([(w h d a) (send dc get-text-extent "X" (send standard get-font))])
-                    (set! scroll-step (+ h
-                                         (if (is-a? ed text%)
-                                             (send ed get-line-spacing)
-                                             0)))))))))
+                    (set! scroll-step (+ h (send admin get-line-spacing)))))))))
         ;; if that didn't happen, set it to 12.
         (unless scroll-step (set! scroll-step 12))))
     
@@ -278,10 +330,43 @@ has been moved out).
       (calc-scroll-step)
       (inexact->exact (ceiling (/ y scroll-step))))
 
-    (define/override (copy) (make-image shape bb normalized? pinhole))
-    (define/override (draw dc x y left top right bottom dx dy draw-caret?)
-      (let ([smoothing (send dc get-smoothing)])
-        (render-image this dc x y)))
+    (define/override (copy) 
+      (define res (make-image shape bb normalized? pinhole))
+      (when cached-bitmap
+        (send res set-cached-bitmap cached-bitmap))
+      res)
+    
+    (define cached-bitmap #f)
+    (define use-cached-bitmap? #t)
+    
+    ;; this method is only used by the 'copy' method
+    (define/public (set-cached-bitmap bm) (set! cached-bitmap bm))
+    
+    (define/public (compute-cached-bitmap)
+      (when use-cached-bitmap?
+        (unless cached-bitmap
+          (set! cached-bitmap (make-bitmap (+ (inexact->exact (round (bb-right bb))) 1) 
+                                           (+ (inexact->exact (round (bb-bottom bb))) 1)))
+          (define bdc (make-object bitmap-dc% cached-bitmap))
+          (send bdc erase)
+          (render-image this bdc 0 0)
+          (send bdc set-bitmap #f))))
+    
+    (define/public (set-use-bitmap-cache?! u-b-c?) 
+      (set! use-cached-bitmap? u-b-c?)
+      (unless use-cached-bitmap?
+        (set! cached-bitmap #f)))
+    
+    (define/override (draw dc x y left top right bottom dx dy draw-caret)
+      (compute-cached-bitmap)
+      
+      (let ([alpha (send dc get-alpha)])
+        (when (pair? draw-caret)
+          (send dc set-alpha (* alpha .5)))
+        (if use-cached-bitmap?
+            (send dc draw-bitmap cached-bitmap x y)
+            (render-image this dc x y))
+        (send dc set-alpha alpha)))
     
     (define/override (get-extent dc x y [w #f] [h #f] [descent #f] [space #f] [lspace #f] [rspace #f])
       (send (get-the-snip-class-list) add snip-class)
@@ -368,6 +453,14 @@ has been moved out).
                                   (list-ref parsed-args 3)
                                   (list-ref parsed-args 4)
                                   (make-hash))]
+                    [(and (eq? tag 'struct:color)
+                          (= arg-count 3))
+                     ;; we changed the arity of the color constructor from old versions,
+                     ;; so fix it up here.
+                     (make-color (list-ref parsed-args 0)
+                                 (list-ref parsed-args 1)
+                                 (list-ref parsed-args 2)
+                                 255)]
                     [else
                      (k #f)]))]))]
         [else sexp]))))
@@ -609,7 +702,7 @@ has been moved out).
                (+ 1 (ceiling (inexact->exact (bb-right bb))))
                (+ 1 (ceiling (inexact->exact (bb-bottom bb)))))]
          [bdc (make-object bitmap-dc% bm)])
-    (send bdc clear)
+    (send bdc erase)
     (render-image image bdc 0 0)
     (send bdc set-bitmap #f)
     (send bm save-file filename kind)))
@@ -792,6 +885,7 @@ has been moved out).
          (send dc draw-path path dx dy)))]
     [(flip? np-atomic-shape) 
      (let ([bm (get-rendered-bitmap np-atomic-shape)]) 
+       (send dc set-smoothing 'smoothed)
        (send dc draw-bitmap 
              bm
              (- dx (/ (send bm get-width) 2))
@@ -803,6 +897,7 @@ has been moved out).
      (let ([θ (degrees->radians (text-angle np-atomic-shape))]
            [font (send dc get-font)])
        (send dc set-font (text->font np-atomic-shape))
+       (send dc set-smoothing 'aligned) ;; should this be smoothed?
        (let ([color (get-color-arg (text-color np-atomic-shape))])
          (send dc set-text-foreground 
                (cond
@@ -939,25 +1034,16 @@ the mask bitmap and the original bitmap are all together in a single bytes!
               [orig-h (send orig-bm get-height)]
               [scale-w (ceiling (inexact->exact (* x-scale (send orig-bm get-width))))]
               [scale-h (ceiling (inexact->exact (* y-scale (send orig-bm get-height))))]
-              [new-bm (make-object bitmap% scale-w scale-h)]
-              [new-mask (and orig-mask (make-object bitmap% scale-w scale-h))])
-         (when new-mask
-           (send new-bm set-loaded-mask new-mask))
+              [new-bm (make-bitmap scale-w scale-h)])
          
          (send bdc set-bitmap new-bm)
          (send bdc set-scale x-scale y-scale)
-         (send bdc clear)
-         (send bdc draw-bitmap orig-bm 0 0)
-         
-         (when new-mask
-           (send bdc set-bitmap new-mask)
-           (send bdc set-scale x-scale y-scale)
-           (send bdc clear)
-           (send bdc draw-bitmap orig-mask 0 0))
+         (send bdc erase)
+         (send bdc draw-bitmap orig-bm 0 0 'solid (send the-color-database find-color "black") orig-mask)
          
          (send bdc set-bitmap #f)
          
-         (values new-bm new-mask))])))
+         (values new-bm #f))])))
 
 (define (text->font text)
   (define adjusted-size (min (max (inexact->exact (round (text-size text))) 1) 255))
@@ -1008,35 +1094,49 @@ the mask bitmap and the original bitmap are all together in a single bytes!
     [else 'smoothed]))
 
 (define (mode-color->pen mode color)
-  (case mode
-    [(outline) 
+  (cond
+    [(eq? mode 'outline)
      (cond
        [(pen? color)
         (pen->pen-obj/cache color)]
        [else
         (send the-pen-list find-or-create-pen (get-color-arg color) 0 'solid 'round 'miter)])]
-    [(solid)
+    [else
      (send the-pen-list find-or-create-pen "black" 1 'transparent)]))
 
 (define (mode-color->brush mode color)
-  (case mode
-    [(outline)
+  (cond
+    [(eq? mode 'outline)
      (send the-brush-list find-or-create-brush "black" 'transparent)]
-    [(solid)
-     (send the-brush-list find-or-create-brush (get-color-arg color) 'solid)]))
+    [else
+     ;; this should only be 'solid if we have an old image from a save file somewhere
+     (define extra-alpha (if (eq? mode 'solid)
+                             255
+                             mode))
+     (send the-brush-list find-or-create-brush (get-color-arg color extra-alpha) 'solid)]))
 
-(define (get-color-arg color)
-  (if (string? color) 
-      color
-      (make-object color% 
-        (color-red color)
-        (color-green color)
-        (color-blue color))))
+(define (get-color-arg color [extra-alpha 255])
+  (cond
+    [(string? color) 
+     (define color-obj (or (send the-color-database find-color color)
+                           (send the-color-database find-color "black")))
+     (make-object color%
+       (send color-obj red)
+       (send color-obj green)
+       (send color-obj blue)
+       (/ extra-alpha 255))]
+    [else
+     (make-object color% 
+       (color-red color)
+       (color-green color)
+       (color-blue color)
+       (* (/ (color-alpha color) 255)
+          (/ extra-alpha 255)))]))
 
 
 (define (pen->pen-obj/cache pen)
   (send the-pen-list find-or-create-pen 
-        (pen-color pen)
+        (get-color-arg (pen-color pen))
         (pen-width pen)
         (pen-style pen)
         (pen-cap pen)
@@ -1101,6 +1201,8 @@ the mask bitmap and the original bitmap are all together in a single bytes!
 
 
 (provide make-image image-shape image-bb image-normalized? image%
+        
+         un/cache-image compute-image-cache
          
          (struct-out bb)
          (struct-out point)
@@ -1124,7 +1226,8 @@ the mask bitmap and the original bitmap are all together in a single bytes!
 
          make-flip flip? flip-flipped? flip-shape
          
-         (struct-out color)
+         (except-out (struct-out color) make-color)
+         (rename-out [-make-color make-color]) 
          
          degrees->radians
          normalize-shape
@@ -1144,7 +1247,8 @@ the mask bitmap and the original bitmap are all together in a single bytes!
          
          to-img
          bitmap->image
-         image-snip->image)
+         image-snip->image
+         image-snip%)
 
 ;; method names
 (provide get-shape get-bb get-pinhole get-normalized? get-normalized-shape)

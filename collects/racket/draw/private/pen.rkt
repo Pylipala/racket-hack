@@ -1,9 +1,10 @@
 #lang scheme/base
 (require scheme/class
-         "color.ss"
-         "syntax.ss"
-         "local.ss"
-         "bitmap.ss")
+         ffi/unsafe/atomic
+         "color.rkt"
+         "syntax.rkt"
+         "local.rkt"
+         "bitmap.rkt")
 
 (provide pen%
          pen-list% the-pen-list
@@ -126,10 +127,6 @@
   (def/public (get-stipple) stipple)
   (def/public (set-stipple [(make-or-false bitmap%) s]) 
     (check-immutable 'set-stipple)
-    (let ([old-s stipple])
-      (set! stipple #f)
-      (when old-s (send old-s adjust-lock -1)))
-    (when s (send s adjust-lock 1))
     (set! stipple s)))
 
 ;; ----------------------------------------
@@ -158,15 +155,19 @@
                             _width _style _cap _join)]
                    (method-name 'find-or-create-pen 'pen-list%))])
       (let ([key (vector (send col red) (send col green) (send col blue)
+                         (send col alpha)
                          w s c j)])
-        (let ([e (hash-ref pens key #f)])
-          (or (and e
-                   (ephemeron-value e))
-              (let* ([f (make-object pen% col w s c j)]
-                     [e (make-ephemeron key f)])
-                (send f s-set-key key)
-                (hash-set! pens key e)
-                f)))))))
+        (start-atomic)
+        (begin0
+         (let ([e (hash-ref pens key #f)])
+           (or (and e
+                    (ephemeron-value e))
+               (let* ([f (make-object pen% col w s c j)]
+                      [e (make-ephemeron key f)])
+                 (send f s-set-key key)
+                 (hash-set! pens key e)
+                 f)))
+         (end-atomic))))))
 
 (define the-pen-list (new pen-list%))
 

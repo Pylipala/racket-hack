@@ -1,6 +1,5 @@
 #lang scribble/doc
-@(require "mz.ss"
-          (for-label racket/port))
+@(require "mz.rkt" (for-label racket/port))
 
 @title[#:tag "encodings"]{Encodings and Locales}
 
@@ -35,7 +34,7 @@ of characters.
 
 
 A @deftech{locale} captures information about a user's
-culture-specific interpretation of character sequences. In particular,
+language-specific interpretation of character sequences. In particular,
 a locale determines how strings are ``alphabetized,'' how a lowercase
 character is converted to an uppercase character, and how strings are
 compared without regard to case. String operations such as
@@ -58,17 +57,17 @@ the locale's encoding; and, finally, Racket provides functions such as
 encoding.
 
 A Unix user selects a locale by setting environment variables, such as
-@envvar{LC_ALL}. Under Windows and Mac OS X, the operating system
+@envvar{LC_ALL}. On Windows and Mac OS X, the operating system
 provides other mechanisms for setting the locale. Within Racket, the
 current locale can be changed by setting the @racket[current-locale]
 parameter. The locale name within Racket is a string, and the
 available locale names depend on the platform and its configuration,
 but the @racket[""] locale means the current user's default locale;
-under Windows and Mac OS X, the encoding for @racket[""] is always
+on Windows and Mac OS X, the encoding for @racket[""] is always
 UTF-8, and locale-sensitive operations use the operating system's
 native interface. (In particular, setting the @envvar{LC_ALL} and
-@envvar{LC_CTYPE} environment variables do not affect the locale
-@racket[""] under Mac OS X. Use @racket[getenv] and
+@envvar{LC_CTYPE} environment variables does not affect the locale
+@racket[""] on Mac OS X. Use @racket[getenv] and
 @racket[current-locale] to explicitly install the
 environment-specified locale, if desired.) Setting the current locale
 to @racket[#f] makes locale-sensitive operations locale-insensitive,
@@ -81,10 +80,10 @@ A parameter that determines the current @tech{locale} for
 procedures such as @racket[string-locale-ci=?].
 
 When locale sensitivity is disabled by setting the parameter to
-@racket[#f], strings are compared (etc.) in a fully portable manner,
+@racket[#f], strings are compared, etc., in a fully portable manner,
 which is the same as the standard procedures. Otherwise, strings are
 interpreted according to a locale setting (in the sense of the C
-library's @tt{setlocale}). The @racket[""] locale is always a synonym
+library's @tt{setlocale}). The @racket[""] locale is always an alias
 for the current machine's default locale, and it is the default.  The
 @racket["C"] locale is also always available; setting the locale to
 @racket["C"] is the same as disabling locale sensitivity with

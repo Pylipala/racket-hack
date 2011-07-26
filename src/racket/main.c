@@ -1,6 +1,6 @@
 /*
   Racket
-  Copyright (c) 2004-2010 PLT Scheme Inc.
+  Copyright (c) 2004-2011 PLT Scheme Inc.
   Copyright (c) 1995-2000 Matthew Flatt
 
     This library is free software; you can redistribute it and/or
@@ -151,6 +151,25 @@ extern Scheme_Object *scheme_initialize(Scheme_Env *env);
 #define CMDLINE_FFLUSH fflush
 
 #define BANNER scheme_banner()
+
+/*========================================================================*/
+/*                            OS process name                             */
+/*========================================================================*/
+
+#if defined(linux)
+# include <sys/prctl.h>
+# ifdef PR_SET_NAME
+#  define CAN_SET_OS_PROCESS_NAME 1
+void set_os_process_name(char *sprog)
+{
+  int i = strlen(sprog) - 1;
+  while (i && (sprog[i - 1] != '/')) {
+    --i;
+  }
+  prctl(PR_SET_NAME, sprog + i);
+}
+# endif
+#endif
 
 /*========================================================================*/
 /*                        command-line parsing                            */
@@ -371,18 +390,17 @@ static void do_scheme_rep(Scheme_Env *env, FinishArgs *fa)
   int ending_newline = 1;
 
 #ifdef GRAPHICAL_REPL
-  if (fa->a->alternate_rep) {
-    a[0] = scheme_intern_symbol("mred/mred");
-    a[1] = scheme_intern_symbol("textual-read-eval-print-loop");
-  } else {
+  if (!fa->a->alternate_rep) {
     a[0] = scheme_intern_symbol("mred/mred");
     a[1] = scheme_intern_symbol("graphical-read-eval-print-loop");
-  }
-  ending_newline = 0;
-#else
-  a[0] = scheme_intern_symbol("scheme/base");
-  a[1] = scheme_intern_symbol("read-eval-print-loop");
+    ending_newline = 0;
+  } else
 #endif
+    {
+      a[0] = scheme_intern_symbol("scheme/base");
+      a[1] = scheme_intern_symbol("read-eval-print-loop");
+    }
+
   rep = scheme_dynamic_require(2, a);
     
   if (rep) {

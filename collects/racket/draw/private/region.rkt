@@ -1,12 +1,12 @@
 #lang scheme/base
 (require scheme/class
          ffi/unsafe/atomic
-         "syntax.ss"
-         "local.ss"
-         "../unsafe/cairo.ss"
-         "dc-path.ss"
-         "dc-intf.ss"
-         "point.ss")
+         "syntax.rkt"
+         "local.rkt"
+         "../unsafe/cairo.rkt"
+         "dc-path.rkt"
+         "dc-intf.rkt"
+         "point.rkt")
 
 (provide region%
 
@@ -109,7 +109,8 @@
                           (max b (+ t2 h2)))))))))
 
     (define/public (install-region cr scroll-dx scroll-dy align-x align-y 
-                                   [init (void)] [install (lambda (cr v) (cairo_clip cr))])
+                                   [init (void)] [install (lambda (cr v) (cairo_clip cr))]
+                                   #:init-matrix [init-matrix (lambda (cr) (void))])
       (let ([default-fill-rule (if (ormap (lambda (pr) (eq? (cdr pr) 'odd-even)) paths)
                                    CAIRO_FILL_RULE_EVEN_ODD
                                    CAIRO_FILL_RULE_WINDING)]
@@ -119,56 +120,76 @@
                                m))])
         (when old-matrix 
           ;; each path is already transformed
-          (cairo_set_matrix cr (make-cairo_matrix_t 1 0 0 1 scroll-dx scroll-dy)))
-        (for/fold ([v init]) ([pr (in-list paths)])
-          (cairo_new_path cr)
-          (send (car pr) do-path cr values values)
-          (cairo_set_fill_rule cr
-                               (case (cdr pr)
-                                 [(odd-even) CAIRO_FILL_RULE_EVEN_ODD]
-                                 [(winding) CAIRO_FILL_RULE_WINDING]
-                                 [else default-fill-rule]))
-          (install cr v))
+          (cairo_identity_matrix cr)
+          (init-matrix cr)
+          (cairo_transform cr (make-cairo_matrix_t 1 0 0 1 scroll-dx scroll-dy)))
+        (if (null? paths)
+            (begin
+              (cairo_new_path cr)
+              (install cr init))
+            (for/fold ([v init]) ([pr (in-list paths)])
+              (cairo_new_path cr)
+              (send (car pr) do-path cr values values)
+              (cairo_set_fill_rule cr
+                                   (case (cdr pr)
+                                     [(odd-even) CAIRO_FILL_RULE_EVEN_ODD]
+                                     [(winding) CAIRO_FILL_RULE_WINDING]
+                                     [else default-fill-rule]))
+              (install cr v)))
         (when old-matrix (cairo_set_matrix cr old-matrix))))
 
     (def/public (is-empty?)
       (really-is-empty?))
 
-    (define/private (with-clipping proc)
-      (send 
-       dc
-       in-cairo-context
-       (lambda (cr)
-         (cairo_save cr)
-         (install-region cr 0 0 values values)
-         (begin0
-          (proc cr)
-          (cairo_restore cr)))))
+    (define/private (with-clipping who proc)
+      (unless dc
+        (raise-mismatch-error (method-name 'region% who) 
+                              "not allowed for a region without a drawing context: "
+                              this))
+      (send dc in-cairo-context 
+            (lambda (cr)
+              (cairo_save cr)
+              (install-region cr 0 0 values values)
+              (begin0
+               (proc cr)
+               (cairo_restore cr)))))
 
     (define/private (really-is-empty?)
       (or (null? paths)
           (if empty-known?
               known-empty?
               (let ([v (with-clipping
+                        'is-empty?
                         (lambda (cr)
                           (let-values ([(x1 y1 x2 y2) (cairo_clip_extents cr)])
                             (or (= x1 x2) (= y1 y2)))))])
                 (set! known-empty? v)
                 (set! empty-known? #t)
                 v))))
-
-    (def/public (in-region? [real? x]
-                            [real? y])
+    
+    (define/private (with-temp-cr proc)
       (let ([cr (call-as-atomic
                  (lambda ()
                    (cond
                     [temp-cr 
                      (begin0 temp-cr (set! temp-cr #f))]
                     [else
-                     (let ([s (cairo_image_surface_create CAIRO_FORMAT_A8 1 1)])
+                     (let ([s (cairo_image_surface_create CAIRO_FORMAT_A8 100 100)])
                        (begin0
                         (cairo_create s)
                         (cairo_surface_destroy s)))])))])
+        (begin0
+         (proc cr)
+         (call-as-atomic
+          (lambda ()
+            (cond
+             [temp-cr (cairo_destroy cr)]
+             [else (set! temp-cr cr)]))))))
+    
+    (def/public (in-region? [real? x]
+                            [real? y])
+      (with-temp-cr
+       (lambda (cr)
         (let-values ([(x y)
                       (if matrix
                           ;; need to use the DC's current transformation
@@ -181,12 +202,7 @@
                                        (vector-ref m 5))))
                           ;; no transformation needed
                           (values x y))])
-          (begin0 
-           (install-region cr #t values values (lambda (cr v) (and v (cairo_in_fill cr x y))))
-           (call-as-atomic
-            (cond
-             [temp-cr (cairo_destroy cr)]
-             [else (set! temp-cr cr)]))))))
+          (install-region cr #t values values (lambda (cr v) (and v (cairo_in_fill cr x y))))))))
 
     (def/public (set-arc [real? x]
                          [real? y]

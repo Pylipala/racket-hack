@@ -3,7 +3,7 @@
 #reader(lib "htdp-intermediate-lambda-reader.ss" "lang")((modname chatter) (read-case-sensitive #t) (teachpacks ()) (htdp-settings #(#t constructor repeating-decimal #f #t none #f ())))
 (require 2htdp/universe)
 (require htdp/image)
-(require "auxiliaries.ss")
+(require "auxiliaries.rkt")
 
 #|
 
@@ -20,7 +20,7 @@
  +------------------------------------------------------------------+
 
  Convention: the names of participants may not contain ":". 
- The first typed ":" separates the addressess from the message.
+ The first typed ":" separates the addresses from the message.
  
  TODO:
    -- the editing of too-tall send messages is a bit off screen. 

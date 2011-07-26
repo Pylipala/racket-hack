@@ -16,7 +16,7 @@
          "queue.rkt"
          "printer-dc.rkt"
          "gl-context.rkt"
-         "../common/printer.rkt"
+         "keycode.rkt"
          "../common/default-procs.rkt"
          "../common/handlers.rkt")
 
@@ -30,7 +30,6 @@
   register-collecting-blit
   unregister-collecting-blit
   shortcut-visible-in-label?
-  run-printout
   get-double-click-time
   get-control-font-face
   get-control-font-size
@@ -58,7 +57,8 @@
  special-option-key
  get-panel-background
  fill-private-color
- get-color-from-user)
+ get-color-from-user
+ key-symbol-to-menu-key)
 
 (define (find-graphical-system-path what)
   (case what
@@ -81,8 +81,6 @@
 (define (unregister-collecting-blit canvas)
   (send canvas unregister-collecting-blits))
 (define (shortcut-visible-in-label? [mbar? #f]) #t)
-
-(define run-printout (make-run-printout printer-dc%))
 
 (define _GtkSettings (_cpointer 'GtkSettings))
 (define-gtk gtk_settings_get_default (_fun -> _GtkSettings))

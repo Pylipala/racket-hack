@@ -14,10 +14,10 @@
          "dc.rkt"
          "bitmap.rkt"
          "printer-dc.rkt"
-         "../common/printer.rkt"
          "menu-bar.rkt"
          "agl.rkt"
          "sound.rkt"
+         "keycode.rkt"
          "../../lock.rkt"
          "../common/handlers.rkt"
          (except-in "../common/default-procs.rkt"
@@ -35,7 +35,6 @@
   register-collecting-blit
   unregister-collecting-blit
   shortcut-visible-in-label?
-  run-printout
   get-double-click-time
   get-control-font-face
   get-control-font-size
@@ -61,9 +60,10 @@
  flush-display
  play-sound
  file-creator-and-type
- file-selector)
+ file-selector
+ key-symbol-to-menu-key)
 
-(import-class NSScreen NSCursor)
+(import-class NSScreen NSCursor NSMenu)
 
 (define (find-graphical-system-path what)
   #f)
@@ -78,8 +78,6 @@
 (define (unregister-collecting-blit canvas)
   (send canvas unregister-collecting-blits))
 (define (shortcut-visible-in-label? [x #f]) #f)
-
-(define run-printout (make-run-printout printer-dc%))
 
 (define (get-double-click-time)
   500)
@@ -108,7 +106,13 @@
                   (tell #:type _NSRect screen frame)
                   (tell #:type _NSRect screen visibleFrame))])
       (set-box! xb (->long (NSSize-width (NSRect-size f))))
-      (set-box! yb (->long (NSSize-height (NSRect-size f))))))))
+      (set-box! yb (->long (- (NSSize-height (NSRect-size f))
+                              (cond
+                               [all? 0]
+                               [(tell #:type _BOOL NSMenu menuBarVisible) 0]
+                               ;; Make result consistent when menu bar is hidden:
+                               [else 
+                                (get-menu-bar-height)]))))))))
 
 (define-appkit NSBeep (_fun -> _void))  
 (define (bell) (NSBeep))

@@ -1,15 +1,16 @@
-#lang scribble/doc
-@(require scribble/base
-          scribble/manual
-          scribble/eval
-	  scribblings/reference/mz
-	  "utils.rkt"
-         (for-label unstable/sequence
-                    racket/contract
-                    racket/base))
+#lang scribble/manual
+@(require scribble/eval "utils.rkt"
+          (for-label racket/base unstable/sequence racket/contract))
 
 @(define the-eval (make-base-eval))
 @(the-eval '(require unstable/sequence))
+@(define-syntax speed
+    (syntax-rules ()
+      [(_ id what)
+       (t "An " (racket id) " application can provide better performance for "
+          (elem what)
+          " iteration when it appears directly in a " (racket for)
+          " clause.")]))
 
 @title[#:tag "sequence"]{Sequences}
 
@@ -41,3 +42,5 @@ Produces the sequence of @racket[f] applied to each element of @racket[seq].
 (for/list ([x (sequence-lift add1 (in-range 10))])
   x)]
 }
+
+@close-eval[the-eval]

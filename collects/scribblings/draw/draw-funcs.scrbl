@@ -1,5 +1,5 @@
 #lang scribble/doc
-@(require "common.ss")
+@(require "common.rkt")
 
 @title{Drawing Functions}
 
@@ -8,7 +8,7 @@
 @defparam[current-ps-setup pss (is-a?/c ps-setup%)]{
 
 A parameter that determines the current PostScript configuration
- settings. See @scheme[post-script-dc%] and @scheme[printer-dc%].
+ settings. See @racket[post-script-dc%] and @racket[printer-dc%].
 
 }
 
@@ -16,10 +16,11 @@ A parameter that determines the current PostScript configuration
          (listof string?)]{
 
 Returns a list of font face names available on the current system. If
- @scheme['mono] is provided as the argument, then only faces that are
+ @racket['mono] is provided as the argument, then only faces that are
  known to correspond to monospace fonts are included in the list.
 
 }
+
 
 @defproc[(get-family-builtin-face [family (one-of/c 'default 'decorative 'roman 'script 
                                                     'swiss 'modern 'symbol 'system)])
@@ -28,9 +29,11 @@ Returns a list of font face names available on the current system. If
 Returns the built-in default face mapping for a particular font
  family.
 
-See @scheme[font%] for information about @scheme[family].
+See @racket[font%] for information about @racket[family].
 
 }
+
+
 @defproc[(make-bitmap [width exact-positive-integer?]
                       [height exact-positive-integer?]
                       [alpha? any/c #t])
@@ -39,6 +42,26 @@ See @scheme[font%] for information about @scheme[family].
 Returns @racket[(make-object bitmap% width height #f alpha?)], but
 this procedure is preferred because it defaults @racket[alpha?] in a
 more useful way.}
+
+
+@defproc[(make-font [#:size size (integer-in 1 255) 12]
+                    [#:face face (or/c string? #f) #f]
+                    [#:family family (one-of/c 'default 'decorative 'roman 'script 
+                                               'swiss 'modern 'symbol 'system)
+                              'default]
+                    [#:style style (one-of/c 'normal 'italic 'slant) 'normal]
+                    [#:weight weight (one-of/c 'normal 'bold 'light) 'normal]
+                    [#:underlined? underlined? any/c #f]
+                    [#:smoothing smoothing (one-of/c 'default 'partly-smoothed 
+                                                      'smoothed 'unsmoothed) 
+                                 'default]
+                    [#:size-in-pixels? size-in-pixels? any/c #f])
+         (is-a?/c font%)]{
+
+Creates a @racket[font%] instance. This procedure provides an
+equivalent but more convenient interface compared to using
+@racket[make-object] with @racket[font%].
+}
 
 
 @defproc[(make-monochrome-bitmap [width exact-positive-integer?]
@@ -73,31 +96,31 @@ useful way.}
 
 @defthing[the-brush-list (is-a?/c brush-list%)]{
 
-See @scheme[brush-list%].
+See @racket[brush-list%].
 
 }
 
 @defthing[the-color-database (is-a?/c color-database<%>)]{
 
-See @scheme[color-database<%>].
+See @racket[color-database<%>].
 
 }
 
 @defthing[the-font-list (is-a?/c font-list%)]{
 
-See @scheme[font-list%].
+See @racket[font-list%].
 
 }
 
 @defthing[the-font-name-directory (is-a?/c font-name-directory<%>)]{
 
-See @scheme[font-name-directory<%>].
+See @racket[font-name-directory<%>].
 
 
 }
 
 @defthing[the-pen-list (is-a?/c pen-list%)]{
 
-See @scheme[pen-list%].
+See @racket[pen-list%].
 
 }

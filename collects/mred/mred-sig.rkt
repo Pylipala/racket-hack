@@ -32,6 +32,7 @@ clipboard<%>
 color%
 color-database<%>
 combo-field%
+column-control-event%
 control-event%
 control<%>
 current-eventspace
@@ -62,6 +63,7 @@ editor<%>
 end-busy-cursor
 event%
 event-dispatch-handler
+eventspace-event-evt
 eventspace-handler-thread
 eventspace-shutdown?
 eventspace?
@@ -90,6 +92,7 @@ get-panel-background
 get-ps-setup-from-user
 get-highlight-background-color
 get-highlight-text-color
+get-resource
 get-text-from-user
 get-the-editor-data-class-list
 get-the-snip-class-list
@@ -113,6 +116,7 @@ key-event%
 keymap%
 label->plain-label
 labelled-menu-item<%>
+linear-gradient%
 list-box%
 list-control<%>
 make-bitmap
@@ -160,6 +164,7 @@ read-bitmap
 read-editor-global-footer
 read-editor-global-header
 read-editor-version
+radial-gradient%
 region%
 register-collecting-blit
 scroll-event%
@@ -181,6 +186,7 @@ style-list%
 style<%>
 subarea<%>
 subwindow<%>
+svg-dc%
 system-position-ok-before-cancel?
 tab-snip%
 text%
@@ -206,4 +212,5 @@ window<%>
 write-editor-global-footer
 write-editor-global-header
 write-editor-version
+write-resource
 yield

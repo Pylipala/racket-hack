@@ -41,7 +41,7 @@
                        #f
                        (bitwise-ior WS_CHILD)
                        0 0 w h
-                       (send parent get-client-hwnd)
+                       (send parent get-content-hwnd)
                        #f
                        hInstance
                        #f))
@@ -49,43 +49,47 @@
     (define label-bitmaps null)
 
     (define radio-hwnds
-      (let loop ([y 0] [w 0] [labels labels])
-        (if (null? labels)
-            (begin
-              (MoveWindow hwnd 0 0 w y #t)
-              null)
-            (let* ([label (car labels)]
-                   [bitmap? (and (label . is-a? . bitmap%)
-                                 (send label ok?))]
-                   [radio-hwnd 
-                    (CreateWindowExW/control 0
-                                             "PLTBUTTON"
-                                             (if (string? label)
-                                                 label
-                                                 "<image>")
-                                             (bitwise-ior BS_RADIOBUTTON WS_CHILD WS_CLIPSIBLINGS
-                                                          (if bitmap?
-                                                              BS_BITMAP
-                                                              0))
-                                             0 0 0 0
-                                             hwnd
-                                             #f
-                                             hInstance
-                                             #f)])
-              (when bitmap?
-                (let ([hbitmap (bitmap->hbitmap label)])
-                  (set! label-bitmaps (cons hbitmap label-bitmaps))
-                  (SendMessageW radio-hwnd BM_SETIMAGE IMAGE_BITMAP 
-                                (cast hbitmap _HBITMAP _LPARAM))))
-              (ShowWindow radio-hwnd SW_SHOW)
-              (set-control-font font radio-hwnd)
-              (let-values ([(w1 h) 
-                            (auto-size font label 0 0 20 4
-                                       (lambda (w h)
-                                         (MoveWindow radio-hwnd 0 (+ y SEP) w h #t)
-                                         (values w h)))])
-                (cons radio-hwnd
-                      (loop (+ y SEP h) (max w1 w) (cdr labels))))))))
+      (let ([horiz? (memq 'horizontal style)])
+        (let loop ([y 0] [w 0] [labels labels])
+          (if (null? labels)
+              (begin
+                (MoveWindow hwnd 0 0 w y #t)
+                null)
+              (let* ([label (car labels)]
+                     [bitmap? (label . is-a? . bitmap%)]
+                     [radio-hwnd 
+                      (CreateWindowExW/control 0
+                                               "PLTBUTTON"
+                                               (if (string? label)
+                                                   label
+                                                   "<image>")
+                                               (bitwise-ior BS_RADIOBUTTON WS_CHILD WS_CLIPSIBLINGS
+                                                            (if bitmap?
+                                                                BS_BITMAP
+                                                                0))
+                                               0 0 0 0
+                                               hwnd
+                                               #f
+                                               hInstance
+                                               #f)])
+                (when bitmap?
+                  (let ([hbitmap (bitmap->hbitmap label)])
+                    (set! label-bitmaps (cons hbitmap label-bitmaps))
+                    (SendMessageW radio-hwnd BM_SETIMAGE IMAGE_BITMAP 
+                                  (cast hbitmap _HBITMAP _LPARAM))))
+                (ShowWindow radio-hwnd SW_SHOW)
+                (set-control-font font radio-hwnd)
+                (let-values ([(w1 h) 
+                              (auto-size font label 0 0 20 4
+                                         (lambda (w1 h1)
+                                           (if horiz?
+                                               (MoveWindow radio-hwnd (+ w SEP) 0 w1 h1 #t)
+                                               (MoveWindow radio-hwnd 0 (+ y SEP) w1 h1 #t))
+                                           (values w1 h1)))])
+                  (cons radio-hwnd
+                        (loop (if horiz? (max y h) (+ y SEP h))
+                              (if horiz? (+ w SEP w1) (max w1 w))
+                              (cdr labels)))))))))
 
     (unless (= val -1)
       (SendMessageW (list-ref radio-hwnds val) BM_SETCHECK 1 0))
@@ -104,7 +108,7 @@
     (define/override (is-command? cmd)
       (= cmd BN_CLICKED))
     
-    (define/public (do-command cmd control-hwnd)
+    (define/override (do-command cmd control-hwnd)
       (let ([val (for/fold ([i 0]) ([radio-hwnd (in-list radio-hwnds)]
                                     [pos (in-naturals)])
                    (if (ptr-equal? control-hwnd radio-hwnd)

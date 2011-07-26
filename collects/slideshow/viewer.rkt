@@ -11,9 +11,9 @@
 	   texpict/utils
 	   scheme/math
 	   mrlib/include-bitmap
-	   "sig.ss"
-	   "core.ss"
-	   "private/utils.ss")
+	   "sig.rkt"
+	   "core.rkt"
+	   "private/utils.rkt")
 
   (provide viewer@)
 
@@ -414,6 +414,12 @@
 	    (values 0 0)
 	    (get-display-left-top-inset)))
 
+      (define fullscreen?
+        (and (not config:keep-titlebar?)
+             (let-values ([(w h) (get-display-size #t)])
+               (and (= config:actual-screen-w w)
+                    (= config:actual-screen-h h)))))
+
       (define background-f
 	(make-object (class frame%
 		       (inherit is-shown?)
@@ -425,7 +431,9 @@
 			[x (- screen-left-inset)] [y (- screen-top-inset)]
 			[width (inexact->exact (floor config:actual-screen-w))]
 			[height (inexact->exact (floor config:actual-screen-h))]
-			[style '(no-caption no-resize-border hide-menu-bar)]))))
+			[style (append
+                                (if fullscreen? '(hide-menu-bar) null)
+                                '(no-caption no-resize-border))]))))
 
       (send background-f enable #f)
 
@@ -440,7 +448,9 @@
 		     [height (inexact->exact (floor config:actual-screen-h))]
 		     [style (if config:keep-titlebar?
 				null
-				'(no-caption no-resize-border hide-menu-bar))]))
+                                (append
+                                 (if fullscreen? '(hide-menu-bar) null)
+                                 '(no-caption no-resize-border)))]))
       
       (define f-both (new talk-frame%
 			  [closeable? #t]
@@ -453,12 +463,13 @@
       
       (define current-sinset zero-inset)
       (define resizing-frame? #f)
-      (define (reset-display-inset! sinset)
+      (define (reset-display-inset! sinset dc)
 	(unless (and (= (sinset-l current-sinset) (sinset-l sinset))
 		     (= (sinset-t current-sinset) (sinset-t sinset))
 		     (= (sinset-r current-sinset) (sinset-r sinset))
 		     (= (sinset-b current-sinset) (sinset-b sinset)))
 	  (set! resizing-frame? #t) ; hack --- see yield below
+          (send dc clear)
 	  (send f resize 
 		(max 1 (- (inexact->exact (floor config:actual-screen-w)) 
 			  (inexact->exact (floor (* (+ (sinset-l sinset) (sinset-r sinset))
@@ -479,7 +490,7 @@
 	  ;;  sizes, and so that the generated on-size callback
 	  ;;  can be ignored. Obviously, using yield creates a
 	  ;;  kind of race condition for incoming events from the user.
-	  (yield)
+	  (let loop () (when (yield) (loop)))
 	  (set! resizing-frame? #f)))
       
 
@@ -725,7 +736,7 @@
 
 	  (define/public (redraw)
 	    (unless printing?
-	      (reset-display-inset! (sliderec-inset (talk-list-ref current-page)))
+	      (reset-display-inset! (sliderec-inset (talk-list-ref current-page)) (get-dc))
 	      (send commentary lock #f)
 	      (send commentary begin-edit-sequence)
 	      (send commentary erase)
@@ -1212,6 +1223,14 @@
       (define (viewer:done-making-slides)
 	(when config:printing?
 	  (do-print)))
+
+      (when config:printing?
+        ;; Just before exiting normally, print the slides:
+        (let ([h (executable-yield-handler)])
+          (executable-yield-handler
+           (lambda (v)
+             (viewer:done-making-slides)
+             (h v)))))
 
       (let ([eh (uncaught-exception-handler)])
 	(uncaught-exception-handler

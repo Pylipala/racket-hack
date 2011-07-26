@@ -30,6 +30,7 @@
   (values
    button%
    canvas%
+   canvas-panel%
    check-box%
    choice%
    clipboard-driver%
@@ -68,7 +69,6 @@
    get-control-font-size
    get-control-font-size-in-pixels?
    get-double-click-time
-   run-printout
    file-creator-and-type
    location->window
    shortcut-visible-in-label?
@@ -87,4 +87,5 @@
    get-highlight-text-color
    make-screen-bitmap
    make-gl-bitmap
-   check-for-break))
+   check-for-break
+   key-symbol-to-menu-key))

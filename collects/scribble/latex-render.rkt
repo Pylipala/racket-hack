@@ -1,8 +1,8 @@
 #lang scheme/base
 
-(require "core.ss"
-         "latex-properties.ss"
-         "private/render-utils.ss"
+(require "core.rkt"
+         "latex-properties.rkt"
+         "private/render-utils.rkt"
          scheme/class
          scheme/runtime-path
          scheme/port
@@ -11,7 +11,8 @@
          scheme/list
          setup/main-collects
          file/convertible)
-(provide render-mixin)
+(provide render-mixin
+         make-render-part-mixin)
 
 (define current-table-mode (make-parameter #f))
 (define rendering-tt (make-parameter #f))
@@ -34,9 +35,18 @@
               (/ (cadr c) 255.0)
               (/ (caddr c) 255.0))))
 
+(define (make-render-part-mixin n)
+  (lambda (%)
+    (class (render-mixin %)
+      (define/override (render-part-depth) n)
+      (super-new))))
+
 (define (render-mixin %)
   (class %
     (inherit-field prefix-file style-file style-extra-files)
+
+    (define/override (current-render-mode)
+      '(latex))
 
     (define/override (get-suffix) #".tex")
 
@@ -46,11 +56,14 @@
              format-number
              extract-part-style-files
              extract-version
+             extract-date
              extract-authors
              extract-pretitle)
 
     (define/override (auto-extra-files? v) (latex-defaults? v))
     (define/override (auto-extra-files-paths v) (latex-defaults-extra-files v))
+
+    (define/public (render-part-depth) #f)
 
     (define/override (render-one d ri fn)
       (let* ([defaults (ormap (lambda (v) (and (latex-defaults? v) v))
@@ -68,55 +81,69 @@
                                     (cond
                                      [(bytes? v) v]
                                      [else (main-collects-relative->path v)])))
-                             scribble-style-tex)])
-        (for-each
-         (lambda (style-file)
-           (if (bytes? style-file)
-               (display style-file)
-               (with-input-from-file style-file
-                 (lambda ()
-                   (copy-port (current-input-port) (current-output-port))))))
-         (list* prefix-file 
-                scribble-tex
-                (append (extract-part-style-files
-                         d
-                         ri
-                         'tex
-                         (lambda (p) #f)
-                         tex-addition?
-                         tex-addition-path)
-                        (list style-file)
-                        style-extra-files)))
-        (printf "\\begin{document}\n\\preDoc\n")
-        (when (part-title-content d)
-          (let ([vers (extract-version d)]
-                [pres (extract-pretitle d)]
-                [auths (extract-authors d)])
-            (for ([pre (in-list pres)])
-              (do-render-paragraph pre d ri #t))
-            (printf "\\titleAnd~aVersionAnd~aAuthors{" 
-                    (if (equal? vers "") "Empty" "")
-                    (if (null? auths) "Empty" ""))
-            (render-content (part-title-content d) d ri)
-            (printf "}{~a}{" vers)
-            (for/fold ([first? #t]) ([auth (in-list auths)])
-              (unless first? (printf "\\SAuthorSep{}"))
-              (do-render-paragraph auth d ri #t)
-              #f)
-            (printf "}\n")))
+                             scribble-style-tex)]
+             [all-style-files (cons scribble-tex
+                                    (append (extract-part-style-files
+                                             d
+                                             ri
+                                             'tex
+                                             (lambda (p) #f)
+                                             tex-addition?
+                                             tex-addition-path)
+                                            (list style-file)
+                                            style-extra-files))]
+             [whole-doc? (not (render-part-depth))])
+        (if whole-doc?
+            (for ([style-file (in-list (cons prefix-file all-style-files))])
+              (if (bytes? style-file)
+                  (display style-file)
+                  (with-input-from-file style-file
+                    (lambda ()
+                      (copy-port (current-input-port) (current-output-port))))))
+            (for ([style-file (in-list all-style-files)])
+              (install-file style-file)))
+        (when whole-doc?
+          (printf "\\begin{document}\n\\preDoc\n")
+          (when (part-title-content d)
+            (let ([vers (extract-version d)]
+                  [date (extract-date d)]
+                  [pres (extract-pretitle d)]
+                  [auths (extract-authors d)])
+              (for ([pre (in-list pres)])
+                (printf "\n\n")
+                (do-render-paragraph pre d ri #t))
+              (when date (printf "\\date{~a}\n" date))
+              (printf "\\titleAnd~aVersionAnd~aAuthors{" 
+                      (if (equal? vers "") "Empty" "")
+                      (if (null? auths) "Empty" ""))
+              (render-content (part-title-content d) d ri)
+              (printf "}{~a}{" vers)
+              (for/fold ([first? #t]) ([auth (in-list auths)])
+                (unless first? (printf "\\SAuthorSep{}"))
+                (do-render-paragraph auth d ri #t)
+                #f)
+              (printf "}\n"))))
         (render-part d ri)
-        (printf "\n\n\\postDoc\n\\end{document}\n")))
+        (when whole-doc?
+          (printf "\n\n\\postDoc\n\\end{document}\n"))))
 
     (define/override (render-part-content d ri)
       (let ([number (collected-info-number (part-collected-info d ri))])
-        (when (and (part-title-content d) (pair? number))
+        (when (and (part-title-content d) 
+                   (or (pair? number)
+                       (let ([d (render-part-depth)])
+                         (and d (positive? d)))))
           (when (eq? (style-name (part-style d)) 'index)
             (printf "\\twocolumn\n\\parskip=0pt\n\\addcontentsline{toc}{section}{Index}\n"))
+          (let ([pres (extract-pretitle d)])
+            (for ([pre (in-list pres)])
+              (printf "\n\n")
+              (do-render-paragraph pre d ri #t)))
           (let ([no-number? (and (pair? number) 
                                  (or (not (car number))
                                      ((length number) . > . 3)))])
             (printf "\n\n\\~a~a~a"
-                    (case (length number)
+                    (case (+ (length number) (or (render-part-depth) 0))
                       [(0 1) "sectionNewpage\n\n\\section"]
                       [(2) "subsection"]
                       [(3) "subsubsection"]
@@ -249,14 +276,23 @@
                                             (image-element-scale e) fn))]
                                  [(and (convertible? e)
                                        (not (disable-images))
-                                       (let ([ftag (lambda (v suffix) (and v (list v suffix)))])
-                                         (or (ftag (convert e 'pdf-bytes) ".pdf")
-                                             (ftag (convert e 'eps-bytes) ".ps")
-                                             (ftag (convert e 'png-bytes) ".png"))))
-                                  => (lambda (bstr+suffix)
-                                       (let ([fn (install-file (format "pict~a" (cadr bstr+suffix))
-                                                               (car bstr+suffix))])
-                                         (printf "\\includegraphics{~a}" fn)))]
+                                       (let ([ftag (lambda (v suffix) (and v (list v suffix)))]
+                                             [xlist (lambda (v) (and v (list v #f #f #f #f)))])
+                                         (or (ftag (convert e 'pdf-bytes+bounds) ".pdf")
+                                             (ftag (xlist (convert e 'pdf-bytes)) ".pdf")
+                                             (ftag (xlist (convert e 'eps-bytes)) ".ps")
+                                             (ftag (xlist (convert e 'png-bytes)) ".png"))))
+                                  => (lambda (bstr+info+suffix)
+                                       (let* ([bstr (list-ref (list-ref bstr+info+suffix 0) 0)]
+                                              [suffix (list-ref bstr+info+suffix 1)]
+                                              [height (list-ref (list-ref bstr+info+suffix 0) 2)]
+                                              [descent (and height
+                                                            (+ (list-ref (list-ref bstr+info+suffix 0) 3)
+                                                               (- (ceiling height) height)))]
+                                              [fn (install-file (format "pict~a" suffix) bstr)])
+                                         (if descent
+                                             (printf "\\raisebox{-~apx}{\\includegraphics{~a}}" descent fn)
+                                             (printf "\\includegraphics{~a}" fn))))]
                                  [else
                                   (parameterize ([rendering-tt (or tt? (rendering-tt))])
                                     (super render-content e part ri))]))]
@@ -272,7 +308,7 @@
                   [(bold) (wrap e "textbf" tt?)]
                   [(tt) (wrap e "Scribtexttt" #t)]
                   [(url) (wrap e "nolinkurl" 'exact)]
-                  [(no-break) (core-render e tt?)]
+                  [(no-break) (wrap e "mbox" tt?)]
                   [(sf) (wrap e "textsf" #f)]
                   [(subscript) (wrap e "textsub" #f)]
                   [(superscript) (wrap e "textsuper" #f)]
@@ -301,7 +337,8 @@
                         (printf "{}")
                         (for ([i (in-list (multiarg-element-contents e))])
                           (printf "{")
-                          (render-content i part ri)
+                          (parameterize ([rendering-tt (or tt? (rendering-tt))])
+                            (render-content i part ri))
                           (printf "}")))]
                    [else
                     (wrap e style-name tt?)]))]
@@ -313,7 +350,7 @@
                   (let ([v (car l)])
                     (cond
                      [(target-url? v)
-                      (printf "\\href{~a}{" (target-url-addr v))
+                      (printf "\\href{~a}{" (regexp-replace* #rx"%" (target-url-addr v) "\\\\%"))
                       (loop (cdr l) #t)
                       (printf "}")]
                      [(color-property? v)
@@ -351,14 +388,19 @@
                 [else (format "x~x" (char->integer c))]))
             (string->list (format "~s" s)))))
 
-    (define/override (render-flow p part ri starting-item?)
+    (define/override (render-flow p part ri starting-item? [wrap-each? #f])
       (if (null? p)
           null
           (begin
+            (when wrap-each? (printf "{"))
             (render-block (car p) part ri starting-item?)
+            (when wrap-each? (printf "}"))
             (for ([b (in-list (cdr p))])
-              (printf "\n\n")
-              (render-block b part ri #f))
+              (if wrap-each?
+                  (printf "%\n{")
+                  (printf "\n\n"))
+              (render-block b part ri #f)
+              (when wrap-each? (printf "}")))
             null)))
 
     (define/override (render-table t part ri starting-item?)
@@ -468,7 +510,7 @@
                                               (loop (cdr flows) (add1 n))]
                                              [else n]))])
                             (unless (= cnt 1) (printf "\\multicolumn{~a}{l}{" cnt))
-                            (render-table-cell (car flows) part ri twidth (car cell-styles))
+                            (render-table-cell (car flows) part ri (/ twidth cnt) (car cell-styles))
                             (unless (= cnt 1) (printf "}"))
                             (unless (null? (list-tail flows cnt)) (printf " &\n"))))
                         (unless (null? (cdr flows)) (loop (cdr flows)
@@ -534,22 +576,27 @@
         null))
 
     (define/private (do-render-nested-flow t part ri single-column?)
-      (let ([kind (or (let ([s (style-name (nested-flow-style t))])
-                        (or (and (string? s) s)
-                            (and (eq? s 'inset) "quote")))
-                      "Subflow")]
-            [command? (memq 'command (style-properties (nested-flow-style t)))])
-        (if command?
-            (printf "\\~a{" kind)
-            (printf "\\begin{~a}" kind))
+      (let* ([kind (or (let ([s (style-name (nested-flow-style t))])
+                         (or (and (string? s) s)
+                             (and (eq? s 'inset) "quote")
+                             (and (eq? s 'code-inset) "SCodeFlow")))
+                       "Subflow")]
+             [props (style-properties (nested-flow-style t))]
+             [command? (memq 'command props)]
+             [multicommand? (memq 'multicommand props)])
+        (cond
+         [command? (printf "\\~a{" kind)]
+         [multicommand? (printf "\\~a" kind)]
+         [else (printf "\\begin{~a}" kind)])
         (parameterize ([current-table-mode (if (or single-column?
                                                    (not (current-table-mode)))
                                                (current-table-mode)
                                                (list "nested-flow" t))])
-          (render-flow (nested-flow-blocks t) part ri #f))
-        (if command?
-            (printf "}")
-            (printf "\\end{~a}" kind))
+          (render-flow (nested-flow-blocks t) part ri #f multicommand?))
+        (cond
+         [command? (printf "}")]
+         [multicommand? (void)]
+         [else (printf "\\end{~a}" kind)])
         null))
 
     (define/override (render-nested-flow t part ri)
@@ -625,11 +672,13 @@
                                         "{\\SCloseSq}")
                                     c)]
                      [(#\# #\% #\& #\$) (format "\\~a" c)]
-                     [(#\uA0) "~"]
+                     [(#\uA0) "~"] ; non-breaking space
+                     [(#\uAD) "\\-"] ; soft hyphen; unfortunately, also disables auto-hyphen
                      [(#\uDF) "{\\ss}"]
                      [else
                       (if ((char->integer c) . > . 127)
                           (case c
+                            [(#\u2011) "\\mbox{-}"] ; non-breaking hyphen
                             [(#\uB0) "$^{\\circ}$"] ; degree
                             [(#\uB2) "$^2$"]
                             [(#\u039A) "K"] ; kappa
@@ -647,6 +696,12 @@
                             [(#\u039B) "$\\Lambda$"]
                             [(#\u03BC) "$\\mu$"]
                             [(#\u03C0) "$\\pi$"]
+                            [(#\‘) "{`}"]
+                            [(#\’) "{'}"]
+                            [(#\“) "{``}"]
+                            [(#\”) "{''}"]
+                            [(#\u2013) "{--}"]
+                            [(#\u2014) "{---}"]
                             [(#\∞) "$\\infty$"]
                             [(#\⇓) "$\\Downarrow$"]
                             [(#\↖) "$\\nwarrow$"]
@@ -776,11 +831,25 @@
                             [(#\à) "\\`{a}"]
                             [(#\À) "\\`{A}"]
                             [(#\á) "\\'{a}"]
+                            [(#\â) "\\^{a}"]
+                            [(#\Â) "\\^{A}"]
                             [(#\Á) "\\'{A}"]
+                            [(#\ç) "\\c{c}"]
+                            [(#\Ç) "\\c{C}"]
                             [(#\è) "\\`{e}"]
                             [(#\È) "\\`{E}"]
                             [(#\é) "\\'{e}"]
                             [(#\É) "\\'{E}"]
+                            [(#\ê) "\\^{e}"]
+                            [(#\Ê) "\\^{E}"]
+                            [(#\í) "\\'{i}"]
+                            [(#\Í) "\\'{I}"]
+                            [(#\î) "\\^{i}"]
+                            [(#\Î) "\\^{I}"]
+                            [(#\ô) "\\^{o}"]
+                            [(#\Ô) "\\^{O}"]
+                            [(#\û) "\\^{u}"]
+                            [(#\Û) "\\^{U}"]
                             [(#\ä) "\\\"a"]
                             [(#\Ä) "\\\"A"]
                             [(#\ü) "\\\"u"]
@@ -789,12 +858,16 @@
                             [(#\Ö) "\\\"O"]
                             [(#\ø) "{\\o}"]
                             [(#\Ø) "{\\O}"]
+                            [(#\ł) "{\\l}"]
+                            [(#\Ł) "{\\L}"]
+                            [(#\š) "{\\v s}"]
                             [(#\uA7) "{\\S}"]
                             [(#\〚) "$[\\![$"]
                             [(#\〛) "$]\\!]$"]
                             [(#\↦) "$\\mapsto$"]
                             [(#\⊤) "$\\top$"]
                             [(#\¥) "{\\textyen}"]
+                            [(#\™) "{\\texttrademark}"]
                             [else c])
                           c)])))
                 (loop (add1 i)))))))

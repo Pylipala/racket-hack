@@ -1,5 +1,5 @@
 #lang scribble/doc
-@(require "mz.ss")
+@(require "mz.rkt")
 
 @title[#:tag "stxprops"]{Syntax Object Properties}
 
@@ -70,18 +70,17 @@ Racket adds properties to expanded syntax (often using
  immutable list of identifiers from the disappeared bindings, as a
  @indexed-racket['disappeared-binding] property.}
 
- @item{When a subtyping @racket[define-struct] form is expanded, the
+ @item{When a subtyping @racket[struct] form is expanded, the
  identifier used to reference the base type does not appear in the
- expansion. Therefore, the @racket[define-struct] transformer adds the
+ expansion. Therefore, the @racket[struct] transformer adds the
  identifier to the expansion result as a
  @indexed-racket['disappeared-use] property.}
 
  @item{When a reference to an unexported or protected identifier from
- a module is discovered (and the reference is certified; see
- @secref["stxcerts"]), the @indexed-racket['protected] property is
+ a module is discovered, the @indexed-racket['protected] property is
  added to the identifier with a @racket[#t] value.}
 
- @item{When or @racket[read-syntax] or @racket[read-honu-syntax]
+ @item{When @racket[read-syntax] or @racket[read-honu-syntax]
  generates a syntax object, it attaches a property to the object
  (using a private key) to mark the object as originating from a
  read. The @racket[syntax-original?]  predicate looks for the property

@@ -1,8 +1,5 @@
 #lang scribble/doc
-@(require scribble/manual
-          scribble/eval
-          "guide-utils.ss"
-          "contracts-utils.ss"
+@(require scribble/manual scribble/eval "guide-utils.rkt" "contracts-utils.rkt"
           (for-label racket/contract))
 
 @title[#:tag "contract-boundaries"]{Contracts and Boundaries}
@@ -49,7 +46,7 @@ racket/base
 
 @ctc-section[#:tag "amount0"]{Contract Violations}
 
-If we bind @scheme[amount] to a number that is not positive,
+If we bind @racket[amount] to a number that is not positive,
 
 @racketmod[
 racket
@@ -121,17 +118,17 @@ Of course, this breaks assignment to the provided variable.
 
 <question title="Example" tag="example">
 
-<table src="simple.ss">
+<table src="simple.rkt">
 <tr><td bgcolor="e0e0fa">
 <racket>
 ;; Language: Pretty Big
-(module a racket 
+(module a racket
   (require mzlib/contract)
 
-  (provide/contract 
+  (provide/contract
    [amount positive?])
 
-  (provide 
+  (provide
    ;; -> Void
    ;; effect: sets variable a
    do-it)
@@ -201,7 +198,7 @@ values to flow in both directions.
 
 @ctc-section{Experimenting with Contracts and Modules}
 
-All of the contracts and module in this chapter (excluding those just
+All of the contracts and modules in this chapter (excluding those just
 following) are written using the standard @tt{#lang} syntax for
 describing modules. Since modules serve as the boundary between
 parties in a contract, examples involve multiple modules.

@@ -1,4 +1,4 @@
-#lang scheme/base
+#lang racket/base
 
 (use-compiled-file-paths null)
 
@@ -9,19 +9,18 @@
   (fprintf (current-error-port) "~a\n" s)
   (system s))
 
-(define accounting-gc? #t)
 (define backtrace-gc? #f)
 (define opt-flags "/O2 /Oy-")
 (define re:only #f)
 
-(define win64? (equal? "win32\\x86_64" (path->string (system-library-subpath #f))))
+(define win64?
+  (equal? "win32\\x86_64" (path->string (system-library-subpath #f))))
 
 (define cl.exe
   (let ([p (find-executable-path "cl.exe" #f)])
     (unless p
-     (error (string-append
-	     "Cannot find executable \"cl.exe\".\n"
-	     "You may need to find and run \"vsvars32.bat\".")))
+      (error (string-append "Cannot find executable \"cl.exe\".\n"
+                            "You may need to find and run \"vsvars32.bat\".")))
     "cl.exe"))
 
 (unless (directory-exists? "xsrc")
@@ -33,6 +32,8 @@
     "bool"
     "builtin"
     "char"
+    "compenv"
+    "compile"
     "complex"
     "dynext"
     "env"
@@ -43,7 +44,16 @@
     "fun"
     "hash"
     "jit"
+    "jitalloc"
+    "jitarith"
+    "jitcall"
+    "jitcommon"
+    "jitinline"
+    "jitprep"
+    "jitstack"
+    "jitstate"
     "list"
+    "marshal"
     "module"
     "mzrt"
     "network"
@@ -51,22 +61,25 @@
     "number"
     "numcomp"
     "numstr"
-    "places"
+    "optimize"
+    "place"
     "port"
     "portfun"
     "print"
     "rational"
     "read"
     "regexp"
+    "resolve"
     "sema"
     "setjmpup"
+    "sfs"
     "string"
     "struct"
     "symbol"
     "syntax"
-    "stxobj"
     "thread"
     "type"
+    "validate"
     "vector"))
 
 (define common-cpp-defs " /D _CRT_SECURE_NO_DEPRECATE /D _USE_DECLSPECS_FOR_SAL=0 /D _USE_ATTRIBUTES_FOR_SAL=0 ")
@@ -151,8 +164,13 @@
 (define common-deps (list "../../racket/gc2/xform.rkt"
 			  "../../racket/gc2/xform-mod.rkt"))
 
-(define (find-obj f d) (format "../~a/~arelease/~a.obj" d (if win64? "x64/" "") f))
-(define (find-lib f d) (format "../~a/~arelease/~a.lib" d (if win64? "x64/" "") f))
+(define (find-build-file d f)
+  (string-append
+   (if win64?
+     (string-append "../" d "/x64/release")
+     (let ([d2 (string-append "../" d "/win32/release")])
+       (if (directory-exists? d2) d2 (string-append "../" d "/release"))))
+   "/" f))
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -175,9 +193,6 @@
 	"xsrc/precomp.h"
 	""
 	(string-append "/D LIBMZ_EXPORTS "
-		       (if accounting-gc?
-			   "/D NEWGC_BTC_ACCOUNT "
-			   "")
 		       (if backtrace-gc?
 			   "/D MZ_GC_BACKTRACE "
 			   ""))
@@ -220,6 +235,7 @@
 	    (map (lambda (f) (build-path "../../racket/" f))
 		 '("include/scheme.h"
 		   "include/schthread.h"
+		   "sconfig.h"
 		   "src/schpriv.h"
 		   "src/stypes.h"))
 	    (map (lambda (f) (build-path "../../racket/gc2/" f))
@@ -232,7 +248,6 @@
 		   "gc2_obj.h")))
 	   (string-append
 	    "/D GC2_AS_EXPORT "
-	    "/D NEWGC_BTC_ACCOUNT "
 	    (if backtrace-gc?
 		"/D MZ_GC_BACKTRACE "
 		"")
@@ -253,10 +268,9 @@
 	     (> (file-or-directory-modify-seconds f)
 		ms))
 	   objs)
-      (unless (system- (format "~a ~a ~a /MT /Zi /Fe~a ~a ~a /link ~a~a~a"
+      (unless (system- (format "~a ~a /MT /Zi /Fe~a ~a ~a /link ~a~a~a~a~a"
 			       cl.exe
 			       (if exe? "" "/LD /DLL")
-			       (if win64? "/MACHINE:x64" "")
 			       dll
 			       (let loop ([objs (append objs sys-libs)])
 				 (if (null? objs)
@@ -275,6 +289,8 @@
 				      " "
 				      (loop (cdr delayloads)))))
 			       link-options
+			       (if exe? " /STACK:8388608" "")
+			       (if win64? " /MACHINE:x64" "")
 			       (let ([s (regexp-match "^(.*)/([a-z0-9]*)[.]dll$" dll)])
 				 (if s
 				     (format " /IMPLIB:~a/msvc/~a.lib"
@@ -286,12 +302,9 @@
 	     "xsrc/gc2.obj"
 	     "xsrc/mzsj86.obj"
 	     "xsrc/foreign.obj"
-	     (find-obj "gmp" "libracket")
-	     (find-lib "libffi" "racket")
-	     (map
-	      (lambda (n)
-		(format "xsrc/~a.obj" n))
-	      srcs))])
+	     (find-build-file "libracket" "gmp.obj")
+	     (find-build-file "racket" "libffi.lib")
+	     (map (lambda (n) (format "xsrc/~a.obj" n)) srcs))])
   (link-dll objs null null dll "" #f))
 
 (define (check-rc res rc)

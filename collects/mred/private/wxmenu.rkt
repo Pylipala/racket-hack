@@ -1,17 +1,17 @@
 (module wxmenu mzscheme
   (require mzlib/class
-	   mzlib/class100
-	   mzlib/list
-	   (prefix wx: "kernel.ss")
-           (prefix wx: "wxme/keymap.ss")
-	   "lock.ss"
-	   "const.ss"
-	   "helper.ss"
-	   "wx.ss")
-  
+           mzlib/class100
+           mzlib/list
+           (prefix wx: "kernel.rkt")
+           (prefix wx: "wxme/keymap.rkt")
+           "lock.rkt"
+           "const.rkt"
+           "helper.rkt"
+           "wx.rkt")
+
   (provide (protect wx-menu-item%
-		    wx-menu-bar%
-		    wx-menu%))
+                    wx-menu-bar%
+                    wx-menu%))
 
   (define wx-menu-item%
     (class100* wx:menu-item% (wx<%>) (mr mn-dat can-enable?)
@@ -68,9 +68,7 @@
 						     [label (mcar data)]
 						     [menu (mcdr data)])
 						(if (regexp-match re label)
-						    (begin
-						      (send menu select this)
-						      #t)
+						    (send menu select this)
 						    #f)))
 					    items)))))))))]
 	[on-demand (lambda () (as-exit (lambda () (send mred on-demand))))]

@@ -1,15 +1,12 @@
 #lang scribble/doc
-@(require scribble/manual
-          "utils.ss"
-          (for-label scribble/srcdoc
-                     scribble/extract
-                     racket/contract))
+@(require scribble/manual "utils.rkt"
+          (for-label scribble/srcdoc scribble/extract racket/contract))
 
 @title[#:tag "srcdoc"]{In-Source Documentation}
 
 The @racketmodname[scribble/srcdoc] and
 @racketmodname[scribble/extract] libraries support writing
-documentation withing the documentation code along with an export
+documentation within the documentation code along with an export
 contract, similar to using @as-index{JavaDoc}. With this approach, a
 single contract specification is used both for the run-time contract
 and the documentation of an exported binding.
@@ -71,18 +68,18 @@ to get core Racket forms and basic Scribble functions to use in
 documentation expressions.}
 
 @defform*/subs[#:literals (-> ->* case->)
-               [(proc-doc/names id contract ((arg-id ...) ((arg-id default-expr) ...)) desc-expr)
-                (proc-doc/names id case-contract ((arg-id ...) ((arg-id default-expr) ...)) desc-expr)]
+               [(proc-doc/names id contract ((arg-id ...) ((arg-id default-expr) ...))
+                                desc-expr)]
                ([contract (-> arg ... result)
-                          (->* (mandatory ...) (optional ...) result)]
+                          (->* (mandatory ...) (optional ...) result)
+                          (case-> (-> arg ... result) ...)]
                 [mandatory contract-expr
                            (code:line keyword contract-expr)]
                 [optional contract-expr
-                          (code:line keyword contract-expr)]
-                [case-contract (case-> (-> arg ... result) ...)])]{
+                          (code:line keyword contract-expr)])]{
                           
 When used in @racket[provide/doc], exports @racket[id] with the
-contract described by @racket[contract] or @racket[case-contract],
+contract described by @racket[contract]
 just like using @racket[provide/contract].
 
 The @racket[arg-id]s specify the names of arguments, which are not
@@ -104,17 +101,23 @@ that is available in the run-time phase of of the enclosing library
 can be referenced in documentation prose using the @racket[racket]
 form.}
 
-@defform/subs[#:literals (-> ->d values)
+@defform/subs[#:literals (-> ->i ->d values)
               (proc-doc id contract desc-expr)
               ([contract (-> result)
+                         (->i (arg ...) () (values ress ...))
+                         (->i (arg ...) () #:pre (pre-id ...) condition (values ress ...))
+                         (->i (arg ...) () res)
+                         (->i (arg ...) () #:pre (pre-id ...) condition [name res])
+                         (->i (arg ...) () #:rest rest res)
+                         
                          (->d (arg ...) () (values [id result] ...))
-                         (->d (arg ...) () #:pre-cond expression (values [id result] ...))
+                         (->d (arg ...) () #:pre-cond expr (values [id result] ...))
                          (->d (arg ...) () [id result])
-                         (->d (arg ...) () #:pre-cond expression [id result])
+                         (->d (arg ...) () #:pre-cond expr [id result])
                          (->d (arg ...) () #:rest id rest [id result])])]{
 
 Like @racket[proc-doc], but supporting contract forms that embed
-argument names. Only a subset of @racket[->d] forms are currently
+argument names. Only a subset of @racket[->i] and @racket[->d] forms are currently
 supported.}
                           
 @defform[(thing-doc id contract-expr dec-expr)]{

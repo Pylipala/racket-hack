@@ -25,14 +25,6 @@
 
 (define _GtkClipboard (_cpointer 'GtkClipboard))
 (define _GtkDisplay _pointer)
-(define _GtkSelectionData (_cpointer 'GtkSelectionData))
-
-(define _freed-string (make-ctype _pointer 
-                                  (lambda (s) s)
-                                  (lambda (p)
-                                    (let ([s (cast p _pointer _string)])
-                                      (g_free p)
-                                      s))))
 
 ;; Recent versions of Gtk provide function calls to
 ;;  access data, but use structure when the functions are
@@ -45,6 +37,7 @@
 				    [length _int]
 				    [display _GtkDisplay]))
 				  
+(define _GtkSelectionData _GtkSelectionDataT-pointer)
 
 (define-gdk gdk_atom_intern (_fun _string _gboolean -> _GdkAtom))
 
@@ -59,15 +52,11 @@
                                          _bytes
                                          _int
                                          -> _void))
-(define-gtk gtk_clipboard_wait_for_contents (_fun _GtkClipboard _GdkAtom -> (_or-null _GtkSelectionData)))
 (define-gtk gtk_selection_data_free (_fun _GtkSelectionData -> _void))
 (define-gtk gtk_selection_data_get_length (_fun _GtkSelectionData -> _int)
   #:fail (lambda () GtkSelectionDataT-length))
 (define-gtk gtk_selection_data_get_data (_fun _GtkSelectionData -> _pointer)
   #:fail (lambda () GtkSelectionDataT-data))
-(define-gtk gtk_clipboard_wait_for_text (_fun _GtkClipboard -> _freed-string))
-(define-gtk gtk_clipboard_wait_for_image (_fun _GtkClipboard -> _GdkPixbuf)
-  #:wrap (allocator gobject-unref))
 
 (define-cstruct _GtkTargetEntry ([target _pointer]
                                  [flags _uint]
@@ -87,6 +76,59 @@
 (define clipboard-atom (gdk_atom_intern "CLIPBOARD" #t))
 
 (define the-x-selection-driver #f)
+
+;; ----------------------------------------
+
+(define _request-fun (_fun #:atomic? #t _GtkClipboard (_or-null _GtkSelectionData) _pointer -> _void))
+(define _request-string-fun (_fun #:atomic? #t _GtkClipboard _string _pointer -> _void))
+(define _request-image-fun (_fun #:atomic? #t _GtkClipboard _GdkPixbuf _pointer -> _void))
+
+(define (handle-receipt backref data convert)
+  (let ([l (ptr-ref backref _racket)])
+    (free-immobile-cell backref)
+    (set-box! (car l) (and data (convert data)))
+    (semaphore-post (cdr l))))
+
+(define (make-request-backref)
+  (let ([l (cons (box #f) (make-semaphore))])
+    (values l (malloc-immobile-cell l))))
+
+(define (wait-request-backref l)
+  (semaphore-wait (cdr l))
+  (unbox (car l)))
+
+(define (request-received cb data backref)
+  (handle-receipt backref 
+		  data
+		  (lambda (v)
+		    (let ([bstr (scheme_make_sized_byte_string
+				 (gtk_selection_data_get_data v)
+				 (gtk_selection_data_get_length v)
+				 1)])
+		      bstr))))
+
+(define (string-request-received cb str backref)
+  (handle-receipt backref 
+		  str
+		  (lambda (str) str)))
+
+(define (image-request-received cb pix backref)
+  (handle-receipt backref 
+		  pix
+		  pixbuf->bitmap))
+
+(define request_received (function-ptr request-received _request-fun))
+(define string_request_received (function-ptr string-request-received _request-string-fun))
+(define image_request_received (function-ptr image-request-received _request-image-fun))
+
+(define-gtk gtk_clipboard_request_contents 
+  (_fun _GtkClipboard _GdkAtom (_fpointer = request_received) _pointer -> _void))
+(define-gtk gtk_clipboard_request_text 
+  (_fun _GtkClipboard (_fpointer = string_request_received) _pointer -> _void))
+(define-gtk gtk_clipboard_request_image 
+  (_fun _GtkClipboard (_fpointer = image_request_received) _pointer -> _void))
+
+;; ----------------------------------------
 
 (defclass clipboard-driver% object%
   (init-field [x-selection? #f])
@@ -185,39 +227,73 @@
 			(list-ref client-data i)
 			(constrained-reply (send client get-client-eventspace)
 					   (lambda () 
-					     (send client get-data 
-						   (list-ref client-orig-types i)))
-					   #""))
-                    #"")])
-      (gtk_selection_data_set sel-data
-                              (gdk_atom_intern (list-ref client-types i) #t)
-                              8
-                              bstr
-                              (bytes-length bstr))))
+                                             (send client get-data 
+                                                   (list-ref client-orig-types i)))
+					   #f))
+                    #f)])
+      (when bstr
+        (let ([bstr (if (string? bstr)
+                        (string->bytes/utf-8 bstr)
+                        bstr)])
+          (gtk_selection_data_set sel-data
+                                  (gdk_atom_intern (list-ref client-types i) #t)
+                                  8
+                                  bstr
+                                  (bytes-length bstr))))))
 
-  (define/public (get-data format)
-    (let ([process (lambda (v)
-                     (and v
-                          (let ([bstr (scheme_make_sized_byte_string
-                                       (gtk_selection_data_get_data v)
-                                       (gtk_selection_data_get_length v)
-                                       1)])
-                            (gtk_selection_data_free v)
-                            bstr)))]
-	  [format (if (equal? format "TEXT")
-		      "UTF8_STRING"
-		      format)])
-      (process (gtk_clipboard_wait_for_contents cb (gdk_atom_intern format #t)))))
+  (define/private (self-data data-format)
+    ;; Due to the way we block for X-selection data and 
+    ;; provide only when the request arrives in the right
+    ;; eventspace, we handle self-X-selection specially:
+    (and x-selection?
+         self-box
+         (let ([c client]
+               [types client-types]
+               [orig-types client-orig-types])
+           (for/or ([t (in-list types)]
+                    [o (in-list orig-types)])
+             (and (equal? t data-format)
+                  (let ([e (send c get-client-eventspace)])
+                    (if (eq? (current-eventspace) e)
+                        (send client get-data t)
+                        (let ([s #f]
+                              [done (make-semaphore)])
+                          (parameterize ([current-eventspace e])
+                            (queue-callback
+                             (lambda ()
+                               (set! s (send client get-data t))
+                               (semaphore-post done))))
+                          (sync/timeout 0.1 done)
+                          s))))))))
+
+  (define/public (get-data data-format)
+    (let* ([data-format (if (equal? data-format "TEXT")
+			    "UTF8_STRING"
+			    data-format)]
+	   [atom (gdk_atom_intern data-format #t)])
+      (or (self-data data-format)
+          (wait-request-backref 
+           (atomically
+            (let-values ([(l backref) (make-request-backref)])
+              (gtk_clipboard_request_contents cb atom backref)
+              l))))))
 
   (define/public (get-text-data)
-    (or (gtk_clipboard_wait_for_text cb) ""))
+    (or (let ([s (self-data "UTF8_STRING")])
+          (and s (bytes->string/utf-8 s #\?)))
+        (wait-request-backref 
+         (atomically
+          (let-values ([(l backref) (make-request-backref)])
+            (gtk_clipboard_request_text cb backref)
+            l)))
+        ""))
 
   (define/public (get-bitmap-data)
-    (let ([pixbuf (gtk_clipboard_wait_for_image cb)])
-      (and pixbuf
-           (begin0
-            (pixbuf->bitmap pixbuf)
-            (gobject-unref pixbuf)))))
+    (wait-request-backref 
+     (atomically
+      (let-values ([(l backref) (make-request-backref)])
+	(gtk_clipboard_request_image cb backref)
+	l))))
   
   (super-new))
 

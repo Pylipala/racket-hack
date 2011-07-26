@@ -5,8 +5,8 @@
 
 (error-print-width 512)
 
-(require (prefix-in compiler:option: "../option.ss")
-         "../compiler.ss"
+(require (prefix-in compiler:option: "../option.rkt")
+         "../compiler.rkt"
          raco/command-name
          mzlib/cmdline
          dynext/file
@@ -292,7 +292,7 @@
    (list "file")))
 
 (when (compiler:option:somewhat-verbose)
-  (printf "~a v~a [~a], Copyright (c) 2004-2010 PLT Scheme Inc.\n"
+  (printf "~a v~a [~a], Copyright (c) 2004-2011 PLT Scheme Inc.\n"
           (short-program+command-name)
           (version)
           (system-type 'gc)))

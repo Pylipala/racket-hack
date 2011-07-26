@@ -1,7 +1,7 @@
-
 #lang scribble/doc
 @(require "mz.rkt")
-@(require (for-label syntax/modcollapse))
+@(require (for-label syntax/modcollapse
+                     racket/stxparam))
 
 @(define contract-eval
    (lambda ()
@@ -14,19 +14,34 @@
 @guideintro["contracts"]{contracts}
 
 The contract system guards one part of a program from
-another. Programmers specify the behavior of a module exports via
-@racket[provide/contract] and the contract system enforces those
+another. Programmers specify the behavior of a module's exports via
+@racket[provide/contract], and the contract system enforces those
 constraints.
 
-@note-lib[racket/contract #:use-sources (racket/contract/private/ds
-                                         racket/contract/private/base
-                                         racket/contract/private/guts
-                                         racket/contract/private/box
-                                         racket/contract/private/hash
-                                         racket/contract/private/vector
-                                         racket/contract/private/struct
-                                         racket/contract/private/misc
-                                         racket/contract/private/provide)]
+@(define-syntax-rule
+   (add-use-sources (x y ...))
+   (x y ...
+      #:use-sources
+      (racket/contract/private/base
+       racket/contract/private/misc
+       racket/contract/private/provide
+       racket/contract/private/guts
+       racket/contract/private/prop
+       racket/contract/private/blame
+       racket/contract/private/ds
+       racket/contract/private/opt
+       racket/contract/private/basic-opters
+       
+       racket/contract/private/box
+       racket/contract/private/hash
+       racket/contract/private/vector
+       racket/contract/private/struct)))
+
+@(define-syntax-rule
+   (declare-exporting-ctc mod)
+   (add-use-sources (declare-exporting mod racket/contract racket)))
+
+@(add-use-sources @note-lib[racket/contract])
 
 @deftech{Contracts} come in two forms: those constructed by the
 various operations listed in this section of the manual, and various
@@ -56,6 +71,7 @@ failed, and anything else to indicate it passed.}
 @; ----------------------------------------
 
 @section{Data-structure Contracts}
+@declare-exporting-ctc[racket/contract/base]
 
 A @deftech{flat contract} can be fully checked immediately for
 a given value.
@@ -100,7 +116,7 @@ A @tech{flat contract} that accepts no values.}
 
 Takes any number of contracts and returns
 a contract that accepts any value that any one of the contracts
-accepts, individually.
+accepts individually.
 
 The @racket[or/c] result tests any value by applying the contracts in
 order, from left to right, with the exception that it always moves the
@@ -137,8 +153,8 @@ with the function.
 @defproc[(and/c [contract (or/c contract? (any/c . -> . any/c))] ...)
          contract?]{
 
-Takes any number of contracts and returns a contract that checks that
-accepts any value that satisfies all of the contracts, simultaneously.
+Takes any number of contracts and returns a contract that
+accepts any value that satisfies all of the contracts simultaneously.
 
 If all of the arguments are procedures or @tech{flat contracts},
 the result is a @tech{flat contract}.
@@ -163,7 +179,7 @@ Returns a flat contract that requires the input to be a number and
 @defproc[(</c [n real?]) flat-contract?]{
 
 Returns a flat contract that requires the input to be a number and
-@racket[<] to @racket[n].}
+@racket[<] than @racket[n].}
 
 
 @defproc[(>/c [n real?]) flat-contract?]{
@@ -179,14 +195,11 @@ Like @racket[</c], but for @racket[>=].}
 
 @defproc[(between/c [n real?] [m real?])
 flat-contract?]{ Returns a flat contract that requires the
-input to be a between @racket[n] and @racket[m] or equal to
+input to be a real number between @racket[n] and @racket[m] or equal to
 one of them.}
 
 @defproc[(real-in [n real?] [m real?]) flat-contract?]{
-
-Returns a flat contract that requires the input to be a real number
-between @racket[n] and @racket[m], inclusive.}
-
+An alias for @racket[between/c].}
 
 @defproc[(integer-in [j exact-integer?] [k exact-integer?]) flat-contract?]{
 
@@ -207,7 +220,7 @@ Returns a flat contract that recognizes strings that have fewer than
 
 @defthing[false/c flat-contract?]{
 
-This is just @racket[#f]. It is here for backwards compatibility.}
+An alias @racket[#f] for backwards compatibility.}
 
 
 @defthing[printable/c flat-contract?]{
@@ -221,8 +234,8 @@ read back in with @racket[write] and @racket[read].}
 Accepts any number of atomic values and returns a flat contract that
 recognizes those values, using @racket[eqv?]  as the comparison
 predicate.  For the purposes of @racket[one-of/c], atomic values are
-defined to be: characters, symbols, booleans, null keywords, numbers,
-void, and undefined.}
+defined to be: @tech{characters}, @tech{symbols}, @tech{booleans}, @racket[null], @tech{keywords}, @tech{numbers},
+@|void-const|, and @|undefined-const|.}
 
 
 @defproc[(symbols [sym symbol?] ...+) flat-contract?]{
@@ -253,14 +266,14 @@ and a @tech{chaperone} or @tech{impersonator} of the input for mutable vectors.}
 
 @defproc[(vector-immutableof [c contract?]) contract?]{
 
-Returns the same contract as @racket[(vectorof c #:immutable #t)]. This exists for
-reasons of backwards compatibility, and may be removed in the future.}
+Returns the same contract as @racket[(vectorof c #:immutable #t)]. This form exists for
+backwards compatibility.}
 
 @defproc[(vector/c [c contract?] ...
                    [#:immutable immutable (or/c #t #f 'dont-care) 'dont-care]
                    [#:flat? flat? boolean? #f])
          contract?]{
-Returns a contract that recognizes vectors whose length match the number of
+Returns a contract that recognizes vectors whose lengths match the number of
 contracts given. Each element of the vector must match its corresponding contract.
 
 If the @racket[flat?] argument is @racket[#t], then the resulting contract is
@@ -279,8 +292,8 @@ and a @tech{chaperone} or @tech{impersonator} of the input for mutable vectors.}
 
 @defproc[(vector-immutable/c [c contract?] ...) contract?]{
 
-Returns the same contract as @racket[(vector/c c ... #:immutable #t)]. This exists for
-reasons of backwards compatibility, and may be removed in the future.}
+Returns the same contract as @racket[(vector/c c ... #:immutable #t)]. This form exists for
+reasons of backwards compatibility.}
 
 
 @defproc[(box/c [c contract?] 
@@ -305,8 +318,8 @@ and either a @tech{chaperone} or @tech{impersonator} of the input for mutable bo
 
 @defproc[(box-immutable/c [c contract?]) contract?]{
 
-Returns the same contract as @racket[(box/c c #:immutable #t)]. This exists for
-reasons of backwards compatibility, and may be removed in the future.}
+Returns the same contract as @racket[(box/c c #:immutable #t)]. This form exists for
+reasons of backwards compatibility.}
 
 
 @defproc[(listof [c (or/c contract? (any/c . -> . any/c))]) contract?]{
@@ -324,7 +337,7 @@ a value, the result is not necessarily @racket[eq?] to the input.}
 
 @defproc[(cons/c [car-c contract?] [cdr-c contract?]) contract?]{
 
-Produces a contract the recognizes pairs first and second elements
+Produces a contract that recognizes pairs whose first and second elements
 match @racket[car-c] and @racket[cdr-c], respectively. Beware that
 when this contract is applied to a value, the result is not
 necessarily @racket[eq?] to the input.}
@@ -345,15 +358,17 @@ Produces a flat contract that recognizes syntax objects whose
 @racket[syntax-e] content matches @racket[c].}
 
 
-@defform[(struct/c struct-id chaperone-contract-expr ...)]{
-
+@defform[(struct/c struct-id contract-expr ...)]{
 Produces a contract that recognizes instances of the structure
 type named by @racket[struct-id], and whose field values match the
-chaperone contracts produced by the @racket[chaperone-contract-expr]s.
+contracts produced by the @racket[contract-expr]s.
 
-If the fields are immutable and the @racket[chaperone-contract-expr]s evaluate
-to flat contracts, a flat contract is produced. Otherwise, a chaperone
-contract is produced.}
+Contracts for immutable fields must be either flat or chaperone contracts.
+Contracts for mutable fields may be impersonator contracts.
+If all fields are immutable and the @racket[contract-expr]s evaluate
+to flat contracts, a flat contract is produced.  If all the
+@racket[contract-expr]s are chaperone contracts, a chaperone contract is
+produced.  Otherwise, an impersonator contract is produced.}
 
 
 @defproc[(parameter/c [c contract?]) contract?]{
@@ -387,7 +402,7 @@ to the input.  The result will be a copy for immutable hash tables, and either a
 }
 
 
-@defform[(flat-rec-contract id flat-contract-expr ...)]
+@defform[(flat-rec-contract id flat-contract-expr ...)]{
 
 Constructs a recursive @tech{flat contract}. A
 @racket[flat-contract-expr] can refer to @racket[id] to refer
@@ -403,8 +418,8 @@ For example, the contract
 ]
 
 is a flat contract that checks for (a limited form of)
-S-expressions. It says that an @racket[sexp] is either two
-@racket[sexp] combined with @racket[cons], or a number, or a symbol.
+S-expressions. It says that a @racket[sexp] is either two
+@racket[sexp]s combined with @racket[cons], or a number, or a symbol.
 
 Note that if the contract is applied to a circular value, contract
 checking will not terminate.}
@@ -430,59 +445,11 @@ Constructs a contract on a promise. The contract does not force the
 promise, but when the promise is forced, the contract checks that the
 result value meets the contract produced by @racket[expr].}
 
-
-@defproc[(new-∀/c [name symbol?]) contract?]{
-  Constructs a new universal contract. 
-  
-  Universal contracts accept all values when in negative positions (e.g., function
-  inputs) and wrap them in an opaque struct, hiding the precise value. 
-  In positive positions (e.g. function returns), 
-  a universal contract accepts only values that were previously accepted in negative positions (by checking
-  for the wrappers).
-  
-  The name is used to identify the contract in error messages.
-  
-  For example, this contract:
-  @racketblock[(let ([a (new-∃/c 'a)])
-                 (-> a a))]
-  describes the identity function (or a non-terminating function)
-  That is, the first use of the @racket[a] appears in a
-  negative position and thus inputs to that function are wrapped with an opaque struct.
-  Then, when the function returns, it is checked to see if the result is wrapped, since
-  the second @racket[a] appears in a positive position.
-
-  This is a dual to @racket[new-∃/c].
-  
-}
-
-@defproc[(new-∃/c [name symbol?]) contract?]{
-  Constructs a new existential contract. 
-  
-  Existential contracts accept all values when in positive positions (e.g., function
-  returns) and wrap them in an opaque struct, hiding the precise value. 
-  In negative positions (e.g. function inputs), 
-  they accepts only values that were previously accepted in positive positions (by checking
-  for the wrappers).
-  
-  The name is used to identify the contract in error messages.
-  
-  For example, this contract:
-  @racketblock[(let ([a (new-∃/c 'a)])
-                 (-> (-> a a)
-                     any/c))]
-  describes a function that accepts the identity function (or a non-terminating function)
-  and returns an arbitrary value. That is, the first use of the @racket[a] appears in a
-  positive position and thus inputs to that function are wrapped with an opaque struct.
-  Then, when the function returns, it is checked to see if the result is wrapped, since
-  the second @racket[a] appears in a negative position.
-  
-  This is a dual to @racket[new-∀/c].
-}
-
-
 @; ------------------------------------------------------------------------
 
 @section{Function Contracts}
+
+@declare-exporting-ctc[racket/contract/base]
 
 A @deftech{function contract} wraps a procedure to delay
 checks for its arguments and results. There are three
@@ -519,9 +486,9 @@ Each @racket[dom-expr] is a contract on an argument to a
 function, and each @racket[range-expr] is a contract on a
 result of the function.
 
-@margin-note{Using an @racket[->] between two whitespace-delimited
+@margin-note{Using a @racket[->] between two whitespace-delimited
 @racketparenfont{.}s is the same as putting the @racket[->] right
-after the enclosing open parenthesis. See
+after the enclosing opening parenthesis. See
 @guidesecref["lists-and-syntax"] or @secref["parse-pair"] for more
 information.}
 
@@ -541,7 +508,7 @@ example:
 @racketblock[(integer? #:x boolean? . -> . integer?)]
 
 is a contract on a function that accepts a by-position argument that
-is an integer and a @racket[#:x] argument is that a boolean.
+is an integer and a @racket[#:x] argument that is a boolean.
 
 If @racket[any] is used as the last sub-form for @racket[->], no
 contract checking is performed on the result of the function, and
@@ -602,13 +569,17 @@ symbols, and that return a symbol.
  [optional-dependent-dom id+ctc
                          (code:line keyword id+ctc)]
  [dependent-rest (code:line) (code:line #:rest id+ctc)]
- [pre-condition (code:line) (code:line #:pre (id ...) boolean-expr)]
+ [pre-condition (code:line)
+                (code:line #:pre (id ...) boolean-expr pre-condition)
+                (code:line #:pre/name (id ...) string boolean-expr pre-condition)]
  [dependent-range any
                   id+ctc
                   un+ctc
                   (values id+ctc ...)
                   (values un+ctc ...)]
- [post-condition (code:line) (code:line #:post (id ...) boolean-expr)]
+ [post-condition (code:line)
+                 (code:line #:post (id ...) boolean-expr post-condition)
+                 (code:line #:post/name (id ...) string boolean-expr post-condition)]
  [id+ctc [id contract-expr]
          [id (id ...) contract-expr]]
  [un+ctc [_ contract-expr]
@@ -621,11 +592,12 @@ in that each argument and result is named. These names can then
 be used in the subcontracts and in the pre-/post-condition clauses. 
 In short, contracts now express dependencies among arguments and results. 
 
-The first subforms of a @racket[->i] contract covers the mandatory and the
-second subform covers the optional arguments. Following that is an optional
+The first sub-form of a @racket[->i] contract covers the mandatory and the
+second sub-form covers the optional arguments. Following that is an optional
 rest-args contract, and an optional pre-condition. The pre-condition is
 introduced with the @racket[#:pre] keyword followed by the list of names on
-which it depends. 
+which it depends. If the @racket[#:pre/name] keyword is used, the string
+supplied is used as part of the error message; similarly with @racket[#:post/name].
 
 The @racket[dep-range] non-terminal specifies the possible result
 contracts. If it is @racket[any], then any value is allowed. Otherwise, the
@@ -640,38 +612,38 @@ Consider this sample contract:
                    [y (x) (>=/c x)])
                   [result (x y) (and/c number? (>=/c (+ x y)))])]
 It specifies a function of two arguments, both numbers. The contract on the
-second argument (@scheme[y]) demands that it is greater than the first
+second argument (@racket[y]) demands that it is greater than the first
 argument. The result contract promises a number that is greater than the
-sum of the two arguments. While the dependency specification for @scheme[y] 
+sum of the two arguments. While the dependency specification for @racket[y] 
 signals that the argument contract depends on the value of the first
-argument, the dependency list for @scheme[result] indicates that the
+argument, the dependency sequence for @racket[result] indicates that the
 contract depends on both argument values. @margin-note*{In general, an
-empty list is (nearly) equivalent to not adding
-a list at all except that the former is more expensive than the latter.} 
+empty sequence is (nearly) equivalent to not adding
+a sequence at all except that the former is more expensive than the latter.} 
 Since the contract for @racket[x] does not depend on anything else, it does
-not come with any dependency list, not even @scheme[()]. 
+not come with any dependency sequence, not even @racket[()]. 
 
-The contract expressions are not evaluated in
+The contract expressions are not always evaluated in
 order. First, if there is no dependency for a given contract expression,
 the contract expression is evaluated at the time that the @racket[->i]
 expression is evaluated rather than the time when the function is called or
 returns.  These dependency-free contract expressions are evaluated in the
 order in which they are listed.
 @;
-Second, the dependent contract subexpressions are evaluated when the
+Second, the dependent contract sub-expressions are evaluated when the
 contracted function is called or returns in some order that satisfies the
 dependencies. That is, if a contract for an argument depends on the value
 of some other contract, the former is evaluated first (so that the
 argument, with its contract checked, is available for the other).  When
 there is no dependency between two arguments (or the result and an
-argument) then the contract that appears earlier in the source text is
+argument), then the contract that appears earlier in the source text is
 evaluated first.  
-#;
+
 Finally, if all of the identifier positions of the range
 contract are @racket[_]s (underscores), then the range contract expressions
 are evaluated when the function is called and the underscore is not bound
 in the range, after the argument contracts are evaluated and
-checked. Otherwise the range expressions are evaluated when the function
+checked. Otherwise, the range expressions are evaluated when the function
 returns.
 
 If there are optional arguments that are not supplied, then 
@@ -704,7 +676,7 @@ called @racket[the-unsupplied-arg] value.
 )]{
    
 This contract is here for backwards compatibility; any new code should
-use @scheme[->i] instead.
+use @racket[->i] instead.
 
 This contract is similar to @racket[->i], but is ``lax'', meaning
 that it does not enforce contracts internally. For example, using
@@ -714,10 +686,10 @@ this contract
                   (zero? (f #f))
                   any)]
 will allow @racket[f] to be called with @racket[#f], trigger whatever bad
-behavior the author of @scheme[f] was trying to prohibit by insisting that
-@racket[f]'s contract accept ony integers.
+behavior the author of @racket[f] was trying to prohibit by insisting that
+@racket[f]'s contract accept only integers.
 
-The @racket[#:pre-cond] and @racket[#:post-cond] keywords are synonyms for
+The @racket[#:pre-cond] and @racket[#:post-cond] keywords are aliases for
 @racket[#:pre] and @racket[#:post] and are provided for backwards compatibility.
 
 }
@@ -778,9 +750,98 @@ be blamed using the above contract:
 }
 
 @defproc[(unsupplied-arg? [v any/c]) boolean?]{
-  A predicate to determine if @racket[v] is 
+  A predicate to determine whether @racket[v] is 
   @racket[the-unsupplied-arg].
 }
+
+
+@section[#:tag "parametric-contracts"]{Parametric Contracts}
+@defmodule*/no-declare[(racket/contract/parametric)]
+@declare-exporting-ctc[racket/contract/parametric]
+
+The most convenient way to use parametric contract is to use
+@racket[provide/contract]'s @racket[#:exists] keyword.
+The @racketmodname[racket/contract/parametric] provides a few more, 
+general-purpose parametric contracts.
+
+
+@defform[(parametric->/c (x ...) c)]{
+
+Creates a contract for parametric polymorphic functions.  Each function is
+protected by @racket[c], where each @racket[x] is bound in @racket[c] and refers
+to a polymorphic type that is instantiated each time the function is applied.
+
+At each application of a function, the @racket[parametric->/c] contract constructs
+a new opaque wrapper for each @racket[x]; values flowing into the polymorphic
+function (i.e. values protected by some @racket[x] in negative position with
+respect to @racket[parametric->/c]) are wrapped in the corresponding opaque
+wrapper.  Values flowing out of the polymorphic function (i.e. values protected
+by some @racket[x] in positive position with respect to @racket[parametric->/c])
+are checked for the appropriate wrapper.  If they have it, they are unwrapped;
+if they do not, a contract violation is signaled.
+
+@examples[#:eval (contract-eval)
+(define/contract (check x y) 
+  (parametric->/c [X] (boolean? X . -> . X))
+  (if (or (not x) (equal? y 'surprise))
+      'invalid
+      y))
+(check #t 'ok)
+(check #f 'ignored)
+(check #t 'surprise)
+]
+}
+
+@defproc[(new-∀/c [name symbol?]) contract?]{
+  Constructs a new universal contract. 
+  
+  Universal contracts accept all values when in negative positions (e.g., function
+  inputs) and wrap them in an opaque struct, hiding the precise value. 
+  In positive positions (e.g. function returns), 
+  a universal contract accepts only values that were previously accepted in negative positions (by checking
+  for the wrappers).
+  
+  The name is used to identify the contract in error messages.
+  
+  For example, this contract:
+  @racketblock[(let ([a (new-∀/c 'a)])
+                 (-> a a))]
+  describes the identity function (or a non-terminating function)
+  That is, the first use of the @racket[a] appears in a
+  negative position and thus inputs to that function are wrapped with an opaque struct.
+  Then, when the function returns, it is checked to determine whether the result is wrapped, since
+  the second @racket[a] appears in a positive position.
+
+  The @racket[new-∀/c] construct constructor is dual to @racket[new-∃/c].
+  
+}
+
+@defproc[(new-∃/c [name symbol?]) contract?]{
+  Constructs a new existential contract. 
+  
+  Existential contracts accept all values when in positive positions (e.g., function
+  returns) and wrap them in an opaque struct, hiding the precise value. 
+  In negative positions (e.g. function inputs), 
+  they accepts only values that were previously accepted in positive positions (by checking
+  for the wrappers).
+  
+  The name is used to identify the contract in error messages.
+  
+  For example, this contract:
+  @racketblock[(let ([a (new-∃/c 'a)])
+                 (-> (-> a a)
+                     any/c))]
+  describes a function that accepts the identity function (or a non-terminating function)
+  and returns an arbitrary value. That is, the first use of the @racket[a] appears in a
+  positive position and thus inputs to that function are wrapped with an opaque struct.
+  Then, when the function returns, it is checked to see if the result is wrapped, since
+  the second @racket[a] appears in a negative position.
+  
+  The @racket[new-∃/c] construct constructor is dual to @racket[new-∀/c].
+}
+
+
+
 
 @; ------------------------------------------------------------------------
 
@@ -790,7 +851,7 @@ be blamed using the above contract:
 
 Like @racket[struct], but with two differences: 
 they do not
-define field mutators, and the do define two contract constructors:
+define field mutators, and they define two contract constructors:
 @racket[id]@racketidfont{/c} and @racket[id]@racketidfont{/dc}. The
 first is a procedure that accepts as many arguments as there are
 fields and returns a contract for struct values whose fields match the
@@ -822,7 +883,7 @@ indicate which fields it depends on; these dependencies can only be to
 earlier fields.}}
  
 @defform[(define-contract-struct id (field-id ...))]{
-  Like @racket[contract-struct], but where the maker's name is @racketidfont["make-"]@racket[id],
+  Like @racket[contract-struct], but where the constructor's name is @racketidfont["make-"]@racket[id],
   much like @racket[define-struct].
 }
 
@@ -870,11 +931,12 @@ traversed, since the contract checker will traverse it before the
 function is called. As written above, however, when the product
 function aborts the traversal of the list, the contract checking also
 stops, since the @racket[kons/dc] contract constructor generates a
-lazy contract.}
+lazy contract.
 
 @; ------------------------------------------------------------------------
 
 @section{Attaching Contracts to Values}
+@declare-exporting-ctc[racket/contract/base]
 
 @defform/subs[
 #:literals (struct rename)
@@ -917,7 +979,7 @@ referring to the structure type to export and the second name
 referring to the parent structure type. Unlike a @racket[struct]
 definition, however, all of the fields (and their contracts) must be
 listed. The contract on the fields that the sub-struct shares with its
-parent are only used in the contract for the sub-struct's maker, and
+parent are only used in the contract for the sub-struct's constructor, and
 the selector or mutators for the super-struct are not provided. The
 exported structure-type name always doubles as a constructor, even if
 the original structure-type name does not act as a constructor.
@@ -927,14 +989,18 @@ contracts. The variables are bound in the remainder of the @racket[provide/contr
 expression to new contracts that hide the values they accept and
 ensure that the exported functions are treated parametrically.
 
-The implementation of @scheme[provide/contract] attaches uses
-@scheme[syntax-property] to attach properties to the code it generates
+The implementation of @racket[provide/contract] attaches uses
+@racket[syntax-property] to attach properties to the code it generates
 that records the syntax of the contracts in the fully expanded program.
-Specifically, the symbol @scheme['provide/contract-original-contract]
+Specifically, the symbol @racket['provide/contract-original-contract]
 is bound to vectors of two elements, the exported identifier and a
 syntax object for the expression that produces the contract controlling
 the export.
 }
+                                      
+@subsection{Nested Contract Boundaries}
+@defmodule*/no-declare[(racket/contract/region)]
+@declare-exporting-ctc[racket/contract/region]
 
 @defform*/subs[
  [(with-contract blame-id (wc-export ...) free-var-list ... body ...+)
@@ -980,7 +1046,7 @@ For the definition of @racket[free-var-list], see @racket[with-contract].
 
 The @racket[define/contract] form treats the individual definition as
 a contract region. The definition itself is responsible for positive
-(co-variant) positions of the contract and references to
+(co-variant) positions of the contract, and references to
 @racket[id] outside of the definition must meet the negative
 positions of the contract. Since the contract boundary is
 between the definition and the surrounding context, references to
@@ -1016,6 +1082,16 @@ The @racket[define-struct/contract] form only allows a subset of the
 (make-salmon #f 'pacific)
 ]}
 
+@defidform[current-contract-region]{
+  Bound by @racket[define-syntax-parameter], this contains
+  information about the current contract region, used by
+  the above forms to determine the candidates for blame
+  assignment.
+}
+
+@subsection{Low-level Contract Boundaries}
+@declare-exporting-ctc[racket/contract/base]
+                                                       
 @defform*[[(contract contract-expr to-protect-expr
                      positive-blame-expr negative-blame-expr)
            (contract contract-expr to-protect-expr 
@@ -1054,12 +1130,12 @@ accepted by the third argument to @racket[datum->syntax].
 
 @section{Building New Contract Combinators}
 
-@emph{@bold{Note:}
- The interface in this section is unstable and subject to change.}
+@defmodule*/no-declare[(racket/contract/combinator)]
+@declare-exporting-ctc[racket/contract/combinator]
 
 Contracts are represented internally as functions that
 accept information about the contract (who is to blame,
-source locations, etc) and produce projections (in the
+source locations, @|etc|) and produce projections (in the
 spirit of Dana Scott) that enforce the contract. A
 projection is a function that accepts an arbitrary value,
 and returns a value that satisfies the corresponding
@@ -1090,8 +1166,8 @@ on integers looks like this:
 
 Although these projections have the right error behavior,
 they are not quite ready for use as contracts, because they
-do not accomodate blame, and do not provide good error
-messages. In order to accomodate these, contracts do not
+do not accommodate blame, and do not provide good error
+messages. In order to accommodate these, contracts do not
 just use simple projections, but use functions that accept a
 @deftech{blame object} encapsulating
 the names of two parties that are the candidates for blame,
@@ -1147,22 +1223,22 @@ Compare that to the projection for our function contract:
 ]
 
 In this case, the only explicit blame covers the situation
-where either a non-procedure is supplied to the contract, or
-where the procedure does not accept one argument. As with
+where either a non-procedure is supplied to the contract or
+the procedure does not accept one argument. As with
 the integer projection, the blame here also lies with the
 producer of the value, which is
 why @racket[raise-blame-error] is passed @racket[blame] unchanged. 
 
 The checking for the domain and range are delegated to
 the @racket[int-proj] function, which is supplied its
-arguments in the first two line of
+arguments in the first two lines of
 the @racket[int->int-proj] function. The trick here is that,
 even though the @racket[int->int-proj] function always
-blames what it sees as positive we can swap the blame parties by
+blames what it sees as positive, we can swap the blame parties by
 calling @racket[blame-swap] on the given @tech{blame object}, replacing
 the positive party with the negative party and vice versa.
 
-This is not just a cheap trick to get this example to work,
+This technique is not merely a cheap trick to get the example to work,
 however. The reversal of the positive and the negative is a
 natural consequence of the way functions behave. That is,
 imagine the flow of values in a program between two
@@ -1172,7 +1248,7 @@ has to go from the original, providing module to the
 requiring module. Now, imagine that the providing module
 invokes the function, suppying it an argument. At this
 point, the flow of values reverses. The argument is
-travelling back from the requiring module to the providing
+traveling back from the requiring module to the providing
 module! And finally, when the function produces a result,
 that result flows back in the original
 direction. Accordingly, the contract on the domain reverses
@@ -1242,19 +1318,19 @@ the contract library primitives below.
 
 These functions build simple higher-order contracts, chaperone contracts, and flat contracts,
 respectively.  They both take the same set of three optional arguments: a name,
-a first order predicate, and a blame-tracking projection.
+a first-order predicate, and a blame-tracking projection.
 
 The @racket[name] argument is any value to be rendered using @racket[display] to
 describe the contract when a violation occurs.  The default name for simple
-higher order contracts is @racketresult[anonymous-contract], for chaperone
+higher-order contracts is @racketresult[anonymous-contract], for chaperone
 contracts is @racketresult[anonymous-chaperone-contract], and for flat
 contracts is @racketresult[anonymous-flat-contract].
 
-The first order predicate @racket[test] can be used to determine which values
-the contract applies to; usually this is the set of values for which the
+The first-order predicate @racket[test] can be used to determine which values
+the contract applies to; usually, this is the set of values for which the
 contract fails immediately without any higher-order wrapping.  This test is used
 by @racket[contract-first-order-passes?], and indirectly by @racket[or/c] to
-determine which of multiple higher order contracts to wrap a value with.  The
+determine which of multiple higher-order contracts to wrap a value with.  The
 default test accepts any value.
 
 The projection @racket[proj] defines the behavior of applying the contract.  It
@@ -1263,11 +1339,11 @@ object, and the second accepts a value to protect with the contract.  The
 projection must either produce the value, suitably wrapped to enforce any
 higher-order aspects of the contract, or signal a contract violation using
 @racket[raise-blame-error].  The default projection produces an error when the
-first order test fails, and produces the value unchanged otherwise.
+first-order test fails, and produces the value unchanged otherwise.
 
 Projections for chaperone contracts must produce a value that passes
 @racket[chaperone-of?] when compared with the original, uncontracted value.
-Projections for flat contracts must fail precisely when the first order test
+Projections for flat contracts must fail precisely when the first-order test
 does, and must produce the input value unchanged otherwise.  Applying a flat
 contract may result in either an application of the predicate, or the
 projection, or both; therefore, the two must be consistent.  The existence of a
@@ -1311,15 +1387,15 @@ flat contracts do not need to supply an explicit projection.
 
 Produces an S-expression to be used as a name
 for a contract. The arguments should be either contracts or
-symbols. It wraps parenthesis around its arguments and
+symbols. It wraps parentheses around its arguments and
 extracts the names from any contracts it is supplied with.}
 
 @defproc[(coerce-contract [id symbol?] [x any/c]) contract?]{
 
-Converts a regular racket value into an instance of a contract struct,
+Converts a regular Racket value into an instance of a contract struct,
 converting it according to the description of @tech{contracts}.
 
-If @racket[x] is not one of the coercable values,
+If @racket[x] is not one of the coercible values,
 @racket[coerce-contract] signals an error, using the first argument in
 the error message.}
 
@@ -1402,6 +1478,12 @@ the other; both are provided for convenience and clarity.
 
 }
 
+@defproc[(blame-replace-negative [b blame?] [neg any/c]) blame?]{
+  Produces a @racket[blame?] object just like @racket[b] except
+             that it uses @racket[neg] instead of the negative 
+             position @racket[b] has.
+}
+  
 @defproc[(raise-blame-error [b blame?] [x any/c] [fmt string?] [v any/c] ...)
          none/c]{
 
@@ -1415,18 +1497,50 @@ specific to the precise violation.
 
 }
 
-@defproc[(exn:fail:contract:blame? [x any/c]) boolean?]{
-This predicate recognizes exceptions raised by @racket[raise-blame-error].
+@defstruct[(exn:fail:contract:blame exn:fail:contract) ([object blame?])]{
+  This exception is raised to signal a contract error. The @racket[blame]
+  field extracts the @racket[blame?] object associated with a contract violation.
 }
 
-@defproc[(exn:fail:contract:blame-object [e exn:fail:contract:blame?]) blame?]{
-This accessor extracts the blame object associated with a contract violation.
+@defparam[current-blame-format
+          proc 
+          (-> blame? any/c string? string?)]{
+
+A parameter that is used when constructing a
+contract violation error. Its value is procedure that
+accepts three arguments: 
+@itemize[
+@item{the blame object for the violation,}
+@item{the value that the contract applies to, and}
+@item{a message indicating the kind of violation.}]
+The procedure then
+returns a string that is put into the contract error
+message. Note that the value is often already included in
+the message that indicates the violation.
+
+@defexamples[#:eval (contract-eval)
+(define (show-blame-error blame value message)
+  (string-append
+   "Contract Violation!\n"
+   (format "Guilty Party: ~a\n" (blame-positive blame))
+   (format "Innocent Party: ~a\n" (blame-negative blame))
+   (format "Contracted Value Name: ~a\n" (blame-value blame))
+   (format "Contract Location: ~s\n" (blame-source blame))
+   (format "Contract Name: ~a\n" (blame-contract blame))
+   (format "Offending Value: ~s\n" value)
+   (format "Offense: ~a\n" message)))
+(current-blame-format show-blame-error)
+(define/contract (f x)
+  (-> integer? integer?)
+  (/ x 2))
+(f 2)
+(f 1)
+(f 1/2)
+]
+
 }
 
 @subsection{Contracts as structs}
-
-@emph{@bold{Note:}
- The interface in this section is unstable and subject to change.}
 
 @para{
 The property @racket[prop:contract] allows arbitrary structures to act as
@@ -1451,6 +1565,16 @@ for @racket[prop:chaperone-contract] must be a @tech{chaperone contract property
 constructed by @racket[build-chaperone-contract-property] and the value
 for @racket[prop:flat-contract] must be a @tech{flat contract property}
 constructed by @racket[build-flat-contract-property].
+}
+  
+@deftogether[(
+@defthing[prop:contracted struct-type-property?]
+@defthing[impersonator-prop:contracted impersonator-property?]
+)]{
+These properties attach a contract value to the protected structure,
+chaperone, or impersonator value.  The function @racket[has-contract?]
+returns @racket[#t] for values that have one of these properties, and
+@racket[value-contract] extracts the contract value.
 }
 
 @deftogether[(
@@ -1546,10 +1670,10 @@ These functions build the arguments for @racket[prop:contract],
 A @deftech{contract property} specifies the behavior of a structure when used as
 a contract.  It is specified in terms of five accessors: @racket[get-name],
 which produces a description to @racket[write] as part of a contract violation;
-@racket[get-first-order], which produces a first order predicate to be used by
+@racket[get-first-order], which produces a first-order predicate to be used by
 @racket[contract-first-order-passes?]; @racket[get-projection], which
 produces a blame-tracking projection defining the behavior of the contract;
-@racket[stronger], which is a predicate that determines if one contract this contract
+@racket[stronger], which is a predicate that determines whether this contract
 (passed in the first argument) is stronger than some other contract (passed in the second argument);
 and @racket[generator], which makes a random value that matches the contract,
 given a size bound and an environment from which to draw interesting values.
@@ -1570,7 +1694,7 @@ A @deftech{flat contract property} specifies the behavior of a structure when
 used as a flat contract.  It is specified using
 @racket[build-flat-contract-property], and accepts exactly the same set of
 arguments as @racket[build-contract-property].  The only difference is that the
-projection accessor is expected not to wrap its argument in a higher order
+projection accessor is expected not to wrap its argument in a higher-order
 fashion, analogous to the constraint on projections in
 @racket[make-flat-contract].
 
@@ -1589,14 +1713,15 @@ These predicates detect whether a value is a @tech{contract property},
 @subsection{Obligation Information in Check Syntax}
 
 @seclink[#:doc '(lib "scribblings/drracket/drracket.scrbl")
-"buttons"]{Check Syntax} in DrRacket shows obligations information for 
+"buttons"]{Check Syntax} in DrRacket shows obligation information for 
 contracts according to @racket[syntax-property]s that the contract combinators
 leave in the expanded form of the program. These properties indicate
-where contracts appears in the source and where the positive and negative
+where contracts appear in the source and where the positive and negative
 positions of the contracts appear.
 
 To make Check Syntax show obligation information for your new contract
-combinators, use these properties:
+combinators, use the following properties (some helper macros and functions
+are below):
 
 @itemize[@item{@racketblock0['racket/contract:contract :
                              (vector/c symbol? (listof syntax?) (listof syntax?))]
@@ -1610,7 +1735,7 @@ combinators, use these properties:
                 its subpieces (specified by the two following syntax properties).
                 
                 The second and third elements of the vector are syntax objects
-                from pieces of the contract and Check Syntax will color them.
+                from pieces of the contract, and Check Syntax will color them.
                 The first list should contain subparts that are the responsibility
                 of parties (typically modules) that provide implementations of the contract.
                 The second list should contain subparts that are the 
@@ -1621,7 +1746,7 @@ combinators, use these properties:
                 list and @racket[#:pre] in the second list.}
                 
           @item{@racketblock0['racket/contract:negative-position : symbol?]
-                 This property should be attached to subexpressions of
+                 This property should be attached to sub-expressions of
                  a contract combinator that are expected to be other contracts.
                  The value of the property should be the key (the first element from
                  the vector for the @racket['racket/contract:contract] property)
@@ -1631,7 +1756,7 @@ combinators, use these properties:
                  that clients are responsible for. }
          
           @item{@racketblock0['racket/contract:positive-position : symbol?]
-                 This is just like @racket['racket/contract:negative-position],
+                 This form is just like @racket['racket/contract:negative-position],
                  except that it should be used when the expression's value is 
                  a contract that the original party should be responsible for.
                  }
@@ -1639,8 +1764,8 @@ combinators, use these properties:
           @item{@racketblock0['racket/contract:contract-on-boundary : symbol?]
                  The presence of this property tells Check Syntax that it
                  should start coloring from this point. It expects the expression
-                 to alow be a contract
-                 (and thus to have the @racket['racket/contract:contract] property);
+                 to be a contract
+                 (and, thus, to have the @racket['racket/contract:contract] property);
                  this property indicates that this contract is on a (module) boundary.
                  
                  (The value of the property is not used.)
@@ -1658,48 +1783,32 @@ combinators, use these properties:
                  }
          ]
 
+@defform/subs[(define/final-prop header body ...)
+              ([header main-id
+                       (main-id id ...)
+                       (main-id id ... . id)])]{
+  The same as @racket[(define header body ...)], except that uses of
+              @racket[main-id] in the header are annotated 
+              with the @racket['racket/contract:contract] property
+              (as above).
+}
+ 
+@defform/subs[(define/subexpression-pos-prop header body ...)
+              ([header main-id
+                       (main-id id ...)
+                       (main-id id ... . id)])]{
+  The same as @racket[(define header body ...)], except that uses of
+              @racket[main-id] in the header are annotated 
+              with the @racket['racket/contract:contract] property
+              (as above) and arguments are annotated with the
+              @racket['racket/contract:positive-position] property.
+}
+
+
 @; ------------------------------------------------------------------------
 
-@section{Contract Utilities}
-
-@defproc[(contract? [v any/c]) boolean?]{
-
-Returns @racket[#t] if its argument is a contract (i.e., constructed
-with one of the combinators described in this section or a value that
-can be used as a contract) and @racket[#f] otherwise.}
-
-@defproc[(chaperone-contract? [v any/c]) boolean?]{
-
-Returns @racket[#t] if its argument is a contract that guarantees that
-it returns a value which passes @racket[chaperone-of?] when compared to
-the original, uncontracted value.}
-
-@defproc[(flat-contract? [v any/c]) boolean?]{
-
-Returns @racket[#t] when its argument is a contract that can be
-checked immediately (unlike, say, a function contract). 
-
-For example,
-@racket[flat-contract] constructs flat contracts from predicates, and
-symbols, booleans, numbers, and other ordinary Racket values
-(that are defined as @tech{contracts}) are also
-flat contracts.}
-
-@defproc[(flat-contract-predicate [v flat-contract?])
-         (any/c . -> . any/c)]{
-
-Extracts the predicate from a flat contract.}
-
-@defproc[(value-contract [v has-contract?]) contract?]{
-  Returns the contract attached to @racket[v], if recorded.
-  Otherwise it returns @racket[#f].
-}
-
-@defproc[(has-contract? [v any/c]) boolean?]{
-  Returns @racket[#t] if @racket[v] is a value that
-  has a recorded contract attached to it.
-}
-
+@subsection{Utilities for Building New Combinators}
+                                               
 @defproc[(contract-stronger? [x contract?] [y contract?]) boolean?]{
   Returns @racket[#t] if the contract @racket[x] accepts either fewer 
   or the same number of values as @racket[y] does.
@@ -1723,7 +1832,7 @@ Extracts the predicate from a flat contract.}
                                        [v any/c])
          boolean?]{
 
-Returns a boolean indicating if the first-order tests
+Returns a boolean indicating whether the first-order tests
 of @racket[contract] pass for @racket[v].
 
 If it returns @racket[#f], the contract is guaranteed not to
@@ -1732,14 +1841,62 @@ may or may not hold. If the contract is a first-order
 contract, a result of @racket[#t] guarantees that the
 contract holds.}
 
+@defproc[(contract-first-order [c contract?]) (-> any/c boolean?)]{
+Produces the first-order test used by @racket[or/c] to match values to
+higher-order contracts.
+}
+                                               
+@section{Contract Utilities}
+
+@declare-exporting-ctc[racket/contract/base]
+
+@defproc[(contract? [v any/c]) boolean?]{
+
+Returns @racket[#t] if its argument is a contract (i.e., constructed
+with one of the combinators described in this section or a value that
+can be used as a contract) and @racket[#f] otherwise.}
+
+@defproc[(chaperone-contract? [v any/c]) boolean?]{
+
+Returns @racket[#t] if its argument is a contract that guarantees that
+it returns a value which passes @racket[chaperone-of?] when compared to
+the original, uncontracted value.}
+
+@defproc[(impersonator-contract? [v any/c]) boolean?]{
+
+Returns @racket[#t] if its argument is a contract that is not a chaperone
+contract nor a flat contract.}
+
+@defproc[(flat-contract? [v any/c]) boolean?]{
+
+Returns @racket[#t] when its argument is a contract that can be
+checked immediately (unlike, say, a function contract). 
+
+For example,
+@racket[flat-contract] constructs flat contracts from predicates, and
+symbols, booleans, numbers, and other ordinary Racket values
+(that are defined as @tech{contracts}) are also
+flat contracts.}
+
+@defproc[(flat-contract-predicate [v flat-contract?])
+         (any/c . -> . any/c)]{
+
+Extracts the predicate from a flat contract.}
+
 @defproc[(contract-name [c contract?]) any/c]{
 Produces the name used to describe the contract in error messages.
 }
 
-@defproc[(contract-first-order [c contract?]) (-> any/c boolean?)]{
-Produces the first order test used by @racket[or/c] to match values to higher
-order contracts.
+@defproc[(value-contract [v has-contract?]) contract?]{
+  Returns the contract attached to @racket[v], if recorded.
+  Otherwise it returns @racket[#f].
 }
+
+@defproc[(has-contract? [v any/c]) boolean?]{
+  Returns @racket[#t] if @racket[v] is a value that
+  has a recorded contract attached to it.
+}
+
 
 @defproc[(contract-projection [c contract?]) (-> blame? (-> any/c any/c))]{
 Produces the projection defining a contract's behavior on protected values.
@@ -1750,50 +1907,14 @@ Produces the projection defining a contract's behavior on protected values.
 Makes a contract that accepts no values, and reports the
 name @racket[sexp-name] when signaling a contract violation.}
 
-
-@defparam[current-blame-format
-          proc 
-          (-> blame? any/c string? string?)]{
-
-This is a parameter that is used when constructing a
-contract violation error. Its value is procedure that
-accepts three arguments: 
-@itemize[
-@item{the blame object for the violation,}
-@item{the value that the contract applies to, and}
-@item{a message indicating the kind of violation.}]
-The procedure then
-returns a string that is put into the contract error
-message. Note that the value is often already included in
-the message that indicates the violation.
-
-@defexamples[#:eval (contract-eval)
-(define (show-blame-error blame value message)
-  (string-append
-   "Contract Violation!\n"
-   (format "Guilty Party: ~a\n" (blame-positive blame))
-   (format "Innocent Party: ~a\n" (blame-negative blame))
-   (format "Contracted Value Name: ~a\n" (blame-value blame))
-   (format "Contract Location: ~s\n" (blame-source blame))
-   (format "Contract Name: ~a\n" (blame-contract blame))
-   (format "Offending Value: ~s\n" value)
-   (format "Offense: ~a\n" message)))
-[current-blame-format show-blame-error]
-(define/contract (f x)
-  (-> integer? integer?)
-  (/ x 2))
-(f 2)
-(f 1)
-(f 1/2)
-]
-
-}
-
-
-@defform[(recursive-contract contract-expr)]{
+@defform*[[(recursive-contract contract-expr)
+           (recursive-contract contract-expr type)]]{
 
 Delays the evaluation of its argument until the contract is checked,
-making recursive contracts possible.}
+making recursive contracts possible.  If @racket[type] is given, it
+describes the expected type of contract and must be one of the keywords
+@racket[#:impersonator], @racket[#:chaperone], or @racket[#:flat].  If
+@racket[type] is not given, an impersonator contract is created.}
 
 
 @defform[(opt/c contract-expr)]{
@@ -1801,9 +1922,9 @@ making recursive contracts possible.}
 This optimizes its argument contract expression by
 traversing its syntax and, for known contract combinators,
 fuses them into a single contract combinator that avoids as
-much allocation overhad as possible. The result is a
+much allocation overhead as possible. The result is a
 contract that should behave identically to its argument,
-except faster (due to the less allocation).}
+except faster (due to less allocation).}
 
 
 @defform[(define-opt/c (id id ...) expr)]{
@@ -1834,3 +1955,61 @@ search tree invariant. Removing the @racket[-opt/c] also
 makes a binary search tree contract, but one that is
 (approximately) 20 times slower.}
 
+@section{Legacy Contracts}
+
+@defproc[(make-proj-contract [name any/c] 
+                             [proj
+                              (or/c (-> any/c 
+                                        any/c
+                                        (list/c any/c any/c)
+                                        contact?
+                                        (-> any/c any/c))
+                                    (-> any/c 
+                                        any/c
+                                        (list/c any/c any/c)
+                                        contact?
+                                        boolean?
+                                        (-> any/c any/c)))]
+                             [first-order (-> any/c boolean?)])
+         contract?]{
+  Builds a contract using an old interface. 
+  
+  Modulo errors, it is equivalent to:
+  @racketblock[(make-contract
+                #:name name
+                #:first-order first-order
+                #:projection
+                (cond
+                  [(procedure-arity-includes? proj 5)
+                   (lambda (blame)
+                     (proj (blame-positive blame)
+                           (blame-negative blame)
+                           (list (blame-source blame) (blame-value blame))
+                           (blame-contract blame)
+                           (not (blame-swapped? blame))))]
+                  [(procedure-arity-includes? proj 4)
+                   (lambda (blame)
+                     (proj (blame-positive blame)
+                           (blame-negative blame)
+                           (list (blame-source blame) (blame-value blame))
+                           (blame-contract blame)))]))]
+}
+                   
+@defproc[(raise-contract-error [val any/c] [src any/c] [pos any/c] [name any/c] [fmt string?] [arg any/c] ...)
+         any/c]{
+  Calls @racket[raise-blame-error] after building a @racket[blame] struct from 
+  the @racket[val], @racket[src], @racket[pos], and @racket[name] arguments.
+  The @racket[fmt] string and following arguments are passed to
+  @racket[format] and used as the string in the error message.
+}
+               
+@defproc[(contract-proc [c contract?])
+         (->* (symbol? symbol? (or/c syntax? (list/c any/c any/c)))
+              (boolean?)
+              (-> any/c any))]{
+  Constructs an old-style projection from a contract.
+  
+  The resulting function accepts the information that is in a @racket[blame]
+  struct and returns a projection function that checks the contract.
+  
+}

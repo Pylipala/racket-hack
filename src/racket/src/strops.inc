@@ -18,7 +18,10 @@ X(scheme_make_sized_offset, _string)(Xchar *chars, intptr_t d, intptr_t len, int
   if (copy) {
     Xchar *naya;
 
-    naya = (Xchar *)scheme_malloc_fail_ok(scheme_malloc_atomic, (len + 1) * sizeof(Xchar));
+    if (len < 100)
+      naya = (Xchar *)scheme_malloc_atomic((len + 1) * sizeof(Xchar));
+    else
+      naya = (Xchar *)scheme_malloc_fail_ok(scheme_malloc_atomic, (len + 1) * sizeof(Xchar));
     SCHEME_X_STR_VAL(str) = naya;
     memcpy(naya, chars + d, len * sizeof(Xchar));
     naya[len] = 0;
@@ -87,14 +90,16 @@ X(scheme_alloc, _string)(intptr_t size, Xchar fill)
   return str;
 }
 
-#if defined(MZ_USE_PLACES) && defined(MZ_PRECISE_GC) && defined(GENERATING_BYTE)
+#if defined(GENERATING_BYTE)
 Scheme_Object *
 X(scheme_alloc_shared, _string)(intptr_t size, Xchar fill)
 {
   Scheme_Object *str;
   Xchar *s;
   intptr_t i;
+#if defined(MZ_USE_PLACES) && defined(MZ_PRECISE_GC)
   void *original_gc;
+#endif
   
   if (size < 0) {
     str = scheme_make_integer(size);
@@ -102,7 +107,9 @@ X(scheme_alloc_shared, _string)(intptr_t size, Xchar fill)
 		      -1, 0, &str);
   }
 
+#if defined(MZ_USE_PLACES) && defined(MZ_PRECISE_GC)
   original_gc = GC_switch_to_master_gc();
+#endif
   str = scheme_alloc_object();
   str->type = scheme_x_string_type;
   SHARED_ALLOCATED_SET(str);
@@ -111,7 +118,9 @@ X(scheme_alloc_shared, _string)(intptr_t size, Xchar fill)
     s = (Xchar *)scheme_malloc_atomic(sizeof(Xchar)*(size + 1));
   else
     s = (Xchar *)scheme_malloc_fail_ok(scheme_malloc_atomic, sizeof(Xchar)*(size + 1));
+#if defined(MZ_USE_PLACES) && defined(MZ_PRECISE_GC)
   GC_switch_back_from_master(original_gc);
+#endif
 
   for (i = size; i--; ) {
     s[i] = fill;
@@ -176,7 +185,7 @@ X__(string) (int argc, Scheme_Object *argv[])
   return str;
 }
 
-#if defined(MZ_USE_PLACES) && defined(MZ_PRECISE_GC) && defined(GENERATING_BYTE)
+#if defined(GENERATING_BYTE)
 static Scheme_Object *
 X_(make_shared, string) (int argc, Scheme_Object *argv[])
 {
@@ -230,6 +239,12 @@ X__(string_length) (int argc, Scheme_Object *argv[])
 }
 
 Scheme_Object *
+X_(scheme, string_length) (Scheme_Object *v)
+{
+  return X__(string_length)(1, &v);
+}
+
+Scheme_Object *
 X_(scheme_checked, string_ref) (int argc, Scheme_Object *argv[])
 {
   intptr_t i, len;
@@ -245,7 +260,7 @@ X_(scheme_checked, string_ref) (int argc, Scheme_Object *argv[])
   i = scheme_extract_index(XSTRINGSTR "-ref", 1, argc, argv, len, 0);
 
   if (i >= len) {
-    scheme_out_of_string_range(XSTRINGSTR "-ref", "", argv[1], argv[0], 0, len - 1);
+    scheme_out_of_string_range(XSTRINGSTR "-ref", "", argv[1], argv[0], -1, len);
     return NULL;
   }
 

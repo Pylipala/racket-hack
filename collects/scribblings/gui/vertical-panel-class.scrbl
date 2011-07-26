@@ -1,17 +1,19 @@
 #lang scribble/doc
-@(require "common.ss")
+@(require "common.rkt")
 
 @defclass/title[vertical-panel% panel% ()]{
 
 A vertical panel arranges its subwindows in a single column. See
- also @scheme[panel%].
+ also @racket[panel%].
 
 
 
 
 @defconstructor[([parent (or/c (is-a?/c frame%) (is-a?/c dialog%) 
                                (is-a?/c panel%) (is-a?/c pane%))]
-                 [style (listof (one-of/c 'border 'deleted)) null]
+                 [style (listof (one-of/c 'border 'deleted
+                                          'hscroll 'auto-hscroll
+                                          'vscroll 'auto-vscroll)) null]
                  [enabled any/c #t]
                  [vert-margin (integer-in 0 1000) 0]
                  [horiz-margin (integer-in 0 1000) 0]
@@ -25,21 +27,19 @@ A vertical panel arranges its subwindows in a single column. See
                  [stretchable-width any/c #t]
                  [stretchable-height any/c #t])]{
 
-If the @scheme['border] style is specified, the window is created with
- a thin border (only in this case, the client size of the panel may be
- less than its total size). @DeletedStyleNote[@scheme[style] @scheme[parent]]{panel}
+The @racket[style] flags are the same as for @racket[panel%].
 
-@WindowKWs[@scheme[enabled]] @SubareaKWs[] @AreaContKWs[] @AreaKWs[]
+@WindowKWs[@racket[enabled]] @SubareaKWs[] @AreaContKWs[] @AreaKWs[]
 }
 
 @defmethod[(set-orientation [horizontal? boolean?]) void?]{
   Sets the orientation of the panel, switching it between
-  the behavior of the @scheme[vertical-panel%] and that of
-  the @scheme[horizontal-panel%].
+  the behavior of the @racket[vertical-panel%] and that of
+  the @racket[horizontal-panel%].
 }
 
 @defmethod[(get-orientation) boolean?]{
-  Initially returns @scheme[#f], but if 
+  Initially returns @racket[#f], but if 
   @method[vertical-panel% set-orientation] is called,
   this method returns whatever the last value passed to it was.
 }

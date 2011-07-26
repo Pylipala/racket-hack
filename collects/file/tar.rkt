@@ -22,7 +22,7 @@
          [len (bytes-length bts)])
     (if (< len tar-name-length)
       (values bts #f)
-      (let loop ([n 1]) ; seach for a split point
+      (let loop ([n 1]) ; search for a split point
         (cond [(<= (sub1 len) n)
                (error 'tar "path too long for USTAR: ~a" path)]
               [(and (eq? sep-char (bytes-ref bts n))
@@ -31,7 +31,7 @@
                (values (subbytes bts (add1 n)) (subbytes bts 0 n))]
               [else (loop (add1 n))])))))
 
-;; see also the same function name in zip.ss
+;; see also the same function name in "zip.rkt"
 (define (path-attributes path dir?)
   (apply bitwise-ior
          (map (lambda (p)

@@ -1,9 +1,10 @@
 #lang scheme/base
 (require scheme/class
-         "../syntax.ss"
-         "snip.ss"
-         "private.ss"
-         (only-in "cycle.ss" popup-menu%))
+         "../syntax.rkt"
+         racket/snip
+         "private.rkt"
+         racket/snip/private/private
+         (only-in "cycle.rkt" popup-menu%))
 
 (provide editor-admin%)
 

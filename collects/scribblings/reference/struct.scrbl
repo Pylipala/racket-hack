@@ -1,8 +1,8 @@
 #lang scribble/doc
-@(require "mz.ss"
-          (for-label racket/struct-info))
+@(require "mz.rkt" (for-label racket/struct-info))
 
 @(define struct-eval (make-base-eval))
+@(define struct-copy-eval (make-base-eval))
 
 @title[#:tag "structures" #:style 'toc]{Structures}
 
@@ -24,7 +24,7 @@ takes one value for each field of the structure type, except that some
 of the fields of a structure type can be @deftech{automatic fields};
 the @tech{automatic fields} are initialized to a constant that is
 associated with the structure type, and the corresponding arguments
-are omitted for the constructor procedure. All automatic fields in a
+are omitted from the constructor procedure. All automatic fields in a
 structure type follow the non-automatic fields.
 
 A structure type can be created as a @pidefterm{structure subtype} of
@@ -124,7 +124,7 @@ are initialized with @racket[auto-v]. The total field count (including
 The @racket[props] argument is a list of pairs, where the @racket[car]
 of each pair is a structure type property descriptor, and the
 @racket[cdr] is an arbitrary value. A property can be specified
-multiple times in in @racket[props] (including properties that are
+multiple times in @racket[props] (including properties that are
 automatically added by properties that are directly included in
 @racket[props]) only if the associated values are @racket[eq?],
 otherwise the @exnraise[exn:fail:contract]. See @secref["structprops"]
@@ -243,7 +243,7 @@ The result of @racket[make-struct-type] is five values:
 (make-p 'x 'y 'z)
 ]
 
-@defproc[(make-struct-field-accessor [accessor-proc struct-accessot-procedure?]
+@defproc[(make-struct-field-accessor [accessor-proc struct-accessor-procedure?]
                                      [field-pos exact-nonnegative-integer?]
                                      [field-name (or/c symbol? #f) 
                                                  (symbol->string (format "field~a" field-pos))])
@@ -308,11 +308,17 @@ Creates a new structure type property and returns three values:
        descriptor or instance of a structure type that has a value for
        the property, @racket[#f] otherwise;}
 
- @item{an @deftech{property accessor} procedure, which returns the
+ @item{a @deftech{property accessor} procedure, which returns the
        value associated with the structure type given its descriptor or
        one of its instances; if the structure type does not have a
        value for the property, or if any other kind of value is
-       provided, the @exnraise[exn:fail:contract].}
+       provided, the @exnraise[exn:fail:contract] unless a second
+       argument, @racket[_failure-result], is supplied to the
+       procedure. In that case, if @racket[_failure-result] is a
+       procedure, it is called (through a tail call) with no arguments
+       to produce the result of the property accessor procedure;
+       otherwise, @racket[_failure-result] is itself returned as the
+       result.}
 
 ]
 
@@ -388,19 +394,24 @@ by @racket[make-struct-type-property], @racket[#f] otherwise.}
 @;------------------------------------------------------------------------
 @section[#:tag "struct-copy"]{Copying and Updating Structures}
 
-@defform[(struct-copy id struct-expr [field-id expr] ...)]{
+@defform/subs[(struct-copy id struct-expr fld-id ...)
+              ((fld-id [field-id expr]
+                       [field-id #:parent parent-id expr]))]{
 
 Creates a new instance of the structure type @racket[id] with the same
 field values as the structure produced by @racket[struct-expr], except
 that the value of each supplied @racket[field-id] is instead
-determined by the corresponding @racket[expr].
+determined by the corresponding @racket[expr]. If @racket[#:parent]
+is specified, the @racket[parent-id] must be bound to a parent
+structure type of @racket[id].
 
 The @racket[id] must have a @tech{transformer binding} that
 encapsulates information about a structure type (i.e., like the
 initial identifier bound by @racket[struct]), and the binding
 must supply a constructor, a predicate, and all field accessors.
 
-Each @racket[field-id] is combined with @racket[id] to form
+Each @racket[field-id] is combined with @racket[id] 
+(or @racket[parent-id], if present) to form
 @racket[id]@racketidfont{-}@racket[field-id] (using the lexical
 context of @racket[field-id]), which must be one of the accessor
 bindings in @racket[id]. The accessor bindings determined by different
@@ -417,7 +428,32 @@ structure instance is created.
 
 The result of @racket[struct-expr] can be an instance of a sub-type of
 @racket[id], but the resulting copy is an immediate instance of
-@racket[id] (not the sub-type).}
+@racket[id] (not the sub-type).
+
+@examples[
+#:eval struct-copy-eval
+(struct fish (color weight) #:transparent)
+(define marlin (fish 'orange-and-white 11))
+(define dory (struct-copy fish marlin
+                          [color 'blue]))
+dory
+             
+(struct shark fish (weeks-since-eating-fish) #:transparent)
+(define bruce (shark 'grey 110 3))
+(define chum (struct-copy shark bruce
+                          [weight #:parent fish 90]
+                          [weeks-since-eating-fish 0]))
+chum
+
+(code:comment "subtypes can be copied as if they were supertypes,")
+(code:comment "but the result is an instance of the supertype")
+(define not-really-chum
+  (struct-copy fish bruce
+               [weight 90]))
+not-really-chum
+]
+
+}
 
 @;------------------------------------------------------------------------
 @section[#:tag "structutils"]{Structure Utilities}
@@ -577,13 +613,13 @@ encapsulated procedure must return):
 @itemize[
 
  @item{an identifier that is bound to the structure type's descriptor,
- or @racket[#f] it none is known;}
+ or @racket[#f] if none is known;}
 
  @item{an identifier that is bound to the structure type's constructor,
- or @racket[#f] it none is known;}
+ or @racket[#f] if none is known;}
 
  @item{an identifier that is bound to the structure type's predicate,
- or @racket[#f] it none is known;}
+ or @racket[#f] if none is known;}
 
  @item{a list of identifiers bound to the field accessors of the
  structure type, optionally with @racket[#f] as the list's last
@@ -620,7 +656,8 @@ Finally, the representation can be an instance of a structure type
 derived from @racket[struct:struct-info] or with the
 @racket[prop:struct-info] property that also implements
 @racket[prop:procedure], and where the instance is further is wrapped
-by @racket[make-set!-transformer].
+by @racket[make-set!-transformer]. In addition, the representation may
+implement the @racket[prop:struct-auto-info] property.
 
 Use @racket[struct-info?] to recognize all allowed forms of the
 information, and use @racket[extract-struct-info] to obtain a list
@@ -678,10 +715,36 @@ as @racket[make-struct-info].}
 @defthing[prop:struct-info struct-type-property?]{
 
 The @tech{structure type property} for creating new structure types
-like @racket[struct:struct-info]. The property value must a procedure
+like @racket[struct:struct-info]. The property value must be a procedure
 of one argument that takes an instance structure and returns
 structure-type information in list form.}
+
+@deftogether[(
+@defthing[prop:struct-auto-info struct-type-property?]
+@defproc[(struct-auto-info? [v any/c]) boolean?]
+@defproc[(struct-auto-info-lists [sai struct-auto-info?]) 
+         (list/c (listof identifier?) (listof identifier?))]
+)]{
+
+The @racket[prop:struct-auto-info] property is implemented to provide
+static information about which of the accessor and mutator identifiers
+for a structure type correspond to @racket[#:auto] fields (so that
+they have no corresponding argument in the constructor). The property
+value must be a procedure that accepts an instance structure to which
+the property is given, and the result must be two lists of identifiers
+suitable as a result from @racket[struct-auto-info-lists].
+
+The @racket[struct-auto-info?] predicate recognizes values that
+implement the @racket[prop:struct-auto-info] property.
+
+The @racket[struct-auto-info-lists] function extracts two lists of
+identifiers from a value that implements the
+@racket[prop:struct-auto-info] property. The first list should be a
+subset of the accessor identifiers for the structure type described by
+@racket[sai], and the second list should be a subset of the mutator
+identifiers. The two subsets correspond to @racket[#:auto] fields.}
 
 @; ----------------------------------------------------------------------
 
 @close-eval[struct-eval]
+@close-eval[struct-copy-eval]

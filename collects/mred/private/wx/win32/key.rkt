@@ -8,7 +8,9 @@
 
 (provide
  (protect-out make-key-event
-              generates-key-event?))
+              generates-key-event?
+	      reset-key-mapping
+              key-symbol-to-menu-key))
 
 (define-user32 GetKeyState (_wfun _int -> _SHORT))
 (define-user32 MapVirtualKeyW (_wfun _UINT _UINT -> _UINT))
@@ -34,29 +36,38 @@
 ;; The characters in find_shift_alts are things that we'll try
 ;; to include in keyboard events as char-if-Shift-weren't-pressed,
 ;; char-if-AltGr-weren't-pressed, etc.
-(define other-key-codes
-  (let ([find_shift_alts (string-append
-                          "!@#$%^&*()_+-=\\|[]{}:\";',.<>/?~`"
-                          "abcdefghijklmnopqrstuvwxyz"
-                          "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-                          "0123456789")])
-    (list->vector
-     (for/list ([i (in-string find_shift_alts)])
-       (VkKeyScanW (char->integer i))))))
+(define find_shift_alts (string-append
+			 "!@#$%^&*()_+-=\\|[]{}:\";',.<>/?~`"
+			 "abcdefghijklmnopqrstuvwxyz"
+			 "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+			 "0123456789"))
+(define other-key-codes #f)
+(define (get-other-key-codes)
+  (or other-key-codes
+      (begin
+	(set! other-key-codes
+	      (list->vector
+	       (for/list ([i (in-string find_shift_alts)])
+		 (VkKeyScanW (char->integer i)))))
+	other-key-codes)))
+(define (reset-key-mapping)
+  (set! other-key-codes #f))
+(define (other-orig j)
+  (char->integer (string-ref find_shift_alts j)))
 
 ;; If a virtual key code has no mapping here, then the key should be
 ;; ignored by WM_KEYDOWN and processed by WM_CHAR instead
 (define win32->symbol
   (hasheq VK_CANCEL 'cancel
-          VK_BACK 'back
-          VK_TAB 'tab
+          VK_BACK #\backspace
+          VK_TAB #\tab
           VK_CLEAR 'clear
-          VK_RETURN 'return
+          VK_RETURN #\return
           VK_SHIFT 'shift
           VK_CONTROL 'control
           VK_MENU  'menu
           VK_PAUSE 'pause
-          VK_SPACE 'space
+          VK_SPACE #\space
           VK_ESCAPE 'escape
           VK_PRIOR 'prior
           VK_NEXT  'next
@@ -70,7 +81,7 @@
           VK_PRINT 'print
           VK_EXECUTE 'execute
           VK_INSERT 'insert
-          VK_DELETE 'delete
+          VK_DELETE #\rubout
           VK_HELP  'help
           VK_NUMPAD0 'numpad0
           VK_NUMPAD1 'numpad1
@@ -121,9 +132,12 @@
         [caps-down? (not (zero? (arithmetic-shift (GetKeyState VK_CAPITAL) -1)))]
         [alt-down? (= (bitwise-and (HIWORD lParam) KF_ALTDOWN) KF_ALTDOWN)])
     (let-values ([(id other-shift other-altgr other-shift-altgr)
-                  (if is-char?
-                      ;; wParam is a character
-                      (let ([id wParam]
+                  (cond
+		   [(symbol? wParam)
+		    (values wParam #f #f #f)]
+		   [is-char?
+		      ;; wParam is a character or symbol
+		      (let ([id wParam]
                             [sc (THE_SCAN_CODE lParam)])
                         ;; Remember scan codes to help with some key-release events:
                         (when (byte? id)
@@ -133,27 +147,28 @@
                         (let ([k (MapVirtualKeyW sc 1)])
                           (if (zero? k)
                               (values (integer->char id) #f #f #f)
-                              (for/fold ([id id][s #f][a #f][sa #f]) ([o (in-vector other-key-codes)]
+                              (for/fold ([id id][s #f][a #f][sa #f]) ([o (in-vector (get-other-key-codes))]
                                                                       [j (in-naturals)])
                                 (if (= (bitwise-and o #xFF) k)
                                     ;; Figure out whether it's different in the shift
                                     ;; for AltGr dimension, or both:
                                     (if (eq? (zero? (bitwise-and o #x100)) shift-down?)
                                         ;; different Shift
-                                        (if (eq? (= (bitwise-and o #x600) #x6000)
+                                        (if (eq? (= (bitwise-and o #x600) #x600)
                                                  (and control-down? alt-down?))
                                             ;; same AltGr
-                                            (values id o a sa)
+                                            (values id (other-orig j) a sa)
                                             ;; different AltGr
-                                            (values id s a o))
+                                            (values id s a (other-orig j)))
                                         ;; same Shift
-                                        (if (eq? (= (bitwise-and o #x600) #x6000)
+                                        (if (eq? (= (bitwise-and o #x600) #x600)
                                                  (and control-down? alt-down?))
                                             ;; same AltGr
                                             (values id s a sa)
                                             ;; different AltGr
-                                            (values id s o sa)))
-                                    (values id s a sa))))))
+                                            (values id s (other-orig j) sa)))
+                                    (values id s a sa))))))]
+		   [else
                       ;; wParam is a virtual key code
                       (let ([id (hash-ref win32->symbol wParam #f)]
                             [override-mapping? (and control-down? (not alt-down?))]
@@ -180,15 +195,15 @@
                                             [else id])])
                                   (let-values ([(s a sa)
                                                 ;; Look for shifted alternate:
-                                                (for/fold ([s #f][a #f][sa #f]) ([o (in-vector other-key-codes)]
+                                                (for/fold ([s #f][a #f][sa #f]) ([o (in-vector (get-other-key-codes))]
                                                                                  [j (in-naturals)])
                                                   (if (= (bitwise-and o #xFF) wParam)
                                                       (if (not (zero? (bitwise-and o #x100)))
-                                                          (if (= (bitwise-and o #x600) #x6000)
-                                                              (values s a o)
-                                                              (values o a sa))
-                                                          (if (= (bitwise-and o #x600) #x6000)
-                                                              (values s o sa)
+                                                          (if (= (bitwise-and o #x600) #x600)
+                                                              (values s a (other-orig j))
+                                                              (values (other-orig j) a sa))
+                                                          (if (= (bitwise-and o #x600) #x600)
+                                                              (values s (other-orig j) sa)
                                                               (values s a sa)))
                                                       (values s a sa)))])
                                     (if (and id shift-down?)
@@ -210,24 +225,98 @@
                              [(and (not id) is-up?)
                               (values (try-generate-release) #f #f #f)]
                              [else
-                              (values id #f #f #f)]))))])
+                              (values id #f #f #f)])))])])
       (and id
            (if just-check?
                #t
                (let* ([id (if (number? id) (integer->char id) id)]
+		      [key-id (if (equal? id #\033)
+				  'escape
+				  id)]
                       [e (new key-event%
                               [key-code (if is-up?
                                            'release
-                                           (if (equal? id #\033)
-                                               'escape
-                                               id))]
+                                           key-id)]
                               [shift-down shift-down?]
                               [control-down control-down?]
-                              [meta-down #f]
-                              [alt-down alt-down?]
+                              [meta-down alt-down?]
+                              [alt-down #f]
                               [x 0]
                               [y 0]
                               [time-stamp 0]
-                              [caps-down caps-down?])])
+                              [caps-down caps-down?])]
+		      [as-key (lambda (v)
+				(if (integer? v) (integer->char v) v))])
+		 (when is-up?
+		   (send e set-key-release-code key-id))
+		 (when other-shift 
+		   (send e set-other-shift-key-code (as-key other-shift)))
+		 (when other-altgr 
+		   (send e set-other-altgr-key-code (as-key other-altgr)))
+		 (when other-shift-altgr 
+		   (send e set-other-shift-altgr-key-code (as-key other-shift-altgr)))
                  e))))))
 
+(define (key-symbol-to-menu-key k)
+  (hash-ref keysyms k #f))
+
+(define keysyms
+  '#hash((numpad5 . |Numpad 5|)
+         (numpad1 . |Numpad 1|)
+         (escape . Escape)
+         (right . Right)
+         (prior . Prior)
+         (cancel . Cancel)
+         (start . Start)
+         (f22 . F22)
+         (f17 . F17)
+         (f13 . F13)
+         (f8 . F8)
+         (f3 . F3)
+         (divide . Divide)
+         (add . Add)
+         (numpad8 . |Numpad 8|)
+         (numpad3 . |Numpad 3|)
+         (select . Select)
+         (down . Down)
+         (next . Next)
+         (clear . Clear)
+         (scroll . Scroll)
+         (f21 . F21)
+         (f16 . F16)
+         (f12 . F12)
+         (f9 . F9)
+         (f4 . F4)
+         (f1 . F1)
+         (separator . Separator)
+         (numpad9 . |Numpad 9|)
+         (numpad4 . |Numpad 4|)
+         (help . Help)
+         (execute . Execute)
+         (left . Left)
+         (end . End)
+         (menu . Menu)
+         (print . Print)
+         (f23 . F23)
+         (f18 . F18)
+         (f14 . F14)
+         (f7 . F7)
+         (f2 . F2)
+         (decimal . Decimal)
+         (multiply . Multiply)
+         (numpad7 . |Numpad 7|)
+         (numpad2 . |Numpad 2|)
+         (insert . Insert)
+         (snapshot . Snapshot)
+         (up . Up)
+         (home . Home)
+         (pause . Pause)
+         (f24 . F24)
+         (f19 . F19)
+         (f15 . F15)
+         (f11 . F11)
+         (f6 . F6)
+         (f5 . F5)
+         (subtract . Subtract)
+         (numpad-enter . |Numpad Enter|)
+         (numpad6 . |Numpad 6|)))

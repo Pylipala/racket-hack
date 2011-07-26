@@ -33,6 +33,10 @@
                                  _pointer _uint _uint32
                                  -> _void))
 
+(define-gtk gtk_widget_get_screen (_fun _GtkWidget -> _GdkScreen))
+(define-gdk gdk_screen_get_width (_fun _GdkScreen -> _int))
+(define-gdk gdk_screen_get_height (_fun _GdkScreen -> _int))
+
 (define-signal-handler connect-menu-item-activate "activate"
   (_fun _GtkWidget -> _void)
   (lambda (gtk)
@@ -122,8 +126,20 @@
                     #f 
                     #f
                     (lambda (menu _x _y _push)
-                      (ptr-set! _x _int x)
-                      (ptr-set! _y _int y)
+                      (let ([r (make-GtkRequisition 0 0)])
+                        (gtk_widget_size_request menu r)
+                        ;; Try to keep the menu on the screen:
+                        (let* ([s (gtk_widget_get_screen menu)]
+                               [sw (gdk_screen_get_width s)]
+                               [sh (gdk_screen_get_height s)])
+                          (ptr-set! _x _int (min x
+                                                 (max 0
+                                                      (- sw
+                                                         (GtkRequisition-width r)))))
+                          (ptr-set! _y _int (min y
+                                                 (max 0
+                                                      (- sh
+                                                         (GtkRequisition-height r)))))))
                       (ptr-set! _push _gboolean #t))
                     #f
                     0
@@ -166,23 +182,29 @@
                 (cb this e)))))))
   
   (define/private (adjust-shortcut item-gtk title)
-    (cond
-     [(regexp-match #rx"\tCtrl[+](.)$" title)
-      => (lambda (m)
-           (let ([code (gdk_unicode_to_keyval 
-                        (char->integer
-                         (string-ref (cadr m) 0)))])
-             (unless (zero? code)
-               (let ([accel-path (format "<GRacket>/Hardwired/~a" title)])
-                 (gtk_accel_map_add_entry accel-path
-                                          code
-                                          GDK_CONTROL_MASK)
-                 (gtk_menu_item_set_accel_path item-gtk accel-path)))))]))
+    (let ([m (regexp-match #rx"\t(Ctrl[+])?(Shift[+])?(Meta[+])?(Alt[+])?(.|[0-9]+)$" 
+                           title)])
+      (when m
+        (let ([mask (+ (if (list-ref m 1) GDK_CONTROL_MASK 0)
+                       (if (list-ref m 2) GDK_SHIFT_MASK 0)
+                       (if (list-ref m 3) GDK_MOD1_MASK 0)
+                       (if (list-ref m 4) GDK_META_MASK 0))]
+              [code (let ([s (list-ref m 5)])
+                      (if (= 1 (string-length s))
+                          (gdk_unicode_to_keyval 
+                           (char->integer (string-ref s 0)))
+                          (string->number s)))])
+          (unless (zero? code)
+            (let ([accel-path (format "<GRacket>/Hardwired/~a" title)])
+              (gtk_accel_map_add_entry accel-path
+                                       code
+                                       mask)
+              (gtk_menu_item_set_accel_path item-gtk accel-path)))))))
   
   (public [append-item append])
   (define (append-item i label help-str-or-submenu chckable?)
     (atomically
-     (let ([item-gtk (let ([label (fixup-mneumonic label)])
+     (let ([item-gtk (let ([label (fixup-mnemonic label)])
                        (as-gtk-allocation
                         ((if (and chckable?
                                   (not (help-str-or-submenu . is-a? . menu%)))
@@ -215,7 +237,9 @@
        (gtk_menu_shell_append gtk item-gtk)
        (gtk_widget_show item-gtk))))
 
-  (def/public-unimplemented select)
+  (define/public (select bm)
+    (send parent activate-item this))
+
   (def/public-unimplemented get-font)
   (def/public-unimplemented set-width)
   (def/public-unimplemented set-title)
@@ -234,7 +258,7 @@
     (let ([gtk (find-gtk item)])
       (when gtk
         (gtk_label_set_text_with_mnemonic (gtk_bin_get_child gtk) 
-                                          (fixup-mneumonic str)))))
+                                          (fixup-mnemonic str)))))
 
   (define/public (enable item on?)
     (let ([gtk (find-gtk item)])

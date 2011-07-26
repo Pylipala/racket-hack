@@ -6,13 +6,13 @@
          "syntax.rkt"
          racket/gui/dynamic
          ffi/unsafe
-         ffi/unsafe/alloc
-         "../unsafe/cairo.ss"
-         "../unsafe/bstr.ss"
-	 "dc.ss"
-         "font.ss"
-         "local.ss"
-         "ps-setup.ss")
+         "../unsafe/cairo.rkt"
+         "dc.rkt"
+         "font.rkt"
+         "local.rkt"
+         "ps-setup.rkt"
+         "page-dc.rkt"
+         "write-bytes.rkt")
 
 (provide post-script-dc%
          pdf-dc%)
@@ -40,7 +40,7 @@
                   (output-port? output))
         (raise-type-error (get-name) "path string, output port, or #f" output)))
 
-    (define-values (s port-box close-port? width height landscape?)
+    (define-values (s port close-port? writer width height landscape?)
       (let ([su (if interactive
                     ((gui-dynamic-require 'get-ps-setup-from-user) #f parent)
                     (current-ps-setup))])
@@ -68,14 +68,16 @@
                          #f)])
             (if (and to-file?
                      (not fn))
-                (values #f #f #f #f #f #f)
+                (values #f #f #f #f #f #f #f)
                 (let* ([paper (assoc (send pss get-paper-name) paper-sizes)]
-                       [w (if (or (not init-w) use-paper-bbox)
-                              (cadr paper)
-                              init-w)]
-                       [h (if (or (not init-h) use-paper-bbox)
-                              (caddr paper)
-                              init-h)]
+                       [w (ceiling
+                           (if (or (not init-w) use-paper-bbox)
+                               (cadr paper)
+                               init-w))]
+                       [h (ceiling
+                           (if (or (not init-h) use-paper-bbox)
+                               (caddr paper)
+                               init-h))]
                        [landscape? (eq? (send pss get-orientation) 'landscape)]
                        [file (if (output-port? fn)
                                  fn
@@ -83,26 +85,26 @@
                                   (or fn (make-temporary-file (if pdf?
                                                                   "draw~a.pdf"
                                                                   "draw~a.ps")))
-                                  #:exists 'truncate/replace))]
-                       [port-box (make-immobile file)])
+                                  #:exists 'truncate/replace))])
                   (let-values ([(w h) (if (and pdf? landscape?)
                                           (values h w)
-                                          (values w h))])
+                                          (values w h))]
+                               [(writer proc) (make-port-writer file)])
                     (values
                      ((if pdf?
                           cairo_pdf_surface_create_for_stream 
                           cairo_ps_surface_create_for_stream)
-                      write_port_bytes
-                      port-box
+                      proc
                       w
                       h)
-                     port-box ; needs to be accessible as long as `s'
+                     file
                      (not (output-port? fn))
+                     writer
                      w
                      h
                      landscape?)))))]
          [else
-          (values #f #f #f #f #f #f)])))
+          (values #f #f #f #f #f #f #f)])))
 
     (define-values (margin-x margin-y)
       (if as-eps
@@ -142,14 +144,19 @@
             (values h w)
             (values w h))))
 
+    (define/override (get-device-scale)
+      (values scale-x scale-y))
+
     (define/override (end-cr)
       (cairo_surface_finish s)
       (cairo_destroy c)
       (set! c #f)
       (set! s #f)
+      (port-writer-wait writer)
+      (set! writer #f)
       (when close-port?
-        (close-output-port (ptr-ref port-box _racket)))
-      (set! port-box #f))
+        (close-output-port port))
+      (set! port #f))
 
     (define/override (init-cr-matrix c)
       (cairo_translate c trans-x trans-y)
@@ -177,18 +184,19 @@
     (define/override (can-mask-bitmap?)
       #f)
 
-    (super-new)))
+    (define/override (dc-adjust-cap-shape shape sx pw) shape)
+    (define/override (get-hairline-width cx) (/ 1.0 (* cx 4)))
 
-(define post-script-dc% (class (dc-mixin (make-dc-backend #f))
+    (define is-eps? (and as-eps #t))
+    (define/public (multiple-pages-ok?) (not is-eps?))
+
+    (super-new)
+    
+    (when c (init-cr-matrix c))))
+
+(define post-script-dc% (class (doc+page-check-mixin (dc-mixin (make-dc-backend #f))
+                                                     'post-script-dc%)
                           (super-new)))
-(define pdf-dc% (class (dc-mixin (make-dc-backend #t))
+(define pdf-dc% (class (doc+page-check-mixin (dc-mixin (make-dc-backend #t))
+                                             'pdf-dc%)
                   (super-new)))
-
-(define (write-port-bytes port-box bytes len)
-  (write-bytes (scheme_make_sized_byte_string bytes len 0) 
-               (ptr-ref port-box _racket))
-  CAIRO_STATUS_SUCCESS)
-
-(define write_port_bytes (function-ptr write-port-bytes _cairo_write_func_t))
-
-(define make-immobile ((allocator free-immobile-cell) malloc-immobile-cell))

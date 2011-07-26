@@ -1,5 +1,5 @@
 #lang scribble/doc
-@(require "mz.ss")
+@(require "mz.rkt")
 
 @title[#:tag "threads"]{Threads}
 
@@ -98,9 +98,9 @@ running. If the thread has terminated or is already suspended,
 @racket[thread-suspend] has no effect. The thread remains suspended
 (i.e., it does not execute) until it is resumed with
 @racket[thread-resume]. If the @tech{current custodian} does not
-manage @racket[thd] (and none of its subordinates manages
-@racket[thd]), the @exnraise[exn:fail:contract], and the thread is not
-suspended.}
+solely manage @racket[thd] (i.e., some custodian of @racket[thd]
+is not the current custodian or a subordinate), the 
+@exnraise[exn:fail:contract], and the thread is not suspended.}
 
 @defproc[(thread-resume [thd thread?] [benefactor (or/c thread? custodian? #f) #f]) void?]{
 
@@ -164,12 +164,12 @@ consumed or not consumed, and other threads can safely use the port.}
 thread. If breaking is disabled in @racket[thd], the break will be
 ignored until breaks are re-enabled (see @secref["breakhandler"]).}
 
-@defproc[(sleep [secs nonnegative-number? 0]) void?]{
+@defproc[(sleep [secs (>=/c 0) 0]) void?]{
 
 Causes the current thread to sleep until at least @racket[secs]
 seconds have passed after it starts sleeping. A zero value for
 @racket[secs] simply acts as a hint to allow other threads to
-execute. The value of @racket[secs] can be non-integral to request a
+execute. The value of @racket[secs] can be a non-integer to request a
 sleep duration to any precision; the precision of the actual sleep
 time is unspecified.}
 
@@ -229,7 +229,7 @@ each resume of @racket[thd] created a fresh event to be returned by
 @section[#:tag "threadmbox"]{Thread Mailboxes}
 
 Each thread has a @defterm{mailbox} through which it can receive
-arbitrary message. In other words, each thread has a built-in
+arbitrary messages.  In other words, each thread has a built-in
 asynchronous channel.
 
 @margin-note/ref{See also @secref["async-channel"].}
@@ -242,7 +242,7 @@ asynchronous channel.
 Queues @racket[v] as a message to @racket[thd] without blocking. If
 the message is queued, the result is @|void-const|. If @racket[thd]
 stops running---as in @racket[thread-running?]---before the message is
-queued, then @racket[fail-thunk] is called (through a tail call) if is
+queued, then @racket[fail-thunk] is called (through a tail call) if it is
 a procedure to produce the result, or @racket[#f] is returned if
 @racket[fail-thunk] is @racket[#f].}
 
@@ -261,7 +261,7 @@ or returns @racket[#f] immediately if no message is available.}
 
 Returns a constant @tech{synchronizable event} (see @secref["sync"])
 that becomes ready when the synchronizing thread has a message to
-receive. The event result is itself.}
+receive. The event result is the event itself.}
 
 @defproc[(thread-rewind-receive [lst list?]) void?]{
 

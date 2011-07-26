@@ -1,7 +1,7 @@
 #lang scribble/doc
-@(require "common.ss")
+@(require "common.rkt")
 
-@title{@bold{Draw}: Racket Drawing Toolkit}
+@title{The Racket Drawing Toolkit}
 
 @author["Matthew Flatt" "Robert Bruce Findler" "John Clements"]
 
@@ -29,15 +29,19 @@ interface, and procedure bindings defined in this manual.}
 @include-section["font-name-directory-intf.scrbl"]
 @include-section["gl-config-class.scrbl"]
 @include-section["gl-context-intf.scrbl"]
+@include-section["linear-gradient-class.scrbl"]
 @include-section["pdf-dc-class.scrbl"]
 @include-section["pen-class.scrbl"]
 @include-section["pen-list-class.scrbl"]
 @include-section["point-class.scrbl"]
 @include-section["post-script-dc-class.scrbl"]
 @include-section["ps-setup-class.scrbl"]
+@include-section["radial-gradient-class.scrbl"]
 @include-section["region-class.scrbl"]
+@include-section["svg-dc-class.scrbl"]
 @include-section["draw-funcs.scrbl"]
 @include-section["draw-unit.scrbl"]
+@include-section["libs.scrbl"]
 
 @;------------------------------------------------------------------------
 

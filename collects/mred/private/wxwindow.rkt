@@ -1,14 +1,14 @@
 (module wxwindow mzscheme
   (require mzlib/class
-	   mzlib/class100
-	   (prefix wx: "kernel.ss")
+           mzlib/class100
+           (prefix wx: "kernel.rkt")
            "te.rkt"
-	   "lock.ss"
-	   "helper.ss"
-	   "wx.ss")
+           "lock.rkt"
+           "helper.rkt"
+           "wx.rkt")
 
   (provide (protect wx-make-window%
-		    make-window-glue%))
+                    make-window-glue%))
 
   (define wx-make-window%
     (lambda (% top?)
@@ -190,29 +190,28 @@
 			 (as-exit
 			  (lambda ()
 			    (send (get-proxy) on-drop-file f)))))]
-	[on-size (lambda (bad-w bad-h)
-		   (super on-size bad-w bad-h)
-		   ;; Delay callback to make sure X structures (position) are updated, first.
-		   ;; Also, Windows needs a trampoline.
-		   (queue-window-callback
-		    this
-		    (entry-point
-		     (lambda ()
-		       (let ([mred (get-mred)])
-			 (when mred 
-			   (let* ([w (get-width)]
-				  [h (get-height)])
-			     (when (not (and (= w old-w) (= h old-h)))
-			       (set! old-w w)
-			       (set! old-h h)
-			       (as-exit (lambda () (send mred on-size w h)))))
-			   (let* ([p (area-parent)]
-				  [x (- (get-x) (or (and p (send p dx)) 0))]
-				  [y (- (get-y) (or (and p (send p dy)) 0))])
-			     (when (not (and (= x old-x) (= y old-y)))
-			       (set! old-x x)
-			       (set! old-y y)
-			       (as-exit (lambda () (send mred on-move x y)))))))))))]
+	[queue-on-size
+         (lambda ()
+           (super queue-on-size)
+           (queue-window-callback
+            this
+            (entry-point
+             (lambda ()
+               (let ([mred (get-mred)])
+                 (when mred 
+                   (let* ([w (get-width)]
+                          [h (get-height)])
+                     (when (not (and (= w old-w) (= h old-h)))
+                       (set! old-w w)
+                       (set! old-h h)
+                       (as-exit (lambda () (send mred on-size w h)))))
+                   (let* ([p (area-parent)]
+                          [x (max -10000 (min 10000 (- (get-x) (or (and p (send p dx)) 0))))]
+                          [y (max -10000 (min 10000 (- (get-y) (or (and p (send p dy)) 0))))])
+                     (when (not (and (= x old-x) (= y old-y)))
+                       (set! old-x x)
+                       (set! old-y y)
+                       (as-exit (lambda () (send mred on-move x y)))))))))))]
 	[on-set-focus (lambda () 
                         (super on-set-focus)
                         (when expose-focus? (send (get-proxy) on-focus #t)))]

@@ -34,6 +34,7 @@
              (rename *in-vector in-vector)
              (rename *in-string in-string)
              (rename *in-bytes in-bytes)
+             (rename *in-stream in-stream)
              (rename *in-input-port-bytes in-input-port-bytes)
              (rename *in-input-port-chars in-input-port-chars)
              (rename *in-port in-port)
@@ -48,14 +49,25 @@
              in-sequences
              in-cycle
              in-parallel
+             in-values-sequence
+             in-values*-sequence
              stop-before
              stop-after
              (rename *in-producer in-producer)
              (rename *in-indexed in-indexed)
              (rename *in-value in-value)
 
+             stream?
+             stream-empty?
+             stream-first
+             stream-rest
+             prop:stream
+             sequence->stream
+             empty-stream make-do-stream
+
              sequence?
              sequence-generate
+             sequence-generate*
              prop:sequence
 
              define-sequence-syntax
@@ -64,7 +76,8 @@
 
              define-in-vector-like
              define-:vector-like-gen
-             (for-syntax make-in-vector-like))
+             (for-syntax make-in-vector-like
+                         for-clause-syntax-protect))
 
   ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
   ;; sequence transformers:
@@ -76,11 +89,11 @@
                    sequence-transformer-ref
                    sequence-transformer-set!)
      (make-struct-type 'sequence-transformer #f
-                       3 0 #f
+                       2 0 #f
                        null (current-inspector)
                        0))
 
-   (define (create-sequence-transformer proc1 proc2 cert)
+   (define (create-sequence-transformer proc1 proc2)
      (unless (and (procedure? proc1)
                   (or (procedure-arity-includes? proc1 1)
                       (procedure-arity-includes? proc1 0)))
@@ -104,57 +117,67 @@
                                stx
                                stx)))
           proc1)
-      proc2
-      cert))
+      proc2))
 
-   (define cert-key (gensym 'for-cert))
+   (define (arm-for-clause clause cert)
+     (define (map-cert s) (map cert (syntax->list s)))
+     (syntax-case clause (:do-in)
+       [[(id ...) (:do-in ([(outer-id ...) outer-expr] ...)
+                          outer-check
+                          ([loop-id loop-expr] ...)
+                          pos-guard
+                          ([(inner-id ...) inner-expr] ...)
+                          pre-guard
+                          post-guard
+                          (loop-arg ...))]
+        (with-syntax ([((outer-id ...) ...)
+                       (map map-cert
+                            (syntax->list #'((outer-id ...) ...)))]
+                      [(outer-expr ...) (map-cert #'(outer-expr ...))]
+                      [outer-check (cert #'outer-check)]
+                      [(loop-expr ...) (map-cert #'(loop-expr ...))]
+                      [pos-guard (cert #'pos-guard)]
+                      [((inner-id ...) ...)
+                       (map map-cert (syntax->list #'((inner-id ...) ...)))]
+                      [pre-guard (cert #'pre-guard)]
+                      [post-guard (cert #'post-guard)]
+                      [(loop-arg ...) (map-cert #'(loop-arg ...))])
+          #`[(id ...) (:do-in ([(outer-id ...) outer-expr] ...)
+                              outer-check
+                              ([loop-id loop-expr] ...)
+                              pos-guard
+                              ([(inner-id ...) inner-expr] ...)
+                              pre-guard
+                              post-guard
+                              (loop-arg ...))])]
+       [[(id ...) rhs]
+        #`[(id ...) #,(cert #'rhs)]]
+       [_
+        ;; ill-formed clause...
+        clause]))
 
-   (define (certify-clause src-stx clause certifier introducer)
-      ;; This is slightly painful. The expansion into `:do-in' involves a lot
-      ;; of pieces that are no treated as sub-expressions. We have to push the
-      ;; certificates down to all the relevant identifiers and expressions:
-      (define (recert s) (syntax-recertify s src-stx (current-inspector) cert-key))
-      (define (cert s) (certifier (recert s) cert-key introducer))
-      (define (map-cert s) (map cert (syntax->list s)))
-
-      (syntax-case clause (:do-in)
-        [[(id ...) (:do-in ([(outer-id ...) outer-expr] ...)
-                            outer-check
-                            ([loop-id loop-expr] ...)
-                            pos-guard
-                            ([(inner-id ...) inner-expr] ...)
-                            pre-guard
-                            post-guard
-                            (loop-arg ...))]
-         (with-syntax ([((outer-id ...) ...)
-                        (map map-cert
-                             (syntax->list #'((outer-id ...) ...)))]
-                       [(outer-expr ...) (map-cert #'(outer-expr ...))]
-                       [outer-check (cert #'outer-check)]
-                       [(loop-expr ...) (map-cert #'(loop-expr ...))]
-                       [pos-guard (cert #'pos-guard)]
-                       [((inner-id ...) ...)
-                        (map map-cert (syntax->list #'((inner-id ...) ...)))]
-                       [pre-guard (cert #'pre-guard)]
-                       [post-guard (cert #'post-guard)]
-                       [(loop-arg ...) (map-cert #'(loop-arg ...))])
-           #`[(id ...) (:do-in ([(outer-id ...) outer-expr] ...)
-                                outer-check
-                                ([loop-id loop-expr] ...)
-                                pos-guard
-                                ([(inner-id ...) inner-expr] ...)
-                                pre-guard
-                                post-guard
-                                (loop-arg ...))])]
-        [[(id ...) rhs]
-         #`[(id ...) #,(cert #'rhs)]]
-        [_
-         ;; ill-formed clause...
-         clause]))
+   (define orig-insp (current-code-inspector))
+   
+   (define (for-clause-syntax-protect clause)
+     ;; This is slightly painful. The expansion into `:do-in' involves a lot
+     ;; of pieces that are no treated as sub-expressions. We have to push the
+     ;; taints down to all the relevant identifiers and expressions:
+     (arm-for-clause clause syntax-arm))
 
    (define (expand-clause orig-stx clause)
+     (define (unpack stx)
+       (syntax-case stx ()
+         [[ids rhs] ; remove dye pack on `rhs' in case it's `(form . rest)'
+          #`[ids #,(syntax-disarm #'rhs orig-insp)]]
+         [_ stx]))
+     (define (make-rearm)
+       (syntax-case clause ()
+         [(_ rhs)
+          (lambda (stx)
+            (syntax-rearm stx #'rhs))]))
      (let eloop ([use-transformer? #t])
-       (syntax-case clause (values in-parallel stop-before stop-after :do-in)
+       (define unpacked-clause (unpack clause))
+       (syntax-case unpacked-clause (values in-parallel stop-before stop-after :do-in)
          [[(id ...) rhs]
           (let ([ids (syntax->list #'(id ...))])
             (for-each (lambda (id)
@@ -177,16 +200,13 @@
                (sequence-transformer? (syntax-local-value #'form (lambda () #f))))
           (let ([m (syntax-local-value #'form)])
             (let ([xformer (sequence-transformer-ref m 1)]
-                  [introducer (make-syntax-introducer)]
-                  [certifier (sequence-transformer-ref m 2)])
-              (let ([xformed (xformer (introducer (syntax-local-introduce clause)))])
+                  [introducer (make-syntax-introducer)])
+              (let ([xformed (xformer (introducer (syntax-local-introduce unpacked-clause)))])
                 (if xformed
                     (let ([r (expand-clause orig-stx 
-                                            (certify-clause (syntax-case clause ()
-                                                              [(_ rhs) #'rhs])
-                                                            (syntax-local-introduce (introducer xformed))
-                                                            certifier
-                                                            introducer))])
+                                            (arm-for-clause 
+                                             (syntax-local-introduce (introducer xformed))
+                                             (make-rearm)))])
                       (syntax-property r
                                        'disappeared-use
                                        (cons (syntax-local-introduce #'form)
@@ -269,17 +289,19 @@
          [[(id ...) rhs]
           (let ([introducer (make-syntax-introducer)])
             (with-syntax ([[(id ...) rhs] (introducer (syntax-local-introduce clause))])
-              (syntax-local-introduce
-               (introducer
-                #`(([(pos->vals pos-next init pos-cont? val-cont? all-cont?)
-                     (#,((syntax-local-certifier #f) #'make-sequence) '(id ...) rhs)])
-                   (void)
-                   ([pos init])
-                   (pos-cont? pos)
-                   ([(id ...) (pos->vals pos)])
-                   (val-cont? id ...)
-                   (all-cont? pos id ...)
-                   ((pos-next pos)))))))]
+              (arm-for-clause
+               (syntax-local-introduce
+                (introducer
+                 #`(([(pos->vals pos-next init pos-cont? val-cont? all-cont?)
+                      (make-sequence '(id ...) rhs)])
+                    (void)
+                    ([pos init])
+                    (if pos-cont? (pos-cont? pos) #t)
+                    ([(id ...) (pos->vals pos)])
+                    (if val-cont? (val-cont? id ...) #t)
+                    (if all-cont? (all-cont? pos id ...) #t)
+                    ((pos-next pos)))))
+               (make-rearm))))]
          [_
           (raise-syntax-error #f
                               "bad sequence binding clause" orig-stx clause)]))))
@@ -290,8 +312,9 @@
 
 
   ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-  ;;  sequences
+  ;;  streams & sequences
 
+  ;; structure type for generic sequences:
   (define-values (struct:do-sequence
                   make-do-sequence
                   do-sequence?
@@ -299,6 +322,40 @@
                   do-sequence-set!)
     (make-struct-type 'sequence #f 1 0 #f))
 
+  ;; property for generic streams
+  (define-values (prop:stream stream-via-prop? stream-ref)
+    (make-struct-type-property
+     'stream
+     (lambda (v si)
+       (unless (and (vector? v)
+                    (= 3 (vector-length v))
+                    (procedure? (vector-ref v 0))
+                    (procedure-arity-includes? (vector-ref v 0) 1)
+                    (procedure? (vector-ref v 1))
+                    (procedure-arity-includes? (vector-ref v 1) 1)
+                    (procedure? (vector-ref v 2))
+                    (procedure-arity-includes? (vector-ref v 2) 1))
+         (raise-type-error 'guard-for-prop:stream
+                           "vector of three procedures (arity 1)"
+                           v))
+       (vector->immutable-vector v))))
+
+  ;; new-style sequence property, where the property value is a procedure
+  ;; to get the sequence-driving value and procedures;
+  ;; this property is not currently exported
+  (define-values (prop:gen-sequence sequence-via-prop? sequence-ref)
+    (make-struct-type-property
+     'sequence
+     (lambda (v si)
+       (unless (and (procedure? v)
+                    (procedure-arity-includes? v 1))
+         (raise-type-error 'guard-for-prop:sequence
+                           "procedure (arity 1)"
+                           v))
+       v)))
+
+  ;; exported sequence property, where the property value
+  ;; is a procedure to get a sequence
   (define-values (prop:sequence :sequence? :sequence-ref)
     (make-struct-type-property
      'sequence
@@ -319,12 +376,64 @@
       [(_ id expr-transformer-expr clause-transformer-expr)
        (define-syntax id
          (create-sequence-transformer expr-transformer-expr
-                                      clause-transformer-expr
-                                      (syntax-local-certifier #f)))]))
+                                      clause-transformer-expr))]))
+
+  (define (stream? v)
+    (or (list? v)
+        (stream-via-prop? v)))
+
+  (define (unsafe-stream-not-empty? v)
+    (if (null? v)
+        #f
+        (or (pair? v)
+            (not ((unsafe-vector-ref (stream-ref v) 0) v)))))
+
+  (define (stream-empty? v)
+    (or (null? v)
+        (if (stream? v)
+            (if (pair? v)
+                #f
+                ((unsafe-vector-ref (stream-ref v) 0) v))
+            (raise-type-error 'stream-empty?
+                              "stream"
+                              v))))
+
+  (define (unsafe-stream-first v)
+    (cond
+     [(pair? v) (car v)]
+     [else ((unsafe-vector-ref (stream-ref v) 1) v)]))
+
+  (define (stream-first v)
+    (if (and (stream? v)
+             (not (stream-empty? v)))
+        (unsafe-stream-first v)
+        (raise-type-error 'stream-first
+                          "non-empty stream"
+                          v)))
+
+  (define (unsafe-stream-rest v)
+    (cond
+     [(pair? v) (cdr v)]
+     [else (let ([r ((unsafe-vector-ref (stream-ref v) 2) v)])
+             (unless (stream? r)
+               (raise-mismatch-error 'stream-rest-guard
+                                     "result is not a stream: "
+                                     r))
+             r)]))
+  
+  (define (stream-rest v)
+    (if (and (stream? v)
+             (not (stream-empty? v)))
+        (unsafe-stream-rest v)
+        (raise-type-error 'stream-rest
+                          "non-empty stream"
+                          v)))
 
   (define (sequence? v)
-    (or (do-sequence? v)
-        (list? v)
+    (or (exact-nonnegative-integer? v)
+        (do-sequence? v)
+        (sequence-via-prop? v)
+        (stream? v)
         (mpair? v)
         (vector? v)
         (string? v)
@@ -335,15 +444,18 @@
 
   (define (make-sequence who v)
     (cond
+      [(exact-nonnegative-integer? v) (:integer-gen v)]
       [(do-sequence? v) ((do-sequence-ref v 0))]
-      [(list? v) (:list-gen v)]
       [(mpair? v) (:mlist-gen v)]
+      [(list? v) (:list-gen v)]
       [(vector? v) (:vector-gen v 0 (vector-length v) 1)]
       [(string? v) (:string-gen v 0 (string-length v) 1)]
       [(bytes? v) (:bytes-gen v 0 (bytes-length v) 1)]
       [(input-port? v) (:input-port-gen v)]
       [(hash? v) (:hash-key+val-gen v)]
+      [(sequence-via-prop? v) ((sequence-ref v) v)]
       [(:sequence? v) (make-sequence who ((:sequence-ref v) v))]
+      [(stream? v) (:stream-gen v)]
       [else (raise
              (exn:fail:contract
               (format "for: expected a sequence for ~a, got something else: ~v"
@@ -352,7 +464,34 @@
                           who)
                       v)
               (current-continuation-marks)))]))
-  
+
+  (define-values (struct:range
+                  make-range
+                  range?
+                  range-ref
+                  range-set!)
+    (make-struct-type 'stream #f 3 0 #f
+                      (list (cons prop:stream
+                                  (vector 
+                                   (lambda (v) 
+                                     (let ([cont? (range-ref v 2)])
+                                       (and cont?
+                                            (not (cont? (range-ref v 0))))))
+                                   (lambda (v) (range-ref v 0))
+                                   (lambda (v) (make-range
+                                                ((range-ref v 1) (range-ref v 0))
+                                                (range-ref v 1)
+                                                (range-ref v 2)))))
+                            (cons prop:gen-sequence
+                                  (lambda (v)
+                                    (values
+                                     values
+                                     (range-ref v 1)
+                                     (range-ref v 0)
+                                     (range-ref v 2)
+                                     #f
+                                     #f))))))
+                                    
   (define in-range
     (case-lambda
       [(b) (in-range 0 b 1)]
@@ -361,16 +500,14 @@
        (unless (real? a) (raise-type-error 'in-range "real-number" a))
        (unless (real? b) (raise-type-error 'in-range "real-number" b))
        (unless (real? step) (raise-type-error 'in-range "real-number" step))
-       (make-do-sequence (lambda ()
-                                (values
-                                 (lambda (x) x)
-                                 (lambda (x) (+ x step))
-                                 a
-                                 (if (step . >= . 0)
-                                     (lambda (x) (< x b))
-                                     (lambda (x) (> x b)))
-                                 void
-                                 void)))]))
+       (let* ([cont? (if (step . >= . 0)
+                         (lambda (x) (< x b))
+                         (lambda (x) (> x b)))]
+              [inc (lambda (x) (+ x step))])
+         (make-range a inc cont?))]))
+
+  (define (:integer-gen v)
+    (values values add1 0 (lambda (i) (i . < . v)) #f #f))
 
   (define in-naturals
     (case-lambda
@@ -382,20 +519,41 @@
         (raise-type-error 'in-naturals
                           "exact non-negative integer"
                           n))
-      (make-do-sequence (lambda () (values values add1 n void void void)))]))
+      (make-range n add1 #f)]))
+
+  (define-values (struct:list-stream
+                  make-list-stream
+                  list-stream?
+                  list-stream-ref
+                  list-stream-set!)
+    (make-struct-type 'stream #f 1 0 #f
+                      (list (cons prop:stream
+                                  (vector 
+                                   (lambda (v) (not (pair? (list-stream-ref v 0))))
+                                   (lambda (v) (car (list-stream-ref v 0)))
+                                   (lambda (v) (make-list-stream (cdr (list-stream-ref v 0))))))
+                            (cons prop:gen-sequence
+                                  (lambda (v)
+                                    (values
+                                     car
+                                     cdr
+                                     (list-stream-ref v 0)
+                                     pair?
+                                     #f
+                                     #f))))))
 
   (define (in-list l)
-    ;; (unless (list? l) (raise-type-error 'in-list "list" l))
-    (make-do-sequence (lambda () (:list-gen l))))
+    (unless (list? l) (raise-type-error 'in-list "list" l))
+    (make-list-stream l))
   
   (define (:list-gen l)
-    (values car cdr l pair? void void))
+    (values car cdr l pair? #f #f))
   
   (define (in-mlist l)
     (make-do-sequence (lambda () (:mlist-gen l))))
 
   (define (:mlist-gen l)
-    (values mcar mcdr l mpair? void void))
+    (values mcar mcdr l mpair? #f #f))
 
   (define (in-input-port-bytes p)
     (unless (input-port? p)
@@ -403,49 +561,58 @@
     (make-do-sequence (lambda () (:input-port-gen p))))
 
   (define (:input-port-gen p)
-    (values read-byte values p void
+    (values read-byte values p #f
             (lambda (x) (not (eof-object? x)))
-            void))
+            #f))
 
   (define (in-input-port-chars p)
     (unless (input-port? p)
       (raise-type-error 'in-input-port-chars "input-port" p))
     (in-producer (lambda () (read-char p)) eof))
 
+  (define (check-in-port r p)
+    (unless (and (procedure? r) (procedure-arity-includes? r 1))
+      (raise-type-error 'in-port "procedure (arity 1)" r))
+    (unless (input-port? p) (raise-type-error 'in-port "input-port" p)))
+
   (define in-port
     (case-lambda
       [()  (in-port read (current-input-port))]
       [(r) (in-port r (current-input-port))]
       [(r p)
-       (unless (and (procedure? r) (procedure-arity-includes? r 1))
-         (raise-type-error 'in-port "procedure (arity 1)" r))
-       (unless (input-port? p) (raise-type-error 'in-port "input-port" p))
+       (check-in-port r p)
        (in-producer (lambda () (r p)) eof)]))
+
+  (define (check-in-lines p mode)
+    (unless (input-port? p) (raise-type-error 'in-lines "input-port" p))
+    (unless (memq mode '(linefeed return return-linefeed any any-one))
+      (raise-type-error
+       'in-lines
+       "'linefeed, 'return, 'return-linefeed, 'any, or 'any-one"
+       mode)))
 
   (define in-lines
     (case-lambda
       [()  (in-lines (current-input-port) 'any)]
       [(p) (in-lines p 'any)]
       [(p mode)
-       (unless (input-port? p) (raise-type-error 'in-lines "input-port" p))
-       (unless (memq mode '(linefeed return return-linefeed any any-one))
-         (raise-type-error
-          'in-lines
-          "'linefeed, 'return, 'return-linefeed, 'any, or 'any-one"
-          mode))
+       (check-in-lines p mode)
        (in-producer (lambda () (read-line p mode)) eof)]))
   
+  (define (check-in-bytes-lines p mode)
+    (unless (input-port? p) (raise-type-error 'in-bytes-lines "input-port" p))
+    (unless (memq mode '(linefeed return return-linefeed any any-one))
+      (raise-type-error
+       'in-bytes-lines
+       "'linefeed, 'return, 'return-linefeed, 'any, or 'any-one"
+       mode)))
+
   (define in-bytes-lines
     (case-lambda
       [()  (in-bytes-lines (current-input-port) 'any)]
       [(p) (in-bytes-lines p 'any)]
       [(p mode)
-       (unless (input-port? p) (raise-type-error 'in-bytes-lines "input-port" p))
-       (unless (memq mode '(linefeed return return-linefeed any any-one))
-         (raise-type-error
-          'in-bytes-lines
-          "'linefeed, 'return, 'return-linefeed, 'any, or 'any-one"
-          mode))
+       (check-in-bytes-lines p mode)
        (in-producer (lambda () (read-bytes-line p mode)) eof)]))
 
   (define (in-hash ht)
@@ -475,15 +642,28 @@
             (lambda (pos) (hash-iterate-next ht pos))
             (hash-iterate-first ht)
             (lambda (pos) pos) ; #f position means stop
-            void
-            void))
+            #f
+            #f))
 
+  (define (in-stream l)
+    (unless (stream? l) (raise-type-error 'in-stream "stream" l))
+    (make-do-sequence (lambda () (:stream-gen l))))
+
+  (define (:stream-gen l)
+    (values unsafe-stream-first unsafe-stream-rest l unsafe-stream-not-empty? #f #f))
+  
   ;; Vector-like sequences --------------------------------------------------
 
-  ;; (: check-ranges (Symbol Natural Natural Integer -> Void))
-  (define (check-ranges who start stop step)
-    (unless (exact-nonnegative-integer? start) (raise-type-error who "exact non-negative integer" start))
-    (unless (exact-nonnegative-integer? stop) (raise-type-error who "exact non-negative integer or #f" stop))
+  ;; (: check-ranges (Symbol Natural Integer Integer Natural -> Void))
+  ;;
+  ;; As no object can have more slots than can be indexed by
+  ;; the largest fixnum, after running these checks start,
+  ;; stop, and step are guaranteed to be fixnums.
+  (define (check-ranges who start stop step len)
+    (unless (and (exact-nonnegative-integer? start) (<= start len))
+      (raise-type-error who (format "exact integer in [0,~a]" len) start))
+    (unless (and (exact-integer? stop) (<= -1 stop) (<= stop len))
+      (raise-type-error who (format "exact integer in [-1,~a] or #f" len) stop))
     (unless (and (exact-integer? step) (not (zero? step)))
       (raise-type-error who "exact non-zero integer" step))
     (when (and (< start stop) (< step 0))
@@ -495,6 +675,20 @@
                                         start stop)
                             step)))
 
+  ;; (: normalise-inputs (A) (Symbol String (Any -> Boolean) (A -> Natural) Any Any Any Any -> (values Fixnum Fixnum Fixnum)))
+  ;;
+  ;; Checks all inputs are valid for an in-vector sequence,
+  ;; and if so returns the vector, start, stop, and
+  ;; step. Start, stop, and step are guaranteed to be Fixnum
+  (define (normalise-inputs who type-name vector? unsafe-vector-length
+                            vec start stop step)
+    (unless (vector? vec)
+      (raise-type-error who type-name vec))
+    (let* ([len (unsafe-vector-length vec)]
+           [stop* (if stop stop len)])
+      (check-ranges who start stop* step len)
+      (values vec start stop* step)))
+  
   (define-syntax define-in-vector-like
     (syntax-rules ()
       [(define-in-vector-like in-vector-name
@@ -505,9 +699,9 @@
           [(v start) (in-vector-name v start #f 1)]
           [(v start stop) (in-vector-name v start stop 1)]
           [(v start stop step)
-           (unless (vector?-id v) (raise-type-error (quote in-vector-name) type-name-str v))
-           (let ([stop (or stop (vector-length-id v))])
-             (check-ranges (quote in-vector-name) start stop step)
+           (let-values (([v start stop step]
+                         (normalise-inputs 'in-vector-name type-name-str vector?-id vector-length-id
+                                          v start stop step)))
              (make-do-sequence (lambda () (:vector-gen-id v start stop step))))]))]))
 
   (define-syntax define-:vector-like-gen
@@ -526,42 +720,47 @@
           (if (> step 0)
               (lambda (i) (< i stop))
               (lambda (i) (> i stop)))
-          void
-          void))]))
+          #f
+          #f))]))
 
-  (define-for-syntax (make-in-vector-like vector?-id
+  (define-for-syntax (make-in-vector-like in-vector-name
+                                          type-name-str
+                                          vector?-id
                                           unsafe-vector-length-id
                                           in-vector-id
                                           unsafe-vector-ref-id)
      (define (in-vector-like stx)
-       (with-syntax ([vector? vector?-id]
+       (with-syntax ([in-vector-name in-vector-name]
+                     [type-name type-name-str]
+                     [vector? vector?-id]
                      [in-vector in-vector-id]
                      [unsafe-vector-length unsafe-vector-length-id]
                      [unsafe-vector-ref unsafe-vector-ref-id])
          (syntax-case stx ()
            ;; Fast case
            [[(id) (_ vec-expr)]
-            #'[(id)
-               (:do-in
-                ;;outer bindings
-                ([(vec len) (let ([vec vec-expr])
-                              (unless (vector? vec)
-                                (in-vector vec))
-                              (values vec (unsafe-vector-length vec)))])
-                ;; outer check
-                #f
-                ;; loop bindings
-                ([pos 0])
-                ;; pos check
-                (pos . unsafe-fx< . len)
-                ;; inner bindings
-                ([(id) (unsafe-vector-ref vec pos)])
-                ;; pre guard
-                #t
-                ;; post guard
-                #t
-                ;; loop args
-                ((unsafe-fx+ 1 pos)))]]
+            (for-clause-syntax-protect
+             #'[(id)
+                (:do-in
+                 ;;outer bindings
+                 ([(vec len) (let ([vec vec-expr])
+                               (unless (vector? vec)
+                                 (in-vector vec))
+                               (values vec (unsafe-vector-length vec)))])
+                 ;; outer check
+                 #f
+                 ;; loop bindings
+                 ([pos 0])
+                 ;; pos check
+                 (pos . unsafe-fx< . len)
+                 ;; inner bindings
+                 ([(id) (unsafe-vector-ref vec pos)])
+                 ;; pre guard
+                 #t
+                 ;; post guard
+                 #t
+                 ;; loop args
+                 ((unsafe-fx+ 1 pos)))])]
            ;; General case
            [((id) (_ vec-expr start))
             (in-vector-like (syntax ((id) (_ vec-expr start #f 1))))]
@@ -569,51 +768,44 @@
             (in-vector-like (syntax ((id) (_ vec-expr start stop 1))))]
            [((id) (_ vec-expr start stop step))
             (let ([all-fx? (memq (syntax-e #'step) '(1 -1))])
-              #`[(id)
-                 (:do-in
-                  ;; Outer bindings
-                  ;; Prevent multiple evaluation
-                  ([(v* stop*) (let ([vec vec-expr]
-                                     [stop* stop])
-                                 (if (and (not stop*) (vector? vec))
-                                     (values vec (unsafe-vector-length vec))
-                                     (values vec stop*)))]
-                   [(start*) start]
-                   [(step*) step])
-                  ;; Outer check
-                  (when (or (not (vector? v*))
-                            (not (exact-integer? start*))
-                            (not (exact-integer? stop*))
-                            (not (exact-integer? step*))
-                            (zero? step*)
-                            (and (< start* stop*) (< step* 0))
-                            (and (> start* stop*) (> step* 0)))
-                    ;; Let in-vector report the error
-                    (in-vector v* start* stop* step*))
-                  ;; Loop bindings
-                  ([idx start*])
-                  ;; Pos guard
-                  #,(cond
-                     [(not (number? (syntax-e #'step)))
-                      #`(if (step* . >= . 0) (< idx stop*) (> idx stop*))]
-                     [((syntax-e #'step) . >= . 0)
-                      (if all-fx?
-                          #'(unsafe-fx< idx stop*)
-                          #'(< idx stop*))]
-                     [else
-                      (if all-fx?
-                          #'(unsafe-fx> idx stop*)
-                          #'(> idx stop*))])
-                  ;; Inner bindings
-                  ([(id) (unsafe-vector-ref v* idx)])
-                  ;; Pre guard
-                  #t
-                  ;; Post guard
-                  #t
-                  ;; Loop args
-                  ((#,(if all-fx? #'unsafe-fx+ #'+) idx step)))])]
+              (for-clause-syntax-protect
+               #`[(id)
+                  (:do-in
+                   ;; Outer bindings
+                   ;; start*, stop*, and step* are guaranteed to be exact integers
+                   ([(v* start* stop* step*)
+                     (normalise-inputs (quote in-vector-name) type-name
+                                       ;; reverse-eta triggers JIT inlining of primitives,
+                                       ;; which is good for futures:
+                                       (lambda (x) (vector? x)) 
+                                       (lambda (x) (unsafe-vector-length x))
+                                       vec-expr start stop step)])
+                   ;; Outer check is done by normalise-inputs
+                   #t
+                   ;; Loop bindings
+                   ([idx start*])
+                   ;; Pos guard
+                   #,(cond
+                      [(not (number? (syntax-e #'step)))
+                       #`(if (step* . >= . 0) (< idx stop*) (> idx stop*))]
+                      [((syntax-e #'step) . >= . 0)
+                       (if all-fx?
+                           #'(unsafe-fx< idx stop*)
+                           #'(< idx stop*))]
+                      [else
+                       (if all-fx?
+                           #'(unsafe-fx> idx stop*)
+                           #'(> idx stop*))])
+                   ;; Inner bindings
+                   ([(id) (unsafe-vector-ref v* idx)])
+                   ;; Pre guard
+                   #t
+                   ;; Post guard
+                   #t
+                   ;; Loop args
+                   ((#,(if all-fx? #'unsafe-fx+ #'+) idx step)))]))]
            [_ #f])))
-          in-vector-like)
+     in-vector-like)
 
   
   (define-:vector-like-gen :vector-gen unsafe-vector-ref)
@@ -623,7 +815,9 @@
 
   (define-sequence-syntax *in-vector
     (lambda () #'in-vector)
-    (make-in-vector-like #'vector?
+    (make-in-vector-like 'in-vector
+                         "vector"
+                         #'vector?
                          #'unsafe-vector-length
                          #'in-vector
                          #'unsafe-vector-ref))
@@ -636,7 +830,9 @@
 
   (define-sequence-syntax *in-string
     (lambda () #'in-string)
-    (make-in-vector-like #'string?
+    (make-in-vector-like 'in-string
+                         "string"
+                         #'string?
                          #'string-length
                          #'in-string
                          #'string-ref))
@@ -649,7 +845,9 @@
 
   (define-sequence-syntax *in-bytes
     (lambda () #'in-bytes)
-    (make-in-vector-like #'bytes?
+    (make-in-vector-like 'in-bytes
+                         "bytes"
+                         #'bytes?
                          #'bytes-length
                          #'in-bytes
                          #'bytes-ref))
@@ -671,9 +869,9 @@
                                        init
                                        pos-cont?
                                        (case-lambda
-                                         [(val) (and (pre-cont? val)
+                                         [(val) (and (if pre-cont? (pre-cont? val) #t)
                                                      (not (pred val)))]
-                                         [vals (and (apply pre-cont? vals)
+                                         [vals (and (if pre-cont? (apply pre-cont? vals) #t)
                                                     (not (apply pred vals)))])
                                        post-cont?)))))
 
@@ -691,9 +889,9 @@
                                        pos-cont?
                                        pre-cont?
                                        (case-lambda
-                                         [(pos val) (and (post-cont? pos val)
+                                         [(pos val) (and (if post-cont? (post-cont? pos val) #t)
                                                          (not (pred val)))]
-                                         [(pos . vals) (and (apply pos-cont? pos vals)
+                                         [(pos . vals) (and (if post-cont? (apply post-cont? pos vals) #t)
                                                             (not (apply pred vals)))]))))))
 
   (define (in-indexed g)
@@ -704,9 +902,12 @@
                                (values (lambda (pos) (values (pos->val (car pos)) (cdr pos)))
                                        (lambda (pos) (cons (pos-next (car pos)) (add1 (cdr pos))))
                                        (cons init 0)
-                                       (lambda (pos) (pos-cont? (car pos)))
-                                       (lambda (val idx) (pre-cont? val))
-                                       (lambda (pos val idx) (post-cont? pos val)))))))
+                                       (and pos-cont?
+                                            (lambda (pos) (pos-cont? (car pos))))
+                                       (and pre-cont?
+                                            (lambda (val idx) (pre-cont? val)))
+                                       (and post-cont?
+                                            (lambda (pos val idx) (post-cont? pos val))))))))
 
   (define (in-value v)
     (make-do-sequence (lambda ()
@@ -716,6 +917,44 @@
                                 (lambda (pos) pos)
                                 void
                                 void))))
+
+  (define (in-values-sequence g)
+    (unless (sequence? g) (raise-type-error 'in-values-sequence "sequence" g))
+    (make-do-sequence (lambda ()
+                        (let-values ([(pos->val pos-next init pos-cont? pre-cont? post-cont?)
+                                      (make-sequence #f g)])
+                          (values (lambda (pos) (call-with-values (lambda () (pos->val pos))
+                                                  list))
+                                  pos-next
+                                  init
+                                  pos-cont?
+                                  (and pre-cont?
+                                       (lambda (vals) (apply pre-cont? vals)))
+                                  (and post-cont?
+                                       (lambda (pos vals) (apply post-cont? pos vals))))))))
+
+  (define (in-values*-sequence g)
+    (unless (sequence? g) (raise-type-error 'in-values-sequence "sequence" g))
+    (make-do-sequence (lambda ()
+                        (let-values ([(pos->val pos-next init pos-cont? pre-cont? post-cont?)
+                                      (make-sequence #f g)])
+                          (values (lambda (pos) (call-with-values (lambda () (pos->val pos))
+                                                  (case-lambda
+                                                   [(v) (if (list? v) (list v) v)]
+                                                   [vs vs])))
+                                  pos-next
+                                  init
+                                  pos-cont?
+                                  (and pre-cont?
+                                       (lambda (vals) 
+                                         (if (list? vals)
+                                             (apply pre-cont? vals)
+                                             (pre-cont? vals))))
+                                  (and post-cont?
+                                       (lambda (pos vals) 
+                                         (if (list? vals)
+                                             (apply post-cont? pos vals)
+                                             (post-cont? pos vals)))))))))
 
   ;; ----------------------------------------
 
@@ -770,16 +1009,22 @@
                                    pos-nexts
                                    poses))
               inits
-              (lambda (poses) (andmap (lambda (pos-cont? pos) (pos-cont? pos))
-                                      pos-cont?s
-                                      poses))
-              (lambda vals (andmap (lambda (pre-cont? val) (pre-cont? val))
-                                   pre-cont?s
-                                   vals))
-              (lambda (poses . vals) (andmap (lambda (post-cont? pos val) (post-cont? pos val))
-                                             post-cont?s
-                                             poses
-                                             vals))))))))
+              (and (ormap values pos-cont?s)
+                   (lambda (poses) (andmap (lambda (pos-cont? pos) 
+                                             (if pos-cont? (pos-cont? pos) #t))
+                                           pos-cont?s
+                                           poses)))
+              (and (ormap values pre-cont?s)
+                   (lambda vals (andmap (lambda (pre-cont? val) 
+                                          (if pre-cont? (pre-cont? val) #t))
+                                        pre-cont?s
+                                        vals)))
+              (and (ormap values post-cont?s)
+                   (lambda (poses . vals) (andmap (lambda (post-cont? pos val) 
+                                                    (if post-cont? (post-cont? pos val) #t))
+                                                  post-cont?s
+                                                  poses
+                                                  vals)))))))))
 
   (define (in-producer producer stop . more)
     (make-do-sequence
@@ -789,16 +1034,71 @@
                  (lambda (_) (apply producer more)))
                void
                (void)
-               void
+               #f
                (if (procedure? stop)
                  (if (equal? 1 (procedure-arity stop))
                    (lambda (x) (not (stop x)))
                    (lambda xs (not (apply stop xs))))
                  (lambda (x) (not (eq? x stop))))
-               void))))
+               #f))))
 
   ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
   ;;  running sequences outside of a loop:
+
+  (define-values (struct:do-stream
+                  make-do-stream
+                  do-stream?
+                  do-stream-ref
+                  do-stream-set!)
+    (make-struct-type 'stream #f 3 0 #f
+                      (list (cons prop:stream
+                                  (vector
+                                   (lambda (v) ((do-stream-ref v 0)))
+                                   (lambda (v) ((do-stream-ref v 1)))
+                                   (lambda (v) ((do-stream-ref v 2))))))))
+
+  (define empty-stream (make-do-stream (lambda () #t) void void))
+
+  (define (sequence->stream s)
+    (unless (sequence? s)
+      (raise-type-error 'sequence-generate "sequence" s))
+    (cond
+     [(stream? s) s]
+     [else
+      (let-values ([(pos->val pos-next init pos-cont? pre-cont? post-cont?)
+                    (make-sequence #f s)])
+        (define (gen-stream pos)
+          (let ([done? #f]
+                [vals #f]
+                [empty? #f]
+                [next #f])
+            (define (force!)
+              (unless done?
+                (if (if pos-cont? (pos-cont? pos) #t)
+                    (begin
+                      (set! vals (call-with-values (lambda () (pos->val pos)) list))
+                      (unless (if pre-cont? (apply pre-cont? vals) #t)
+                        (set! vals #f)
+                        (set! empty? #t)))
+                    (set! empty? #t))
+                (set! done? #t)))
+            (make-do-stream (lambda () (force!) empty?)
+                            (lambda () (force!) (apply values vals))
+                            (lambda () 
+                              (force!)
+                              (if next
+                                  next
+                                  (begin
+                                    (if (if post-cont? (apply post-cont? pos vals) #t)
+                                        (set! next (gen-stream (pos-next pos)))
+                                        (set! next empty-stream))
+                                    next))))))
+        (gen-stream init))]))
+
+  (define (no-more)
+    (raise (exn:fail:contract "sequence has no more values"
+                              (current-continuation-marks))))
+                   
 
   (define (sequence-generate g)
     (unless (sequence? g)
@@ -809,19 +1109,17 @@
         (letrec ([more? #f]
                  [prep-val! #f]
                  [next #f])
-          (letrec ([no-more (lambda ()
-                              (error "sequence has no more values"))]
-                   [init-more?
+          (letrec ([init-more?
                     (lambda () (prep-val!) (more?))]
                    [init-next
                     (lambda () (prep-val!) (next))]
                    [init-prep-val!
                     (lambda ()
-                      (if (pos-cont? pos)
+                      (if (if pos-cont? (pos-cont? pos) #t)
                           (call-with-values
                            (lambda () (pos->val pos))
                            (lambda vals
-                             (if (apply pre-cont? vals)
+                             (if (if pre-cont? (apply pre-cont? vals) #t)
                                  (begin
                                    (set! more? (lambda () #t))
                                    (set! next
@@ -829,7 +1127,9 @@
                                            (let ([v vals])
                                              (set! prep-val!
                                                    (lambda ()
-                                                     (if (apply post-cont? pos vals)
+                                                     (if (if post-cont? 
+                                                             (apply post-cont? pos vals)
+                                                             #t)
                                                          (begin
                                                            (set! pos (pos-next pos))
                                                            (set! prep-val! init-prep-val!)
@@ -855,6 +1155,29 @@
                   [sequence-next (lambda () (next))])
               (values sequence-more?
                       sequence-next)))))))
+
+  (define (sequence-generate* g)
+    (unless (sequence? g)
+      (raise-type-error 'sequence-generate* "sequence" g))
+    (let-values ([(pos->val pos-next init pos-cont? pre-cont? post-cont?)
+                  (make-sequence #f g)])
+      (letrec ([next!
+                (lambda (pos)
+                  (if (if pos-cont? (pos-cont? pos) #t)
+                      (call-with-values
+                        (lambda () (pos->val pos))
+                        (lambda vals
+                          (if (if pre-cont? (apply pre-cont? vals) #t)
+                              (values vals
+                                      (lambda ()
+                                        (if (if post-cont? 
+                                                (apply post-cont? pos vals)
+                                                #t)
+                                            (next! (pos-next pos))
+                                            (values #f no-more))))
+                              (values #f no-more))))
+                      (values #f no-more)))])
+        (next! init))))
 
   ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
   ;;  core `for/fold' syntax
@@ -918,6 +1241,18 @@
             (#:when expr . rest) . body)
        #'(frm [orig-stx nested? #t binds] ([fold-var fold-init] ...)
               (#:when expr . rest) . body)]
+      ;; Negative guard case, no pending emits:
+      [(_ [orig-stx nested? #f ()] ([fold-var fold-init] ...) (#:unless expr . rest) . body)
+       #'(let ([fold-var fold-init] ...)
+           (if expr
+             (values* fold-var ...)
+             (for/foldX/derived [orig-stx nested? #f ()]
+                                ([fold-var fold-var] ...) rest . body)))]
+      ;; Negative guard case, pending emits need to be flushed first
+      [(frm [orig-stx nested? #f binds] ([fold-var fold-init] ...)
+            (#:unless expr . rest) . body)
+       #'(frm [orig-stx nested? #t binds] ([fold-var fold-init] ...)
+              (#:unless expr . rest) . body)]
       ;; Convert single-value form to multi-value form:
       [(_ [orig-stx nested? #f binds] fold-bind ([id rhs] . rest) . body)
        (identifier? #'id)
@@ -1138,37 +1473,38 @@
            (let ([all-fx? (and (fixnum? (syntax-e #'a))
                                (fixnum? (syntax-e #'b))
                                (memq (syntax-e #'step) '(1 -1)))])
-             #`[(id)
-                (:do-in
-                 ;; outer bindings:
-                 ([(start) a] [(end) b] [(inc) step])
-                 ;; outer check:
-                 (unless (and (real? start) (real? end) (real? inc))
-                   ;; let `in-range' report the error:
-                   (in-range start end inc))
-                 ;; loop bindings:
-                 ([pos start])
-                 ;; pos check
-                 #,(cond [all-fx?
-                          ;; Special case, can use unsafe ops:
-                          (if ((syntax-e #'step) . >= . 0)
-                            #'(unsafe-fx< pos end)
-                            #'(unsafe-fx> pos end))]
-                         ;; General cases:
-                         [(not (number? (syntax-e #'step)))
-                          #`(if (step . >= . 0) (< pos end) (> pos end))]
-                         [((syntax-e #'step) . >= . 0)
-                          #'(< pos end)]
-                         [else
-                          #'(> pos end)])
-                 ;; inner bindings
-                 ([(id) pos])
-                 ;; pre guard
-                 #t
-                 ;; post guard
-                 #t
-                 ;; loop args
-                 ((#,(if all-fx? #'unsafe-fx+ #'+) pos inc)))])]
+             (for-clause-syntax-protect
+              #`[(id)
+                 (:do-in
+                  ;; outer bindings:
+                  ([(start) a] [(end) b] [(inc) step])
+                  ;; outer check:
+                  (unless (and (real? start) (real? end) (real? inc))
+                    ;; let `in-range' report the error:
+                    (in-range start end inc))
+                  ;; loop bindings:
+                  ([pos start])
+                  ;; pos check
+                  #,(cond [all-fx?
+                           ;; Special case, can use unsafe ops:
+                           (if ((syntax-e #'step) . >= . 0)
+                               #'(unsafe-fx< pos end)
+                               #'(unsafe-fx> pos end))]
+                          ;; General cases:
+                          [(not (number? (syntax-e #'step)))
+                           #`(if (step . >= . 0) (< pos end) (> pos end))]
+                          [((syntax-e #'step) . >= . 0)
+                           #'(< pos end)]
+                          [else
+                           #'(> pos end)])
+                  ;; inner bindings
+                  ([(id) pos])
+                  ;; pre guard
+                  #t
+                  ;; post guard
+                  #t
+                  ;; loop args
+                  ((#,(if all-fx? #'unsafe-fx+ #'+) pos inc)))]))]
           [[(id) (_ a b)] (loop #'[(id) (_ a b 1)])]
           [[(id) (_ b)] (loop #'[(id) (_ 0 b 1)])]
           [_ #f]))))
@@ -1179,26 +1515,27 @@
       (let loop ([stx stx])
         (syntax-case stx ()
           [[(id) (_ start-expr)]
-           #`[(id)
-              (:do-in
-               ;; outer bindings:
-               ([(start) start-expr])
-               ;; outer check:
-               (unless (exact-nonnegative-integer? start)
-                 ;; let `in-naturals' report the error:
-                 (in-naturals start))
-               ;; loop bindings:
-               ([pos start])
-               ;; pos check
-               #t
-               ;; inner bindings
-               ([(id) pos])
-               ;; pre guard
-               #t
-               ;; post guard
-               #t
-               ;; loop args
-               ((+ pos 1)))]]
+           (for-clause-syntax-protect
+            #`[(id)
+               (:do-in
+                ;; outer bindings:
+                ([(start) start-expr])
+                ;; outer check:
+                (unless (exact-nonnegative-integer? start)
+                  ;; let `in-naturals' report the error:
+                  (in-naturals start))
+                ;; loop bindings:
+                ([pos start])
+                ;; pos check
+                #t
+                ;; inner bindings
+                ([(id) pos])
+                ;; pre guard
+                #t
+                ;; post guard
+                #t
+                ;; loop args
+                ((+ pos 1)))])]
           [[(id) (_)]
            (loop #'[(id) (_ 0)])]
           [_ #f]))))
@@ -1208,24 +1545,25 @@
     (lambda (stx)
       (syntax-case stx ()
         [[(id) (_ lst-expr)]
-         #'[(id)
-            (:do-in
-             ;;outer bindings
-             ([(lst) lst-expr])
-             ;; outer check
-             (void) ; (unless (list? lst) (in-list lst))
-             ;; loop bindings
-             ([lst lst])
-             ;; pos check
-             (not (null? lst))
-             ;; inner bindings
-             ([(id) (car lst)])
-             ;; pre guard
-             #t
-             ;; post guard
-             #t
-             ;; loop args -- ok to use unsafe-cdr, since car passed
-             ((unsafe-cdr lst)))]]
+         (for-clause-syntax-protect
+          #'[(id)
+             (:do-in
+              ;;outer bindings
+              ([(lst) lst-expr])
+              ;; outer check
+              (unless (list? lst) (in-list lst))
+              ;; loop bindings
+              ([lst lst])
+              ;; pos check
+              (pair? lst)
+              ;; inner bindings
+              ([(id) (unsafe-car lst)])
+              ;; pre guard
+              #t
+              ;; post guard
+              #t
+              ;; loop args
+              ((unsafe-cdr lst)))])]
         [_ #f])))
   
   (define-sequence-syntax *in-mlist
@@ -1233,24 +1571,51 @@
     (lambda (stx)
       (syntax-case stx ()
         [[(id) (_ lst-expr)]
-         #'[(id)
-            (:do-in
-             ;;outer bindings
-             ([(lst) lst-expr])
-             ;; outer check
-             (void) ; (unless (list? lst) (in-list lst))
-             ;; loop bindings
-             ([lst lst])
-             ;; pos check
-             (not (null? lst))
-             ;; inner bindings
-             ([(id) (mcar lst)])
-             ;; pre guard
-             #t
-             ;; post guard
-             #t
-             ;; loop args 
-             ((mcdr lst)))]]
+         (for-clause-syntax-protect
+          #'[(id)
+             (:do-in
+              ;;outer bindings
+              ([(lst) lst-expr])
+              ;; outer check
+              (void) ; (unless (list? lst) (in-list lst))
+              ;; loop bindings
+              ([lst lst])
+              ;; pos check
+              (not (null? lst))
+              ;; inner bindings
+              ([(id) (mcar lst)])
+              ;; pre guard
+              #t
+              ;; post guard
+              #t
+              ;; loop args 
+              ((mcdr lst)))])]
+        [_ #f])))
+
+  (define-sequence-syntax *in-stream
+    (lambda () #'in-stream)
+    (lambda (stx)
+      (syntax-case stx ()
+        [[(id) (_ lst-expr)]
+         (for-clause-syntax-protect
+          #'[(id)
+             (:do-in
+              ;;outer bindings
+              ([(lst) lst-expr])
+              ;; outer check
+              (unless (stream? lst) (in-stream lst))
+              ;; loop bindings
+              ([lst lst])
+              ;; pos check
+              (unsafe-stream-not-empty? lst)
+              ;; inner bindings
+              ([(id) (unsafe-stream-first lst)])
+              ;; pre guard
+              #t
+              ;; post guard
+              #t
+              ;; loop args
+              ((unsafe-stream-rest lst)))])]
         [_ #f])))
 
   (define-sequence-syntax *in-indexed
@@ -1359,11 +1724,7 @@
         [[(id) (_ r p)]
          #'[(id) (*in-producer
                   (let ([r* r] [p* p])
-                    (unless (and (procedure? r*)
-                                 (procedure-arity-includes? r* 1))
-                      (raise-type-error 'in-port "procedure (arity 1)" r*))
-                    (unless (input-port? p*)
-                      (raise-type-error 'in-port "input-port" p*))
+                    (check-in-port r* p*)
                     (lambda () (r* p*)))
                   eof)]])))
 
@@ -1376,14 +1737,7 @@
         [[(id) (_ p mode)]
          #'[(id) (*in-producer
                   (let ([p* p] [mode* mode])
-                    (unless (input-port? p*)
-                      (raise-type-error 'in-lines "input-port" p*))
-                    (unless (memq mode* '(linefeed return return-linefeed any
-                                          any-one))
-                      (raise-type-error
-                       'in-lines
-                       "'linefeed, 'return, 'return-linefeed, 'any, or 'any-one"
-                       mode*))
+                    (check-in-lines p* mode*)
                     (lambda () (read-line p* mode*)))
                   eof)]])))
   
@@ -1396,14 +1750,7 @@
         [[(id) (_ p mode)]
          #'[(id) (*in-producer
                   (let ([p* p] [mode* mode])
-                    (unless (input-port? p*)
-                      (raise-type-error 'in-bytes-lines "input-port" p*))
-                    (unless (memq mode* '(linefeed return return-linefeed any
-                                          any-one))
-                      (raise-type-error
-                       'in-bytes-lines
-                       "'linefeed, 'return, 'return-linefeed, 'any, or 'any-one"
-                       mode*))
+                    (check-in-bytes-lines p* mode*)
                     (lambda () (read-bytes-line p* mode*)))
                   eof)]])))
 
@@ -1414,8 +1761,7 @@
         [[(id) (_ p)]
          #'[(id) (*in-producer
                   (let ([p* p])
-                    (unless (input-port? p*)
-                      (raise-type-error 'in-input-port-bytes "input-port" p*))
+                    (unless (input-port? p*) (in-input-port-bytes p*))
                     (lambda () (read-byte p*)))
                   eof)]])))
 
@@ -1426,8 +1772,7 @@
         [[(id) (_ p)]
          #'[(id) (*in-producer
                   (let ([p* p])
-                    (unless (input-port? p*)
-                      (raise-type-error 'in-input-port-chars "input-port" p*))
+                    (unless (input-port? p*) (in-input-port-chars p*))
                     (lambda () (read-char p*)))
                   eof)]])))
   

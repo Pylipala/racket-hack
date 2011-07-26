@@ -1,12 +1,7 @@
 #lang scribble/doc
-@(require scribble/manual
-          scribble/struct
-          scribble/eval
-          mzlib/process
-          "guide-utils.ss"
-          (for-label racket/tcp
-                     racket/serialize
-                     racket/port))
+@(require scribble/manual scribble/struct scribble/eval racket/system
+          "guide-utils.rkt"
+          (for-label racket/tcp racket/serialize racket/port))
 
 @(define io-eval (make-base-eval))
 
@@ -262,7 +257,7 @@ Here are some examples using each:
 
 ]
 
-Overall, @racket[print] as corresponds to the expression layer of
+Overall, @racket[print] corresponds to the expression layer of
 Racket syntax, @racket[write] corresponds to the reader layer, and
 @racket[display] roughly corresponds to the character layer.
 
@@ -282,7 +277,7 @@ text. In the format string supplied to @racket[printf], @litchar{~a}
 After using @racket[write], as opposed to @racket[display] or
 @racket[print], many forms of data can be read back in using
 @racket[read]. The same values @racket[print]ed can also be parsed by
-@scheme[read], but the result may have extra quote forms, since a
+@racket[read], but the result may have extra quote forms, since a
 @racket[print]ed form is meant to be read like an expression.
 
 @examples[
@@ -294,7 +289,9 @@ After using @racket[write], as opposed to @racket[display] or
 (read in)
 (write #hash((a . "apple") (b . "banana")) out)
 (read in)
-(write '("alphabet" soup) out)
+(print '("alphabet" soup) out)
+(read in)
+(display '("alphabet" soup) out)
 (read in)
 ]
 
@@ -315,7 +312,7 @@ Other structure types created by @racket[struct], which offer
 more abstraction than @tech{prefab} structure types, normally
 @racket[write] either using @racketresultfont{#<....>} notation (for
 opaque structure types) or using @racketresultfont{#(....)} vector
-notation (for transparent structure types). In neither can can the
+notation (for transparent structure types). In neither can the
 result be read back in as an instance of the structure type:
 
 @interaction[

@@ -1,12 +1,13 @@
-#lang racket
-  (require "../reduction-semantics.ss"
-           "test-util.ss"
-           (only-in "../private/matcher.ss" make-bindings make-bind)
+#lang racket/gui
+  (require "../reduction-semantics.rkt"
+           "test-util.rkt"
+           (only-in "../private/matcher.rkt" make-bindings make-bind)
            racket/match
-           "../private/struct.ss")
+           "../private/struct.rkt")
   
   (reset-count)
 
+  (define-namespace-anchor this-namespace)
   (parameterize ([current-namespace syn-err-test-namespace])
     (eval (quote-syntax
            (define-language grammar
@@ -99,7 +100,13 @@
                                             (define-language x (e ....))
                                             12)))
         '("...."))
-  
+
+  (test-syn-err
+   (let ()
+     (define-language L
+       (n ,3))
+     (void))
+   #rx"define-language:.*unquote disallowed" 1)
 
   (let ()
     ; error message shows correct form name
@@ -274,6 +281,73 @@
                          #:key (compose symbol->string bind-name)))
               '())
           '(1 4 3 2 5 "s" t s)))
+
+  (let ()
+    (define-language L
+      (e (e e) number))
+    ;; not a syntax error since first e is not a binder
+    (test (pair? (redex-match L ((cross e) e ...) (term ((hole 2) 1)))) #t))
+  
+  ;; match structures do not report ..._x bindings
+  (test (map match-bindings (redex-match grammar (a ..._1) (term (a a a))))
+        '(()))
+  
+  (define-syntax (test-match stx)
+    (syntax-case stx ()
+      [(_ actual (((var val) ...) ...))
+       #`(test (equal?
+                (apply
+                 set
+                 (for/list ([match actual])
+                  (for/list ([bind (match-bindings match)])
+                    (list (bind-name bind) (bind-exp bind)))))
+                (apply set (list (list (list 'var (term val)) ...) ...)))
+               #,(syntax/loc stx #t))]))
+  
+  ;; cross
+  (let ()
+    (define-language L
+      (e (e e)
+         (cont (hide-hole E))
+         number
+         x)
+      (E hole
+         (e ... E e ...))
+      (x variable-not-otherwise-mentioned))
+    (test-match 
+     (redex-match 
+      L 
+      (in-hole (cross e) e)
+      (term (cont (1 hole))))
+     (((e (cont (1 hole))))
+      ((e 1)))))
+  (let ()
+    (define-language L
+      (e (e e ...)
+         x
+         v)
+      (v (λ (x ...) e)
+         cont-val
+         number)
+      (cont-val (cont (hide-hole E)))
+      (E hole
+         (in-hole L E))
+      (L (v ... hole e ...))
+      (x variable-not-otherwise-mentioned))
+    
+    ;; no "found two holes" error
+    (test (redex-match L (cross e) (term (cont ((λ (x) x) hole)))) #f)
+    
+    (test-match 
+     (redex-match 
+      L 
+      (in-hole (cross e) e)
+      (term ((cont ((λ (x) x) hole)) (λ (y) y))))
+     (((e x))
+      ((e ((cont ((λ (x) x) hole)) (λ (y) y))))
+      ((e y))
+      ((e (λ (y) y)))
+      ((e (cont ((λ (x) x) hole)))))))
   
   ;; test caching
   (let ()
@@ -786,6 +860,14 @@
     
     (let ([sp (open-output-string)])
       (parameterize ([current-output-port sp]
+                     [current-traced-metafunctions 'all]
+                     [print-as-expression #f]
+                     [caching-enabled? #f])
+        (term (f 1)))
+      (test (get-output-string sp) " >(f 1)\n > (f 0)\n < 0\n <0\n"))
+    
+    (let ([sp (open-output-string)])
+      (parameterize ([current-output-port sp]
                      [current-traced-metafunctions '(f)]
                      [print-as-expression #f])
         (term (f 1)))
@@ -870,6 +952,74 @@
     (test (term (f 1 2 3 4)) 'no)
     (test (term (f 0 2 3 4 5)) 'no)
     (test (term (f 1 2 3 4 5 () (6) (7 8) (9 10 11))) 'yes))
+  
+  (let ()
+    (define-language L 
+      [bool #t #f])
+    (define-metafunction L
+      f : any -> bool or number
+      [(f any) any])
+    (test (term (f 1)) (term 1))
+    (test (term (f #f)) (term #f)))
+  
+  (let ()
+    (define-language L 
+      [bool #t #f])
+    (define-metafunction L
+      f : any -> bool ∪ number
+      [(f any) any])
+    (test (term (f 1)) (term 1))
+    (test (term (f #f)) (term #f)))
+  
+  (let ()
+    (define-language L 
+      [bool #t #f]
+      [abc a b c]
+      [def d e f])
+    (define-metafunction L
+      f : any -> bool ∨ number ∪ abc or def
+      [(f any) any])
+    (test (term (f 1)) (term 1))
+    (test (term (f #f)) (term #f))
+    (test (term (f c)) (term c))
+    (test (term (f e)) (term e)))
+  
+  ;; test that the contracts are called in order (or else 'car' fails)
+  (let ()
+    (define x '())
+    (define-language L
+      [seq (any any ...)])
+    (define-metafunction L
+      g : any -> 
+      (side-condition any_1 (begin (set! x (cons 1 x)) #f))
+      or (side-condition any_1 (begin (set! x (cons 2 x)) #f))
+      or any
+      [(g any) any])
+    (test (begin (term (g whatever))
+                 x)
+          '(2 1)))
+  
+  ;; errors for not-yet-defined metafunctions
+  (test (parameterize ([current-namespace (make-empty-namespace)])
+          (namespace-attach-module (namespace-anchor->namespace this-namespace) 'racket/gui)
+          (namespace-attach-module (namespace-anchor->namespace this-namespace) 'redex/reduction-semantics)
+          (namespace-require 'racket)
+          (eval '(module m racket
+                   (require redex)
+                   (term (q))
+                   (define-language L)
+                   (define-metafunction L [(q) ()])))
+          (with-handlers ([exn:fail:redex? exn-message])
+            (eval '(require 'm))
+            #f))
+        "metafunction q applied before its definition")
+  (test (with-handlers ([exn:fail:redex? exn-message])
+          (let ()
+            (term (q))
+            (define-language L)
+            (define-metafunction L [(q) ()])
+            #f))
+        "metafunction q applied before its definition")
   
   (let ()
     (test-syn-err
@@ -1167,6 +1317,14 @@
          'x)
         (list 'a 'b 'c 'd))
   
+  
+  (let ([R (reduction-relation empty-language #:domain number (--> 1 a "first"))]
+        [S (reduction-relation empty-language (--> 2 a "second"))])
+    (test (apply-reduction-relation (union-reduction-relations R S) 2)
+          (list 'a))
+    (test (apply-reduction-relation (union-reduction-relations S R) 2)
+          (list 'a)))
+  
   (test (apply-reduction-relation
          (reduction-relation 
           empty-language
@@ -1239,7 +1397,7 @@
           (with-handlers ((exn? exn-message))
             (apply-reduction-relation red 1)
             'no-exception-raised))
-        "reduction-relation: relation reduced to x via rule #0 (counting from 0), which is outside its domain")
+        "reduction-relation: relation reduced to x via an unnamed rule, which is outside its domain")
 
   (let* ([red1
           (reduction-relation 
@@ -1279,9 +1437,52 @@
     (define r2
       (extend-reduction-relation r1 l2))
     
-    ;; test that the domain is re-interpreted for the extended reduction-relation
+    ;; test that the domain is re-interpreted wrt the new language
     (test (apply-reduction-relation r2 3)
           '(3)))
+  
+  (let ()
+    (define-language L)
+    (define R
+      (reduction-relation L #:domain 1 (--> any any)))
+    (define S
+      (extend-reduction-relation R L #:domain 2))
+    
+    ;; test that the new domain applies to inherited rules
+    (test (apply-reduction-relation S 2)
+          '(2))
+    (test (with-handlers ([exn:fail? exn-message])
+            (apply-reduction-relation S 1))
+          #rx"not defined"))
+  
+  (let ()
+    (define-language L)
+    (define R
+      (reduction-relation L (--> 1 1 "a")))
+    (define S
+      (extend-reduction-relation R L (--> 2 2 "a")))
+    
+    ;; test that overridden rules do not appear (twice)
+    (test (reduction-relation->rule-names S)
+          '(a)))
+  
+  (let ()
+    (define-language L)
+    
+    ;; test that symbol-named rules replace string-named rules
+    (test (apply-reduction-relation
+           (extend-reduction-relation
+            (reduction-relation L (--> 1 1 "a"))
+            L (--> 1 2 a))
+           1)
+          '(2))
+    ;; and vice versa
+    (test (apply-reduction-relation
+           (extend-reduction-relation
+            (reduction-relation L (--> 1 1 a))
+            L (--> 1 2 "a"))
+           1)
+          '(2)))
   
   (let ()
     (define-language l1
@@ -1385,7 +1586,6 @@
                  (e ((name x any) (name x any_2) ...)))
                 #rx"different depths"
                 2)
-
   
   (test-syn-err (reduction-relation 
                  grammar
@@ -1425,6 +1625,12 @@
                   (define-language good-lang (a 1 2))
                   (define-extended-language bad-lang5 good-lang (a) (b 2)))
                 #rx"at least one production")
+  (test-syn-err (define-language bad-lang5 (x 1) (x 2)) #rx"same non-terminal" 2)
+  (test-syn-err (define-language bad-lang6 ((x x) 1)) #rx"same non-terminal" 2)
+  (test-syn-err (let ()
+                  (define-language good-lang)
+                  (define-extended-language bad-lang7 good-lang ((x x) 1)))
+                #rx"same non-terminal" 2)
   
   (test-syn-err (redex-match grammar m_1) #rx"before underscore")
   (test-syn-err (redex-match grammar (variable-except a 2 c)) #rx"expected an identifier")
@@ -1735,6 +1941,58 @@
              (--> r p x))))
         '(a b c z y x))
   
+  
+    ;                                                                 
+    ;                                                                 
+    ;                    ;;                        ;;                 
+    ;                     ;                         ;            ;    
+    ;   ;; ;;   ;;;    ;; ;   ;;;  ;;  ;;           ;     ;;;   ;;;;; 
+    ;    ;;    ;   ;  ;  ;;  ;   ;  ;  ;            ;    ;   ;   ;    
+    ;    ;     ;;;;;  ;   ;  ;;;;;   ;;    ;;;;;    ;    ;;;;;   ;    
+    ;    ;     ;      ;   ;  ;       ;;             ;    ;       ;    
+    ;    ;     ;      ;   ;  ;      ;  ;            ;    ;       ;   ;
+    ;   ;;;;;   ;;;;   ;;;;;  ;;;; ;;  ;;         ;;;;;   ;;;;    ;;; 
+    ;                                                                 
+    ;                                                                 
+    ;                                                                 
+    ;                                                                 
+  
+    (let ()
+      (define-language L
+        (n number)
+        (x variable))
+      
+      (test (redex-let L ([(n_1 n_2) '(1 2)])
+                       (term (n_2 n_1)))
+            (term (2 1)))
+      (test (redex-let L ([(x_i ([x_0 n_0] ... [x_i n_i] [x_i+1 n_i+1] ...))
+                           '(b ([a 1] [b 2] [c 3]))])
+                       (term n_i))
+            2)
+      (test (with-handlers ([exn:fail:redex? exn-message])
+              (redex-let L ([(n) 1]) 'no-exn))
+            "redex-let: term 1 does not match pattern (n)")
+      (test (with-handlers ([exn:fail:redex? exn-message])
+              (redex-let L ([(n_1 ... n_i n_i+1 ...) '(1 2 3)]) 'no-exn))
+            "redex-let: pattern (n_1 ... n_i n_i+1 ...) matched term (1 2 3) multiple ways")
+      (test (redex-let L ([n_1 1])
+                       (redex-let L ([n_1 2] [n_2 (term n_1)])
+                                  (term (n_1 n_2))))
+            (term (2 1)))
+      (test (redex-let L ([n_1 1])
+                       (redex-let* L ([n_1 2] [n_2 (term n_1)])
+                                   (term (n_1 n_2))))
+            (term (2 2)))
+      
+      (test (redex-let L ([(n_1 n_1) '(1 1)]) (term n_1))
+            1)
+      (test-syn-err
+       (redex-let grammar ([(number) 1] [number 1]) (term number))
+       #rx"redex-let: duplicate pattern variable" 1)
+      (test
+       (redex-let* L ([(n_1) '(1)] [n_1 1]) (term n_1))
+       1))
+  
   ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
   ;;
   ;; examples from doc.txt
@@ -1766,7 +2024,7 @@
           (and m (length m)))
         1)
   
-  (require (lib "list.ss"))
+  (require mzlib/list)
   (let ()
     (define-metafunction lc-lang
       free-vars : e -> (x ...)
@@ -1838,6 +2096,9 @@
          '(x y))
         '(x . y))
   
+  (test ((term-match/single empty-language [() 'a] [() 'b])
+         '())
+        'a)
 
   (test (with-handlers ((exn:fail:redex? (λ (x) 'right-exn))
                         ((λ (x) #t) (λ (x) 'wrong-exn)))
@@ -2133,7 +2394,7 @@
         (term (f 1))
         (test (sorted-counts c) '(1 0))
         (test (sorted-counts c*) '(1 0)))))
-
+  
 ;                                                                       
 ;                                                                       
 ;                                                                       
@@ -2187,6 +2448,15 @@
           #rx"FAILED tl-test.(?:.+):[0-9.]+\nfound a cycle in the reduction graph\n1 test failed \\(out of 1 total\\).\n"))
   
   (let ()
+    (define subred (reduction-relation empty-language (--> natural ,(- (term natural) 1))))
+    (test (capture-output (test-->> subred #:pred (λ (x) #t) 1 -1) (test-results))
+          "One test passed.\n")
+    (test (capture-output (test-->> subred #:pred number? 1 -1) (test-results))
+          "One test passed.\n")
+    (test (capture-output (test-->> subred #:pred odd? 1 -1) (test-results))
+         #rx"FAILED tl-test.rkt:[0-9.]+\nfound a term that failed #:pred: 0\n1 test failed \\(out of 1 total\\).\n"))
+  
+  (let ()
     (define-metafunction empty-language [(f any) ((any))])
     (test (capture-output (test-equal (term (f 1)) (term ((1))))
                           (test-results))
@@ -2233,11 +2503,11 @@
                 (λ (stx)
                   (syntax-case stx ()
                     [(_ test-form)
-                     #'(test (with-handlers ([exn:fail:contract? exn-message])
-                               (test-form (reduction-relation empty-language (--> any any))
-                                          #:equiv 1 2)
-                               "no error raised")
-                             #rx"tl-test\\.(?:.+).*broke the contract")]))])
+                     (syntax/loc stx
+                       (test-contract-violation
+                        (test-form (reduction-relation empty-language (--> any any))
+                                   #:equiv 1 2)
+                        #:blaming "tl-test"))]))])
     (test-bad-equiv-arg test-->)
     (test-bad-equiv-arg test-->>))
 
@@ -2252,7 +2522,7 @@
     
     (define (equal-to-7 x) (= x 7))
     (test (capture-output (test-->>∃ #:steps 5 1+ 0 equal-to-7))
-          #rx"^FAILED .*\nno reachable term satisfying #<procedure:equal-to-7> \\(but some terms were not unexplored\\)\n$")
+          #rx"^FAILED .*\nno term satisfying #<procedure:equal-to-7> reachable from 0 \\(within 5 steps\\)\n$")
     
     (test (capture-output (test-->>∃ 1+ 0 7)) "")
     (test (capture-output (test-->>E 1+ 0 7)) "")
@@ -2265,19 +2535,21 @@
        (--> any any)))
     
     (test (capture-output (test-->>∃ identity 0 1))
-          #rx"^FAILED .*\nno reachable term equal to 1\n$")
+          #rx"^FAILED .*\nterm 1 not reachable from 0\n$")
     
     (test (capture-output (test-results)) "2 tests failed (out of 6 total).\n")
     
-    (test (with-handlers ([exn:fail:contract? exn-message])
-            (test-->>∃ 1+ 0 (λ (x y) x)))
-          #rx"tl-test\\.(?:.+).*broke the contract.*goal expression")
-    (test (with-handlers ([exn:fail:contract? exn-message])
-            (test-->>∃ 1 0 1))
-          #rx"tl-test\\.(?:.+).*broke the contract.*reduction relation expression")
-    (test (with-handlers ([exn:fail:contract? exn-message])
-            (test-->>∃ #:steps 1.1 1+ 0 1))
-          #rx"tl-test\\.(?:.+).*broke the contract.*steps expression"))
+    (test-contract-violation
+     (test-->>∃ 1+ 0 (λ (x y) x))
+     #:blaming "tl-test"
+     #:message "goal expression")
+    (test-contract-violation
+     (test-->>∃ 1 0 1)
+     #:blaming "tl-test"
+     #:message "reduction relation expression")
+    (test-contract-violation
+     (test-->>∃ #:steps 1.1 1+ 0 1)
+     #:blaming "tl-test"
+     #:message "steps expression"))
   
-  (print-tests-passed 'tl-test.ss)
-  
+  (print-tests-passed 'tl-test.rkt)

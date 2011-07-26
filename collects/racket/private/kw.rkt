@@ -145,7 +145,9 @@
                                     (list (cons prop:arity-string 
                                                 generate-arity-string)
                                           (cons prop:named-keyword-procedure 
-                                                (cons name fail-proc)))
+                                                (cons name fail-proc))
+                                          (cons prop:incomplete-arity
+                                                #t))
                                     (current-inspector) fail-proc)])
       mk))
 
@@ -193,7 +195,7 @@
        #f
        plain-proc)]))
                          
-  (define (keyword-apply proc kws kw-vals . normal-argss)
+  (define (keyword-apply proc kws kw-vals normal-args . normal-argss)
     (let ([type-error
            (lambda (what which)
              (apply raise-type-error
@@ -203,6 +205,7 @@
                     proc
                     kws
                     kw-vals
+                    normal-args
                     normal-argss))])
       (unless (procedure? proc)
         (type-error "procedure" 0))
@@ -229,7 +232,7 @@
           kws)
          kw-vals))
       (let ([normal-args
-             (let loop ([normal-argss normal-argss][pos 3])
+             (let loop ([normal-argss (cons normal-args normal-argss)][pos 3])
                (if (null? (cdr normal-argss))
                    (let ([l (car normal-argss)])
                      (if (list? l)
@@ -431,25 +434,21 @@
                                                                (+ 2 (length plain-ids) (length opts))
                                                                #f)])
                               (let ([with-core 
-                                     (lambda (result)
+                                     (lambda (kw-core? result)
                                        ;; body of procedure, where all keyword and optional
                                        ;; argments come in as a pair of arguments (value and
                                        ;; whether the value is valid):
                                        (quasisyntax/loc stx
-                                         ;; We need to push the certificates way down, so that
-                                         ;; the `class' macro (for example) can pull it apart
-                                         ;; enough to insert an additional argument.
                                          (let ([core 
                                                 #,(annotate-method
                                                    (quasisyntax/loc stx
-                                                     (lambda #,(syntax-property
-                                                                #`(given-kws given-args
-                                                                             new-plain-id ... 
-                                                                             opt-arg ...
-                                                                             opt-arg? ...
-                                                                             . new-rest)
-                                                                'certify-mode
-                                                                'transparent)
+                                                     (lambda (#,@(if kw-core?
+                                                                     #'(given-kws given-args)
+                                                                     #'())
+                                                              new-plain-id ... 
+                                                              opt-arg ...
+                                                              opt-arg? ...
+                                                              . new-rest)
                                                        ;; sort out the arguments into the user-supplied bindings,
                                                        ;; evaluating default-value expressions as needed:
                                                        (let-kws given-kws given-args kws-sorted
@@ -462,11 +461,14 @@
                                            ;; entry points use `core':
                                            #,result)))]
                                     [mk-no-kws
-                                     (lambda ()
+                                     (lambda (kw-core?)
                                        ;; entry point without keywords:
                                        (annotate-method
-                                        (syntax/loc stx
-                                          (opt-cases (core null null) ([opt-id opt-arg opt-arg?] ...) (plain-id ...) 
+                                        (quasisyntax/loc stx
+                                          (opt-cases #,(if kw-core?
+                                                           #'(core null null)
+                                                           #'(core))
+                                                     ([opt-id opt-arg opt-arg?] ...) (plain-id ...) 
                                                      () (rest-empty rest-id . rest)
                                                      ()))))]
                                     [mk-with-kws
@@ -491,12 +493,13 @@
                                 (cond
                                  [(null? kws)
                                   ;; just the no-kw part
-                                  (with-core (mk-no-kws))]
+                                  (with-core #f (mk-no-kws #f))]
                                  [(null? needed-kws)
                                   ;; both parts dispatch to core
                                   (with-core
+                                   #t
                                    (with-syntax ([kws (map car sorted-kws)]
-                                                 [no-kws (let ([p (mk-no-kws)]
+                                                 [no-kws (let ([p (mk-no-kws #t)]
                                                                [n (syntax-local-infer-name stx)])
                                                            (if n
                                                                #`(let ([#,n #,p]) #,n)
@@ -514,23 +517,25 @@
                                  [else
                                   ;; just the keywords part dispatches to core,
                                   ;; and the other part dispatches to failure
-                                  (with-core
-                                   (with-syntax ([kws (map car sorted-kws)]
-                                                 [needed-kws needed-kws]
-                                                 [no-kws (mk-no-kws)]
-                                                 [with-kws (mk-with-kws)]
-                                                 [mk-id (with-syntax ([n (syntax-local-infer-name stx)]
-                                                                      [call-fail (mk-kw-arity-stub)])
-                                                          (syntax-local-lift-expression
-                                                           #'(make-required 'n call-fail method? #F)))])
-                                     (syntax/loc stx
-                                       (mk-id
-                                        (lambda (given-kws given-argc)
-                                          (and (in-range?/static given-argc with-kw-min-args with-kw-max-arg)
-                                               (subsets?/static 'needed-kws given-kws 'kws)))
-                                        with-kws
-                                        'needed-kws
-                                        'kws))))]))))))])
+                                  (syntax-protect
+                                   (with-core
+                                    #t
+                                    (with-syntax ([kws (map car sorted-kws)]
+                                                  [needed-kws needed-kws]
+                                                  [no-kws (mk-no-kws #t)]
+                                                  [with-kws (mk-with-kws)]
+                                                  [mk-id (with-syntax ([n (syntax-local-infer-name stx)]
+                                                                       [call-fail (mk-kw-arity-stub)])
+                                                           (syntax-local-lift-expression
+                                                            #'(make-required 'n call-fail method? #F)))])
+                                      (syntax/loc stx
+                                        (mk-id
+                                         (lambda (given-kws given-argc)
+                                           (and (in-range?/static given-argc with-kw-min-args with-kw-max-arg)
+                                                (subsets?/static 'needed-kws given-kws 'kws)))
+                                         with-kws
+                                         'needed-kws
+                                         'kws)))))]))))))])
                  #`(#%expression #,stx)))])
       (values new-lambda new-lambda)))
   
@@ -783,7 +788,7 @@
                           [(keyword? (cadr l))
                            (raise-syntax-error
                             'application
-                            "keyword in expression possition (immediately after another keyword)"
+                            "keyword in expression position (immediately after another keyword)"
                             stx
                             (cadr l))]
                           [else
@@ -807,20 +812,25 @@
                                               (keyword<? (syntax-e (car a))
                                                          (syntax-e (car b)))))]
                           [cnt (+ 1 (length args))])
-                     (quasisyntax/loc stx
-                       (let #,(reverse bind-accum)
-                         ((checked-procedure-check-and-extract struct:keyword-procedure
-                                                               #,(car args)
-                                                               keyword-procedure-extract 
-                                                               '#,(map car sorted-kws) 
-                                                               #,cnt)
-                          '#,(map car sorted-kws)
-                          (list #,@(map cdr sorted-kws))
-                          . #,(cdr args)))))]
+                     (syntax-protect
+                      (quasisyntax/loc stx
+                        (let #,(reverse bind-accum)
+                          ((checked-procedure-check-and-extract struct:keyword-procedure
+                                                                #,(car args)
+                                                                keyword-procedure-extract 
+                                                                '#,(map car sorted-kws) 
+                                                                #,cnt)
+                           '#,(map car sorted-kws)
+                           (list #,@(map cdr sorted-kws))
+                           . #,(cdr args))))))]
                   [(keyword? (syntax-e (car l)))
                    (loop (cddr l)
                          (cdr ids)
-                         (cons (list (car ids) (cadr l)) bind-accum)
+                         (cons (list (car ids) (syntax-property (cadr l)
+                                                                'inferred-name
+                                                                ;; void hides binding name
+                                                                (void)))
+                               bind-accum)
                          arg-accum
                          (cons (cons (car l) (car ids))
                                kw-pairs))]
@@ -1238,7 +1248,8 @@
              proc))
           (let* ([kw-chaperone
                   (let ([p (keyword-procedure-proc wrap-proc)])
-                    (lambda (kws args . rest)
+                    (case-lambda 
+                     [(kws args . rest)
                       (call-with-values (lambda () (apply p kws args rest))
                         (lambda results
                           (let ([len (length results)]
@@ -1279,7 +1290,11 @@
                                  args))
                               (if extra?
                                   (apply values (car results) kws (cdr results))
-                                  (apply values kws results))))))))]
+                                  (apply values kws results))))))]
+                     ;; The following case exists only to make sure that the arity of
+                     ;; any procedure passed to `make-keyword-args' is covered
+                     ;; bu this procedure's arity.
+                     [other (error "shouldn't get here")]))]
                  [new-proc
                   (cond
                    [(okp? proc)

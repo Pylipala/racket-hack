@@ -76,11 +76,13 @@ defbuild() {
 # required).  Warning: an `eval "foo=\"bar\""' is used to assign values.
 msets "/machines/D" "workdir=/var/tmp" "moveto=" "copytobak=" \
       "configure_args=" "LDFLAGS=" "ext_lib_paths=" "renice=" \
-      "more_setup_args="
+      "more_setup_args=" "test_gui="
 # defbuild "ccs-solaris" "sparc-solaris" "moveto=/proj/racket" \
 #          "ext_lib_paths=/arch/unix/packages/openssl-0.9.7e"
-defbuild "pitcairn"    "i386-win32" \
-         "workdir=f:" # no "/..." path (that can get interpreted as a flag)
+defbuild "pitcairn" "i386-win32" "test_gui=yes" \
+         "workdir=F:" # no "/..." path (that can get interpreted as a flag)
+defbuild "pitcairn2" "x86_64-win32" "test_gui=yes" \
+         "workdir=C:/build" # same here (see also commit log!)
 # The LDFLAGS is a workaround for a bug in Fink, see
 # http://wiki.finkproject.org/index.php/Fink:Packaging:Preparing_for_10.5#OpenGL_Bug
 defbuild "kauai"       "ppc-darwin" "configure_args=--enable-xonx" \
@@ -98,15 +100,22 @@ defbuild "ccs-linux"   "i386-linux-ubuntu-jaunty" "moveto=/proj/racket"
 # defbuild "brownbuild"  "i386-linux-debian" # really an AMD64 machine
 # defbuild "inga"        "i386-freebsd"
 # defbuild "chicago-unstable" "i386-linux-debian-unstable"
+# These builds are courtesy of Mason Loring Bliss <mason at blisses dot org>
+defbuild "blisses1" "x86_64-linux-debian-lenny"
+defbuild "blisses2" "x86_64-linux-debian-squeeze"
+# And this is from Stephen De Gabrielle <stephen.degabrielle at acm dot org>
+defbuild "osx64" "x86_64-osx-mac" "configure_args=--enable-mac64"
 # Start the main build last
-defbuild "$workmachine" "x86_64-linux-f7" "copytobak=$maindir"
+defbuild "$workmachine" "x86_64-linux-f14" "copytobak=$maindir" "test_gui=yes"
 msets "/"
 
 ###############################################################################
 ### Initialize & Setup environment
 
-ulimit -c 100000000
-umask 002 # stuff that is created should be r/w by the group
+# allow core dumps
+ulimit -c unlimited
+# make sure that everything is group-readable
+umask 002
 
 # get this script's name and path
 cd "$(dirname "$0")"
@@ -198,9 +207,10 @@ name_of_platform() {
     ( "x86_64-linux-f7"   ) echo "Linux/x86_64/Fedora 7" ;;
     ( "i386-linux-f9"     ) echo "Linux/i386/Fedora 9" ;;
     ( "i386-linux-f12"    ) echo "Linux/i386/Fedora 12" ;;
-    ( "i386-linux-debian"          ) echo "Linux/i386/Debian-stable" ;;
-    ( "i386-linux-debian-testing"  ) echo "Linux/i386/Debian-testing" ;;
-    ( "i386-linux-debian-unstable" ) echo "Linux/i386/Debian-unstable" ;;
+    ( "x86_64-linux-f14"  ) echo "Linux/x86_64/Fedora 14" ;;
+    ( "i386-linux-debian"          ) echo "Linux/i386/Debian Stable" ;;
+    ( "x86_64-linux-debian-"* ) echo "Linux/x86_64/Debian" \
+                                     "$(last_part_capital "$1")" ;;
     ( "i386-linux-ubuntu"          ) echo "Linux/i386/Ubuntu" ;;
     ( "i386-linux-ubuntu-"* ) echo "Linux/i386/Ubuntu" \
                                    "$(last_part_capital "$1")" ;;
@@ -208,9 +218,11 @@ name_of_platform() {
     ( "sparc-solaris"     ) echo "Solaris" ;;
     ( "i386-osx-mac"      ) echo "Mac OS X (Intel)" ;;
     ( "ppc-osx-mac"       ) echo "Mac OS X (PPC)" ;;
+    ( "x86_64-osx-mac"    ) echo "Mac OS X (x86_64)" ;;
     ( "ppc-darwin"        ) echo "Mac X11 on Darwin (PPC)" ;;
     ( "i386-darwin"       ) echo "Mac X11 on Darwin (Intel)" ;;
     ( "i386-win32"        ) echo "Windows" ;;
+    ( "x86_64-win32"      ) echo "Windows x64" ;;
     # These are source distribution platforms
     ( "unix"              ) echo "Unix" ;;
     ( "mac"               ) echo "Macintosh" ;;
@@ -233,8 +245,7 @@ extra_description_of_platform() {
     ( *"-linux-fc"[0-9]*        ) e="$e on Fedora Core ${1##*-fc}." ;;
     ( *"-linux-f"[0-9]*         ) e="$e on Fedora ${1##*-f}." ;;
     ( *"-linux-debian"          ) e="$e on Debian Stable." ;;
-    ( *"-linux-debian-testing"  ) e="$e on Debian Testing." ;;
-    ( *"-linux-debian-unstable" ) e="$e on Debian Unstable." ;;
+    ( *"-linux-debian-"* ) e="$e on Debian ($(last_part_capital "$1"))." ;;
     ( *"-linux-ubuntu"   ) e="$e on Ubuntu." ;;
     ( *"-linux-ubuntu-"* ) e="$e on Ubuntu ($(last_part_capital "$1"))." ;;
   esac
@@ -258,8 +269,10 @@ name_of_dist_type() {
 platforms_of_dist_type() {
   case "$1" in
     ( "bin" ) echo "i386-win32" \
+                   "x86_64-win32" \
                    "i386-osx-mac" \
                    "ppc-osx-mac" \
+                   "x86_64-osx-mac" \
                    "ppc-darwin" \
                    "i386-darwin" \
                    "i386-linux" \
@@ -271,9 +284,12 @@ platforms_of_dist_type() {
                    "x86_64-linux-f7" \
                    "i386-linux-f9" \
                    "i386-linux-f12" \
+                   "x86_64-linux-f14" \
                    "i386-linux-debian" \
                    "i386-linux-debian-testing" \
                    "i386-linux-debian-unstable" \
+                   "x86_64-linux-debian-lenny" \
+                   "x86_64-linux-debian-squeeze" \
                    "i386-linux-ubuntu" \
                    "i386-linux-ubuntu-dapper" \
                    "i386-linux-ubuntu-edgy" \
@@ -448,7 +464,7 @@ show() {
   if [[ "$verbose" = "yes" ]]; then
     echo ""
     case "$platform" in
-      ( *"-linux"* | "sparc-solaris" | "i386-win32" )
+      ( *"-linux"* | "sparc-solaris" | *"-win32" )
         echo ">>>" "$@" | fmt -t -w 79
         ;;
       ( *"-freebsd" | *"-osx-mac" | *"-darwin" )
@@ -736,8 +752,8 @@ _kill() { # args: pid [process name]
                                      if [[ ! -d "/proc/$pid" ]]; then return; fi
   show "Killing $desc"
   kill -15 "$pid" > /dev/null 2>& 1; if [[ ! -d "/proc/$pid" ]]; then return; fi
-  usleep 500000                    ; if [[ ! -d "/proc/$pid" ]]; then return; fi
-  usleep 500000                    ; if [[ ! -d "/proc/$pid" ]]; then return; fi
+  sleep 0.5                        ; if [[ ! -d "/proc/$pid" ]]; then return; fi
+  sleep 0.5                        ; if [[ ! -d "/proc/$pid" ]]; then return; fi
   sleep 1                          ; if [[ ! -d "/proc/$pid" ]]; then return; fi
   echo "re-killing $desc"
   kill -15 "$pid" > /dev/null 2>& 1; if [[ ! -d "/proc/$pid" ]]; then return; fi
@@ -803,10 +819,10 @@ _start_xvnc() {
     -rfbauth "$HOME/.vnc/passwd" \
     -br \
     > "$xvnclog" 2>&1 &
-  Xvncpid="$!"; usleep 500000
+  Xvncpid="$!"; sleep 0.5
   echo "Xvnc running ($Xvncpid)"
   metacity --sm-disable &
-  Xwmpid="$!"; usleep 500000
+  Xwmpid="$!"; sleep 0.5
   echo "window manager running ($Xwmpid)"
   # to see the window, uncomment this
   # DISPLAY="$real_DISPLAY" vncviewer ::6565 -PasswordFile "$HOME/.vnc/passwd" &
@@ -939,13 +955,13 @@ run_part() {
     local cmd
     cmd="--dispatch ${ssh_vars_vals[@]} $runhost $runpart"
     if [[ "$exec" = "yes" ]]; then
-      exec ssh "$runhost" "$rbuild" $cmd "$@" \
+      exec ssh -x "$runhost" "$rbuild" $cmd "$@" \
         || exit_error "Errors running \"$rbuild\" on \"$runhost\""
       exit_error "Something is wrong with \"exec\""
     elif [[ "$bg" = "yes" ]]; then
-      ssh "$runhost" "$rbuild" $cmd "$@" &
+      ssh -x "$runhost" "$rbuild" $cmd "$@" &
     else
-      ssh "$runhost" "$rbuild" $cmd "$@" \
+      ssh -x "$runhost" "$rbuild" $cmd "$@" \
         || exit_error "Errors running \"$rbuild\" on \"$runhost\""
     fi
   fi
@@ -1112,12 +1128,12 @@ DO_BUILD() { # inputs -- releasing
   ## --------------------------------------------------------------------------
   releasing="$1"; shift
   machineget platform workdir moveto copytobak \
-             configure_args ext_lib_paths renice more_setup_args
+             configure_args ext_lib_paths renice more_setup_args test_gui
 
   if [[ "$renice" != "" ]]; then dont_exit _run renice "$renice" "$$"; fi
 
   export PLTHOME="$workdir/$installdir" PATH="$PLTHOME/bin:$PATH"
-  export SETUP_ARGS="-N raco -l- raco setup -U"
+  export SETUP_ARGS="-N raco -l- raco setup -j 1 -U"
 
   # make sure we don't use any planet caches (PLTPLANETDIR is set globally)
   _rm "$PLTPLANETDIR"
@@ -1146,13 +1162,15 @@ DO_BUILD() { # inputs -- releasing
   fi
 
   ## --------------------------------------------------------------------------
-  if [[ "$platform" = "i386-win32" ]]; then
+  if [[ "$platform" = *"-win32" ]]; then
     export PLTPLANETDIR="$(cygpath -w "$PLTPLANETDIR")"
-    DO_WIN32_BUILD
+    DO_WINDOWS_BUILD
   else
     _mcd "$PLTHOME/src/build"
     machineget LDFLAGS; export LDFLAGS
-    build_step "configure" ../configure ${configure_args}
+    # use --disable-libffi so we get the internal copy to build and link
+    # since not all distros have libffi
+    build_step "configure" ../configure --disable-libffi ${configure_args}
     build_step "make both" make both
     build_step "make install" make plain-install-both
     build_step "raco setup" "$PLTHOME/bin/racket" $SETUP_ARGS
@@ -1207,7 +1225,7 @@ DO_BUILD() { # inputs -- releasing
   for _exe in $(choose_for_testing $test_mode 3m cgc); do
     for _jit in $(choose_for_testing $test_mode yes no); do
       if [[ "${_exe}" = "cgc" ]]; then exe="cgc"; else exe=""; fi
-      if [[ "$platform" = "i386-win32" ]]; then
+      if [[ "$platform" = *"-win32" ]]; then
         exe="$PLTHOME/Racket$exe.exe"
       else
         exe="$PLTHOME/bin/racket$exe"
@@ -1221,11 +1239,15 @@ DO_BUILD() { # inputs -- releasing
   sleep 8 # time to flush stderr
 
   # GRacket-based tests on the main machine, in an Xvnc session
-  if [[ "$machine" = "$workmachine" ]]; then
+  if [[ "$test_gui" = "yes" ]]; then
     separator "${machine}(${platform}) testing DrRacket"
-    _start_xvnc
-    dont_exit _timeout_run 60 env HOME="$testdir" "$PLTHOME/$drtestscript"
-    _end_xvnc
+    if [[ "$platform" = *"-win32" ]]; then
+      dont_exit "$PLTHOME/gracket.exe" "$(cygpath -w "$PLTHOME/$drtestscript")"
+    else
+      _start_xvnc
+      dont_exit env HOME="$testdir" "$PLTHOME/$drtestscript"
+      _end_xvnc
+    fi
   fi
 
   ## --------------------------------------------------------------------------
@@ -1280,13 +1302,49 @@ winpath2unix() { # input: windows path
   echo "$*" | sed 's_^\([a-zA-Z]\):[/\\]_/\1/_; s_\\_/_g'
 }
 
-build_w32step() { # inputs: type, name, [args...]
+# `grab_batch_vars' will run the given batch file and grab all of the
+# environment variables it sets.
+grab_one_batch_var() {
+  if [[ "x$1" = "x" ]]; then return; fi
+  # If this happens, then we'll need to quote 's as '"'"'s
+  if [[ "$1" = *"'"* ]]; then echo "Terrible quote abort! $1"; exit 1; fi
+  # echo "Setting ${1%%=*} := ${1#*=}"
+  eval "export ${1%%=*}='${1#*=}'"
+}
+grab_batch_vars() { # input: batchfile args ...
+  local exe="$1"; shift
+  local tmpbatch="/tmp/grab_vars.bat"
+  rm -f "$tmpbatch"
+  cat >> "$tmpbatch" <<-EOF
+	@echo off
+	"$(cygpath -w "$(which env)")" > "$(cygpath -w "/tmp/E1")"
+	call "$exe" $*
+	"$(cygpath -w "$(which env)")" > "$(cygpath -w "/tmp/E2")"
+EOF
+  chmod +x "$tmpbatch"
+  "$tmpbatch"
+  rm "$tmpbatch"
+  sort "/tmp/E1" | grep -v '^!' > "/tmp/E1s"; mv "/tmp/E1s" "/tmp/E1"
+  sort "/tmp/E2" | grep -v '^!' > "/tmp/E2s"; mv "/tmp/E2s" "/tmp/E2"
+  local vars="$(comm -13 "/tmp/E1" "/tmp/E2")"
+  rm "/tmp/E1" "/tmp/E2"
+  local NL=$'\n'
+  while [[ "$vars" = *"$NL"* ]]; do
+    grab_one_batch_var "${vars%%${NL}*}"
+    vars="${vars#*${NL}}"
+  done
+  grab_one_batch_var "$vars"
+}
+
+win_build_step() { # inputs: type, name, [args...]
   separator "Building: $2 [${machine}(${platform})] ($1)"
   local btype="$1" bname="$2"; shift 2
+  local arch="Win32"
+  if [[ "$platform" = "x86_64-"* ]]; then arch="x64"; fi
   start_timer
   case "$btype" in
     ( "VSNET"   ) _cd "$PLTHOME/src/worksp/$bname"
-                  _run "$VSNET" "$bname.sln" /build "Release|Win32"
+                  _run "$VSNET" "$bname.sln" /build "Release|$arch"
                   ;;
     ( "NMAKE"   ) _run "$NMAKE" "$@"
                   ;;
@@ -1302,42 +1360,44 @@ build_w32step() { # inputs: type, name, [args...]
                   fi
                   ;;
     ( "VSNET3M" ) _cd "$PLTHOME/src/worksp/$bname"
-                  _run "$VSNET" "$bname.sln" /build "Release|Win32"
+                  _run "$VSNET" "$bname.sln" /build "Release|$arch"
                   _run "$PLTHOME/Racket.exe" "xform.rkt" "$@"
-                  _run "$VSNET" "$bname.sln" /build "3m|Win32"
+                  _run "$VSNET" "$bname.sln" /build "3m|$arch"
                   ;;
-    ( * ) exit_error "Unknown type for build_w32step: \"$btype\"" ;;
+    ( * ) exit_error "Unknown type for win_build_step: \"$btype\"" ;;
   esac
   show_time "--==> $bname on ${machine}(${platform}) done,"
 }
 
-DO_WIN32_BUILD() {
+DO_WINDOWS_BUILD() {
 
   ## --------------------------------------------------------------------------
+  # make X: drives available as /X
   /usr/bin/mount -c /
+  # ignore an occasional use of a dos-style file
+  export CYGWIN="$CYGWIN nodosfilewarning"
+  # needed for MS command-line utilities
+  export PATH="$PATH:/c/Windows/system32"
 
-  export TEMP="c:\\cygwin\\tmp" TMP="c:\\cygwin\\tmp"
+  export TEMP="C:\\cygwin\\tmp" TMP="C:\\cygwin\\tmp"
+
+  local arch="x86"
+  if [[ "$platform" = "x86_64-"* ]]; then arch="x64"; fi
 
   # Note: commands must be executed using unix paths (also PATH)
-  STUDIO="c:\\Program Files\\Microsoft Visual Studio 8"
-  SCOMMON="$STUDIO\\Common7"
-  VC="$STUDIO\\VC"
-  VSNET="$(winpath2unix "$SCOMMON\\IDE\\devenv.com")"
-  NMAKE="$(winpath2unix "$VC\\bin\\nmake.exe")"
-  local uSCOMMON="$(winpath2unix "$SCOMMON")"
-  local uVC="$(winpath2unix "$VC")"
-  local uPLTHOME="$(winpath2unix "$PLTHOME")"
-  PATH="$uVC/bin:$uSCOMMON/IDE:$uSCOMMON/Tools:$uSCOMMON/Tools/Bin"
-  PATH="$PATH:/usr/local/bin:/usr/bin:/bin"
-  PATH="$PATH:/c/Windows/system32:/c/Windows:/c/Windows/System32/Wbem"
-  PATH="$PATH:$uPLTHOME:$uPLTHOME/bin"
-  PATH="$PATH:."
+  PROGS="C:\\Program Files"
+  if [[ "$arch" = "x64" ]]; then PROGS="C:\\Program Files (x86)"; fi
+  STUDIO="$PROGS\\Microsoft Visual Studio 10.0"
+  VSNET="$(winpath2unix "$STUDIO\\Common7\\IDE\\devenv.com")"
+  NMAKE="$(winpath2unix "$STUDIO\\VC\\bin\\nmake.exe")"
 
-  INCLUDE="$VC\\include;$VC\\atlmfc\\include;$VC\PlatformSDK\Include"
-  LIB=".;$VC\\lib;$VC\\atlmfc\\lib;$VC\\PlatformSDK\\lib"
+  grab_batch_vars "$STUDIO\\VC\\vcvarsall.bat" "$arch"
+
+  PATH="$PATH:$(winpath2unix "$PLTHOME"):."
+
   export VSNET NMAKE PATH INCLUDE LIB
 
-  # separator "win32: Convert .sln files"
+  # separator "Windows: Convert .sln files"
   # local SAVED_IFS="$IFS"; IFS=$'\n'
   # local sln
   # for sln in $(find "$PLTHOME/src/worksp" -type f -name "*.sln"); do
@@ -1346,31 +1406,39 @@ DO_WIN32_BUILD() {
   # done
   # IFS="$SAVED_IFS"
 
-  separator "win32: Full build"
-  build_w32step VSNET "racket"
-  build_w32step VSNET "gracket"
-  _cd "$PLTHOME/src/worksp/gc2"; build_w32step RKT "3M" make.rkt
+  separator "Windows: Use new .sln files"
+  local SAVED_IFS="$IFS"; IFS=$'\n'
+  local file
+  for file in $(find "$PLTHOME/src/worksp10" -type f); do
+    _cp "$file" "${file//worksp10/worksp}"
+  done
+  IFS="$SAVED_IFS"
+
+  separator "Windows: Full build"
+  win_build_step VSNET "racket"
+  win_build_step VSNET "gracket"
+  _cd "$PLTHOME/src/worksp/gc2"; win_build_step RKT "3M" make.rkt
 
   _cd "$PLTHOME"
-  build_w32step VSNET "mzstart"
-  build_w32step VSNET "mrstart"
+  win_build_step VSNET "mzstart"
+  win_build_step VSNET "mrstart"
 
   _cd "$PLTHOME/lib"
-  build_w32step RKT "get-libs (gui)" ../src/get-libs.rkt core
-  build_w32step RKT "get-libs (gui)" ../src/get-libs.rkt gui
+  win_build_step RKT "get-libs (gui)" ../src/get-libs.rkt core
+  win_build_step RKT "get-libs (gui)" ../src/get-libs.rkt gui
 
-  separator "win32: Building libraries"
+  separator "Windows: Building libraries"
   _cd "$PLTHOME"
-  build_w32step RKT "compiler" -N raco -l- raco setup -Dl compiler
+  win_build_step RKT "compiler" -N raco -l- raco setup -Dl compiler
 
-  build_w32step VSNET3M "mzcom"
-  build_w32step VSNET3M "libmysterx"
+  win_build_step VSNET3M "mzcom"
+  win_build_step VSNET3M "libmysterx"
   # _cd "$PLTHOME/src/srpersist"
-  # build_w32step NMAKE "srpersist" /f srpersist.mak "install"
+  # win_build_step NMAKE "srpersist" /f srpersist.mak "install"
 
-  _cd "$PLTHOME"; build_w32step RKT "raco setup" $SETUP_ARGS
+  _cd "$PLTHOME"; win_build_step RKT "raco setup" $SETUP_ARGS
 
-  separator "win32: Building Cygwin libreries"
+  separator "Windows: Building Cygwin libreries"
   _mcd "$PLTHOME/src/build"
   _run ../configure --disable-gracket
   _cd "racket/dynsrc"
@@ -1379,7 +1447,7 @@ DO_WIN32_BUILD() {
   || exit_error "Errors when running \"make\" for Cygwin"
 
   # Borland is no longer supported:
-  # separator "win32: Building Borland libreries"
+  # separator "Windows: Building Borland libreries"
   # _cd "$PLTHOME/src/racket/dynsrc"
   # _run bcc32 -I"../include" -I"g:/borland/bcc55/include" \
   #        -o"mzdynb.obj" -c "mzdyn.c"
@@ -1387,7 +1455,7 @@ DO_WIN32_BUILD() {
   # _cp "mzdynb.obj" "mzdynb.def" "$PLTHOME/lib/bcc"
 
   _cd "$PLTHOME"
-  build_w32step RKT "winvers" -l setup/winvers; sleep 240
+  win_build_step RKT "winvers" -l setup/winvers; sleep 240
 
 }
 
@@ -1410,9 +1478,9 @@ BUILD_DOCS_AND_PDFS() {
     html_file_row "pdf" "pdf versions of the manuals"
     _rmcd "pdf"
     # avoid any work except for the pdf generation
-    _run "$PLTHOME/bin/raco" setup \
+    _run "$PLTHOME/bin/racket" $SETUP_ARGS \
            --no-zo --no-launcher --no-install --no-post-install \
-           --no-info-domain --no-docs --no-user --no-planet \
+           --no-info-domain --no-docs --no-planet \
            --doc-pdf .
     _cd ..
   else
@@ -1667,6 +1735,7 @@ do_tgz_to_exe() {
   || exit_error "NSIS build failed"
   _mv "installer.exe" "$tmpexe"
   _cd "$savedpwd"
+  sleep 1 # looks like there are some problems deleting this immediately
   _rm "$tmpdir/tgz-to-exe-$$"
 }
 tgz_to_exe() {
@@ -1940,11 +2009,11 @@ BUILD_WEB() {
   # distribute only if this is a normal build
   if [[ "$prewebdir" = "$prewebdir_default" ]]; then
     separator "Making and distributing web content"
-    _run "$PLTHOME/$webscript" $webflags --dist
+    webflags="$webflags --dist"
   else
     separator "Making web content -- not distributing"
-    _run "$PLTHOME/$webscript" $webflags
   fi
+  GIT_DIR="$maindir/$cleandir/.git" _run "$PLTHOME/$webscript" $webflags
 
 }
 

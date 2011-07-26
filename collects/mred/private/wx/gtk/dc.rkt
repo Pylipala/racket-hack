@@ -23,18 +23,29 @@
 (define-gdk gdk_cairo_create (_fun _pointer -> _cairo_t)
   #:wrap (allocator cairo_destroy))
 
+(define-cstruct _GdkVisual-rec ([type-instance _pointer]
+				[ref_count _uint]
+				[qdata _pointer]
+				[type _int]
+				[depth _int]))
+(define-gdk gdk_visual_get_system (_fun -> _GdkVisual-rec-pointer))
+
 (define x11-bitmap%
   (class bitmap%
     (init w h gdk-win)
     (super-make-object (make-alternate-bitmap-kind w h))
 
-    (define pixmap (gdk_pixmap_new gdk-win w h (if gdk-win -1 24)))
+    (define pixmap (gdk_pixmap_new gdk-win (max 1 w) (max 1 h)
+				   (if gdk-win 
+				       -1
+				       (GdkVisual-rec-depth
+					(gdk_visual_get_system)))))
     (define s
       (cairo_xlib_surface_create (gdk_x11_display_get_xdisplay
                                   (gdk_drawable_get_display pixmap))
                                  (gdk_x11_drawable_get_xid pixmap)
-                                 (gdk_x11_visual_get_xvisual
-                                  (gdk_drawable_get_visual pixmap))
+				 (gdk_x11_visual_get_xvisual
+				  (gdk_drawable_get_visual pixmap))
                                  w
                                  h))
 
@@ -92,11 +103,12 @@
 
 (define dc%
   (class backing-dc%
-    (init [(cnvs canvas)])
+    (init [(cnvs canvas)]
+          transparent?)
     (inherit end-delay)
     (define canvas cnvs)
 
-    (super-new)
+    (super-new [transparent? transparent?])
 
     (define gl #f)
     (define/override (get-gl-context)
@@ -114,7 +126,7 @@
              (send canvas get-canvas-background))
 	(make-object win32-bitmap% w h (widget-window (send canvas get-client-gtk)))]
        [else
-	(super make-backing-bitmap w h)]))
+	(super make-backing-bitmap (max 1 w) (max 1 h))]))
 
     (define/override (get-backing-size xb yb)
       (send canvas get-client-size xb yb))
@@ -146,12 +158,5 @@
                 [h (box 0)])
             (send canvas get-client-size w h)
             (let ([cr (gdk_cairo_create win)])
-              (let ([s (cairo_get_source cr)])
-                (cairo_pattern_reference s)
-                (cairo_set_source_surface cr (send bm get-cairo-surface) 0 0)
-                (cairo_new_path cr)
-                (cairo_rectangle cr 0 0 (unbox w) (unbox h))
-                (cairo_fill cr)
-                (cairo_set_source cr s)
-                (cairo_pattern_destroy s))
+              (backing-draw-bm bm cr (unbox w) (unbox h))
               (cairo_destroy cr))))))

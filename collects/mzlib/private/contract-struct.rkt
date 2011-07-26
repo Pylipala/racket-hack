@@ -3,7 +3,8 @@
 (require (for-syntax racket/base
                      racket/contract/private/helpers
                      racket/struct-info)
-         racket/contract/private/guts)
+         racket/contract/private/guts
+         racket/contract/private/misc)
 
 (provide struct/c)
 
@@ -66,7 +67,7 @@
                   ...
                   [ctc-name-x (contract-name ctc-x)]
                   ...)
-              (build-flat-contract
+              (flat-named-contract
                (build-compound-type-name 'struct/c 'struct-name ctc-x ...)
                (λ (val)
                  (and (predicate-id val)

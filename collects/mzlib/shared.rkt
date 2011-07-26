@@ -4,6 +4,7 @@
                      syntax/stx
                      syntax/kerncase
                      syntax/struct
+                     racket/struct-info
                      scheme/include))
 
 (provide shared)
@@ -15,5 +16,5 @@
   (lambda (stx)
     (define make-check-cdr #f)
     ;; Include the implementation.
-    ;; See private/shared-body.ss.
+    ;; See private/shared-body.rkt.
     (include "private/shared-body.rkt")))

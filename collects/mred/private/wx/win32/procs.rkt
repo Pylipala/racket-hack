@@ -11,12 +11,12 @@
          "window.rkt"
          "dc.rkt"
          "printer-dc.rkt"
-         "../common/printer.rkt"
          (except-in "../common/default-procs.rkt"
                     get-panel-background)
          "filedialog.rkt"
          "colordialog.rkt"
          "sound.rkt"
+         "key.rkt"
 	 racket/draw)
 
 (provide
@@ -29,7 +29,6 @@
   register-collecting-blit
   unregister-collecting-blit
   shortcut-visible-in-label?
-  run-printout
   get-double-click-time
   get-control-font-face
   get-control-font-size
@@ -57,8 +56,8 @@
  make-gl-bitmap
  special-control-key
  special-option-key
- get-color-from-user)
-
+ get-color-from-user
+ key-symbol-to-menu-key)
 
 (define (find-graphical-system-path what)
   #f)
@@ -79,8 +78,6 @@
 (define (unregister-collecting-blit canvas)
   (send canvas unregister-collecting-blits))
 (define (shortcut-visible-in-label? [? #f]) #t)
-
-(define run-printout (make-run-printout printer-dc%))
 
 (define (get-double-click-time) 500)
 (define (get-control-font-face) (get-theme-font-face))

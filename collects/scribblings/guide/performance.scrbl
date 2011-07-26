@@ -1,9 +1,11 @@
 #lang scribble/doc
-@(require scribble/manual
-          "guide-utils.ss"
+@(require scribble/manual "guide-utils.rkt"
           (for-label racket/flonum racket/unsafe/ops))
 
 @title[#:tag "performance"]{Performance}
+
+@section-index["benchmarking"]
+@section-index["speed"]
 
 Alan Perlis famously quipped ``Lisp programmers know the value of
 everything and the cost of nothing.'' A Racket programmer knows, for
@@ -17,6 +19,29 @@ underlying computing machinery can be quite large.
 In this chapter, we narrow the gap by explaining details of the
 Racket compiler and run-time system and how they affect the run-time
 and memory performance of Racket code.
+
+@; ----------------------------------------------------------------------
+
+@section[#:tag "DrRacket-perf"]{Performance in DrRacket}
+
+By default, DrRacket instruments programs for debugging, and
+debugging instrumentation can significantly degrade performance for
+some programs. Even when debugging is disabled through the
+@onscreen{Choose Language...} dialog's @onscreen{Show Details} panel,
+the @onscreen{Preserve stacktrace} checkbox is clicked by default,
+which also affects performance. Disabling debugging and stacktrace
+preservation provides performance results that are more consistent
+with running in plain @exec{racket}.
+
+Even so, DrRacket and programs developed within DrRacket use the same
+Racket virtual machine, so garbage collection times (see
+@secref["gc-perf"]) may be longer in DrRacket than when a program is
+run by itself, and DrRacket threads may impede execution of program
+threads. For the most reliable timing results for a program, run in
+plain @exec{racket} instead of in the DrRacket development environment.
+Non-interactive mode should be used instead of the
+@tech["REPL"] to benefit from the module system. See
+@secref["modules-performance"] for details.
 
 @; ----------------------------------------------------------------------
 
@@ -58,16 +83,16 @@ difficult to detect.
 
 @; ----------------------------------------------------------------------
 
-@section{Modules and Performance}
+@section[#:tag "modules-performance"]{Modules and Performance}
 
 The module system aids optimization by helping to ensure that
 identifiers have the usual bindings. That is, the @racket[+] provided
 by @racketmodname[racket/base] can be recognized by the compiler and
 inlined, which is especially important for @tech{JIT}-compiled code.
-In contrast, in a traditional interactive Racket system, the top-level
+In contrast, in a traditional interactive Scheme system, the top-level
 @racket[+] binding might be redefined, so the compiler cannot assume a
 fixed @racket[+] binding (unless special flags or declarations
-act as a poor-man's module system to indicate otherwise).
+are used to compensate for the lack of a module system).
 
 Even in the top-level environment, importing with @racket[require]
 enables some inlining optimizations. Although a @racket[+] definition
@@ -76,7 +101,7 @@ definition applies only to expressions evaluated later.
 
 Within a module, inlining and constant-propagation optimizations take
 additional advantage of the fact that definitions within a module
-cannot be mutated when no @racket[set!] is visable at compile
+cannot be mutated when no @racket[set!] is visible at compile
 time. Such optimizations are unavailable in the top-level
 environment. Although this optimization within modules is important
 for performance, it hinders some forms of interactive development and

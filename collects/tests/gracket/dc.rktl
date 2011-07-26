@@ -72,6 +72,9 @@
   (try-ok 'set-text-foreground (make-object color% "Yellow"))
   (try-ok 'set-text-mode 'transparent)
 
+  (try-ok 'get-char-height)
+  (try-ok 'get-char-width)
+
   (try 'try-color (make-object color% "Yellow") (make-object color%)))
 
 (st #f mdc ok?)
@@ -214,6 +217,208 @@
     (send bm2 get-argb-pixels 0 0 70 70 s2)
     (send bm3 get-argb-pixels 0 0 70 70 s3)
     (test #t 'same-scaled (equal? s2 s3))))
+
+;; ----------------------------------------
+;; Test some masking combinations
+
+(let ()
+  (define u (make-object bitmap% 2 2))
+  (define mu (make-object bitmap% 2 2))
+  (send u set-argb-pixels 0 0 2 2
+        (bytes 255 100 0 0
+               255 0 0 0
+               255 100 0 0
+               255 255 255 255))
+  (send mu set-argb-pixels 0 0 2 2
+        (bytes 255 0 0 0
+               255 255 255 255
+               255 0 0 0
+               255 255 255 255))
+  (send u set-loaded-mask mu)
+  (define (try-draw nonce-color mode expect 
+                    #:bottom? [bottom? #f])
+    (let* ((b&w? (not (eq? mode 'color)))
+           (bm (make-object bitmap% 2 2 b&w?))
+           (dc (make-object bitmap-dc% bm)))
+      (send dc clear)
+      (when (eq? mode 'black)
+        (send dc set-brush "black" 'solid)
+        (send dc draw-rectangle 0 0 2 2))
+      ;; Check that draw-bitmap-section really uses the
+      ;; section, even in combination with a mask.
+      (send dc draw-bitmap-section u 
+            0 (if bottom? 1 0)
+            0 (if bottom? 1 0) 2 1
+            'solid nonce-color (send u get-loaded-mask))
+      (send dc set-bitmap #f)
+      (let ([s (make-bytes (* 2 2 4))])
+        (send bm get-argb-pixels 0 0 2 2 s)
+        (when b&w? (send bm get-argb-pixels 0 0 2 2 s #t))
+        (test expect 'masked-draw s))))
+  (define usual-expect (bytes 255 100 0 0
+                              255 255 255 255
+                              255 255 255 255
+                              255 255 255 255))
+  (try-draw (make-object color% "green") 'color usual-expect)
+  (try-draw (make-object color%) 'color usual-expect)
+  (try-draw (make-object color%) 'white
+            ;; For b&w destination, check that the
+            ;;  alpha is consistent with the drawn pixels
+            (bytes 255 0 0 0
+                   0 255 255 255
+                   0 255 255 255
+                   0 255 255 255))
+  (send mu set-argb-pixels 0 0 2 2
+        (bytes 255 255 255 255
+               255 255 255 255
+               255 0 0 0
+               255 0 0 0))
+  (try-draw (make-object color%) 'black
+            #:bottom? #t
+            ;; Another b&w destination test, this time
+            ;; with a mask that forces black pixels to
+            ;; white:
+            (bytes 255 0 0 0
+                   255 0 0 0
+                   255 0 0 0
+                   0 255 255 255))
+  (send mu set-argb-pixels 0 0 2 2
+        (bytes 255 255 255 255
+               255 0 0 0
+               255 255 255 255
+               255 0 0 0))
+  (try-draw (make-object color%) 'color
+            (bytes 255 255 255 255
+                   255 0 0 0
+                   255 255 255 255
+                   255 255 255 255))
+  (let ([dc (make-object bitmap-dc% mu)])
+    (send dc erase)
+    (send dc set-pen "white" 1 'transparent)
+    (send dc set-brush "black" 'solid)
+    (send dc draw-rectangle 0 0 1 1)
+    (send dc set-bitmap #f))
+  (try-draw (make-object color%) 'color usual-expect))
+
+;; ----------------------------------------
+;; 0 alpha should make the RGB components irrelevant
+
+(let ()
+  (define bm1 (make-bitmap 1 2))
+  (define bm2 (make-bitmap 1 2))
+
+  (send bm1 set-argb-pixels 0 0 1 2 (bytes 0   0 0 0
+                                           255 0 0 255))
+  (send bm2 set-argb-pixels 0 0 1 2 (bytes 255 255 0 0
+                                           0   0   0 0))
+
+  (define the-bytes (make-bytes 8 0))
+
+  (define bm3 (make-bitmap 1 2))
+  (define bdc (make-object bitmap-dc% bm3))
+  (void (send bdc draw-bitmap bm1 0 0))
+  (void (send bdc draw-bitmap bm2 0 0))
+
+  (send bdc get-argb-pixels 0 0 1 2 the-bytes)
+  (test (bytes 255 255 0 0
+               255 0   0 255)
+        values
+        the-bytes))
+
+;; ----------------------------------------
+
+;; Check B&W drawing to B&W, 'solid vs. 'opaque
+(let ([mk
+       (lambda (expect style bg-col col mask?)
+         (let* ((bm1 (make-object bitmap% 2 2 #t))
+                (bm2 (make-object bitmap% 2 2 #t))
+                (bm3 (make-object bitmap% 2 2 #t))
+                (dc1 (new bitmap-dc% (bitmap bm1)))
+                (dc2 (new bitmap-dc% (bitmap bm2)))
+                (dc3 (new bitmap-dc% (bitmap bm3)))
+                (s (make-bytes 16)))
+           (send dc1 clear)
+           (send dc1 set-argb-pixels 0 0 2 1 #"\xFF\0\0\0\xFF\0\0\0")
+           (send dc2 clear)
+           (send dc2 set-argb-pixels 0 1 2 1 #"\xFF\0\0\0\xFF\0\0\0")
+           (send dc3 set-argb-pixels 0 0 2 2 (bytes-append #"\xFF\0\0\0\xFF\xFF\xFF\xFF"
+                                                           #"\xFF\0\0\0\xFF\xFF\xFF\xFF"))
+           (send dc2 set-background bg-col)
+           (send dc2 draw-bitmap bm1 0 0 style col (and mask? bm3))
+           (send dc2 set-bitmap #f)
+           (send bm2 get-argb-pixels 0 0 2 2 s)
+           (let ([col->str (lambda (c)
+                             (if (zero? (send c red)) "black" "white"))])
+             (test expect `(mk ,style ,(col->str bg-col) ,(col->str col), mask?) s))))]
+      [black (make-object color%)]
+      [white (make-object color% 255 255 255)])
+  (mk #"\377\0\0\0\377\0\0\0\377\0\0\0\377\0\0\0" 'solid white black #f)
+  (mk #"\377\0\0\0\377\0\0\0\377\0\0\0\377\0\0\0" 'solid black black #f)
+  (mk #"\377\377\377\377\377\377\377\377\377\0\0\0\377\0\0\0" 'solid black white #f)
+  (mk #"\377\0\0\0\377\377\377\377\377\0\0\0\377\0\0\0" 'solid white black #t)
+  (mk #"\377\377\377\377\377\377\377\377\377\0\0\0\377\0\0\0" 'solid white white #t)
+  (mk #"\377\0\0\0\377\0\0\0\377\377\377\377\377\377\377\377" 'opaque white black #f)
+  (mk #"\377\0\0\0\377\0\0\0\377\0\0\0\377\0\0\0" 'opaque black black #f)
+  (mk #"\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377" 'opaque white white #f)
+  (mk #"\377\0\0\0\377\377\377\377\377\377\377\377\377\0\0\0" 'opaque white black #t)
+  (mk #"\377\377\377\377\377\377\377\377\377\0\0\0\377\0\0\0" 'opaque black white #t))
+
+;; ----------------------------------------
+;; check get-alpha mode of `get-argb-pixels'
+
+(let ()
+  (define (get-column-alpha bm x y)
+    (define bs (make-bytes 4))
+    (send bm get-argb-pixels x y 1 1 bs #t)
+    bs)
+  (define abm (make-object bitmap% 2 2 #f #t))
+  (define nbm (make-object bitmap% 2 2 #f #f))
+  (define (avg bstr) (- 255
+                        (quotient (+ (bytes-ref bstr 0)
+                                     (bytes-ref bstr 1)
+                                     (bytes-ref bstr 2))
+                                  3)))
+  (send abm set-argb-pixels 0 0 2 2 #"0123456789abcdef")
+  (send nbm set-argb-pixels 0 0 2 2 #"0123456789abcdef") ; alphas ignored
+
+  (test (bytes (char->integer #\0) 0 0 0) 'a0+0 (get-column-alpha abm 0 0))
+  (test (bytes (char->integer #\4) 0 0 0) 'a1+0 (get-column-alpha abm 1 0))
+  (test (bytes (char->integer #\8) 0 0 0) 'a0+1 (get-column-alpha abm 0 1))
+  (test (bytes (char->integer #\c) 0 0 0) 'a1+1 (get-column-alpha abm 1 1))
+
+  (test (bytes (avg #"123") 0 0 0) 'n0+0 (get-column-alpha nbm 0 0))
+  (test (bytes (avg #"567") 0 0 0) 'n1+0 (get-column-alpha nbm 1 0))
+  (test (bytes (avg #"9ab") 0 0 0) 'n0+1 (get-column-alpha nbm 0 1))
+  (test (bytes (avg #"def") 0 0 0) 'n1+1 (get-column-alpha nbm 1 1)))
+
+;; ----------------------------------------
+;; check pre-mult mode of `{get,set}-argb-pixels'
+
+(let ()
+  (define abm (make-object bitmap% 2 2 #f #t))
+  (define nbm (make-object bitmap% 2 2 #f #f))
+  (send abm set-argb-pixels 0 0 2 2 #"30127456b89afcde" #f #t)
+  (send nbm set-argb-pixels 0 0 2 2 #"0123456789abcdef" #f #t) ; alphas ignored
+
+  (define (get-pixels bm pre-mult?)
+    (define bs (make-bytes 16))
+    (send bm get-argb-pixels 0 0 2 2 bs #f pre-mult?)
+    bs)
+
+  (define (unmul b)
+    (define (um v) (quotient (* v 255) (bytes-ref b 0)))
+    (bytes (bytes-ref b 0)
+           (um (bytes-ref b 1))
+           (um (bytes-ref b 2))
+           (um (bytes-ref b 3))))
+
+  (test #"\xFF123\xFF567\xFF9ab\xFFdef" 'no-alpha (get-pixels nbm #f))
+  (test #"\xFF123\xFF567\xFF9ab\xFFdef" 'no-alpha (get-pixels nbm #t))
+
+  (test (apply bytes-append (map unmul '(#"3012" #"7456" #"b89a" #"fcde")))
+        'alpha-normal (get-pixels abm #f))
+  (test #"30127456b89afcde" 'alpha-premult (get-pixels abm #t)))
+
 
 ;; ----------------------------------------
 

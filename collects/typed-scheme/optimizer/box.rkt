@@ -1,12 +1,12 @@
 #lang scheme/base
 
-(require syntax/parse
+(require syntax/parse unstable/syntax
          racket/match
          "../utils/utils.rkt"
          (for-template scheme/base scheme/unsafe/ops)
          (rep type-rep)
          (types type-table utils)
-         (optimizer utils))
+         (optimizer utils logging))
 
 (provide box-opt-expr)
 
@@ -29,4 +29,4 @@
   (pattern (#%plain-app op:box-op b:box-expr new:expr ...)
            #:with opt
            (begin (log-optimization "box" #'op)
-                  #`(op.unsafe b.opt #,@(map (optimize) (syntax->list #'(new ...)))))))
+                  #`(op.unsafe b.opt #,@(syntax-map (optimize) #'(new ...))))))

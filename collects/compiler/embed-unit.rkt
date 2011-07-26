@@ -1,25 +1,26 @@
-
 (module embed-unit scheme/base
   (require scheme/unit
-	   scheme/path
+           scheme/path
            scheme/file
-	   scheme/port
-	   scheme/promise
+           scheme/port
+           scheme/promise
            syntax/moddep
            syntax/modcollapse
            xml/plist
            setup/dirs
            setup/variant
-	   "embed-sig.ss"
-	   "private/winicon.ss"
-           "private/winsubsys.ss"
-	   "private/macfw.ss"
-	   "private/mach-o.ss"
-	   "private/windlldir.ss"
-	   "private/collects-path.ss")
-  
+           "embed-sig.rkt"
+           "private/winicon.rkt"
+           "private/winsubsys.rkt"
+           "private/macfw.rkt"
+           "private/mach-o.rkt"
+           "private/elf.rkt"
+           "private/windlldir.rkt"
+           "private/collects-path.rkt"
+           "find-exe.rkt")
+
   (provide compiler:embed@)
-  
+
   (define-unit compiler:embed@
     (import)
     (export compiler:embed^)
@@ -60,47 +61,6 @@
                         "Contents" "MacOS"
                         (path-replace-suffix name #"")))
           dest))
-    
-    ;; Find executable relative to the "mzlib"
-    ;; collection.
-    (define (find-exe mred? variant)
-      (let* ([base (if mred?
-                       (find-gui-bin-dir)
-                       (find-console-bin-dir))]
-             [fail
-              (lambda ()
-                (error 'create-embedding-executable
-                       "can't find ~a executable for variant ~a"
-                       (if mred? "GRacket" "Racket")
-                       variant))])
-        (let ([exe (build-path
-                    base
-                    (case (system-type)
-                      [(macosx)
-                       (cond
-                         [(not mred?)
-                          ;; Need Racket:
-                          (string-append "racket" (variant-suffix variant #f))]
-                         [mred?
-                          ;; Need GRacket:
-                          (let ([sfx (variant-suffix variant #t)])
-                            (build-path (format "GRacket~a.app" sfx)
-                                        "Contents" "MacOS" 
-                                        (format "GRacket~a" sfx)))])]
-                      [(windows)
-                       (format "~a~a.exe" (if mred?
-                                              "Gracket"
-                                              "Racket")
-                               (variant-suffix variant #t))]
-                      [(unix)
-                       (format "~a~a" (if mred?
-                                          "gracket"
-                                          "racket")
-                               (variant-suffix variant #f))]))])
-          (unless (or (file-exists? exe)
-                      (directory-exists? exe))
-            (fail))
-          exe)))
     
     (define exe-suffix?
       (delay (equal? #"i386-cygwin" (path->bytes (system-library-subpath)))))
@@ -507,8 +467,8 @@
                                   ;; Record module as copied
                                   (set-box! codes
                                             (cons (make-mod filename module-path #f
-                                                            #f #f #f #f 
-                                                            null null
+                                                            #f #f #f
+                                                            null null null
                                                             actual-filename)
                                                   (unbox codes))))
                                 ;; Build up relative module resolutions, relative to this one,
@@ -552,7 +512,7 @@
                     (set-box! codes
                               (cons (make-mod filename module-path code 
                                               name #f #f
-                                              null null
+                                              null null null
                                               actual-filename)
                                     (unbox codes)))])))))))
     
@@ -623,7 +583,7 @@
                                [(name)
                                 ;; a notification; if the name matches one of our special names,
                                 ;; assume that it's from a namespace that has the declaration
-                                ;; [it would be better if the noritifer told us the source]
+                                ;; [it would be better if the notifier told us the source]
                                 (let-values ([(name) (if name (resolved-module-path-name name) #f)])
                                   (let-values ([(a) (assq name mapping-table)])
                                     (if a
@@ -811,6 +771,16 @@
                   p2
                   path)))]
        [else path]))
+
+    (define (path-extra-suffix p sfx)
+      ;; Library names may have a version number preceded
+      ;; by a ".", which looks like a suffix, so add the
+      ;; shared-library suffix using plain-old bytes append:
+      (let-values ([(base name dir?) (split-path p)])
+        (let ([name (bytes->path (bytes-append (path->bytes name) sfx))])
+          (if (path? base)
+              (build-path base name)
+              name))))
     
     ;; Write a module bundle that can be loaded with 'load' (do not embed it
     ;; into an executable). The bundle is written to the current output port.
@@ -946,8 +916,8 @@
                                                                                (eq? 'so (car p)))
                                                                           (let ([fs (list
                                                                                      (cadr p)
-                                                                                     (path-replace-suffix (cadr p) 
-                                                                                                          (system-type 'so-suffix)))])
+                                                                                     (path-extra-suffix (cadr p) 
+                                                                                                        (system-type 'so-suffix)))])
                                                                             (ormap (lambda (f)
                                                                                      (ormap (lambda (p)
                                                                                               (let ([p (build-path p f)])
@@ -1198,8 +1168,44 @@
                                              compiler
                                              expand-namespace
                                              src-filter
-                                             get-extra-imports))])
-              (let-values ([(start end)
+                                             get-extra-imports))]
+		  [make-full-cmdline
+		   (lambda (start end)
+		     (let ([start-s (number->string start)]
+			   [end-s (number->string end)])
+		       (append (if launcher?
+				   (if (and (eq? 'windows (system-type))
+					    keep-exe?)
+				       ;; argv[0] replacement:
+				       (list (path->string 
+					      (if relative?
+						  (relativize exe dest-exe values)
+						  exe)))
+				       ;; No argv[0]:
+				       null)
+				   (list "-k" start-s end-s))
+			       cmdline)))]
+		  [make-starter-cmdline
+		   (lambda (full-cmdline)
+		     (apply bytes-append
+			    (map (lambda (s)
+				   (bytes-append 
+				    (cond
+				     [(path? s) (path->bytes s)]
+				     [else (string->bytes/locale s)])
+				    #"\0"))
+				 (append
+				  (list (if relative?
+					    (relativize exe dest-exe values)
+					    exe)
+					(let ([dir (find-dll-dir)])
+					  (if dir
+					      (if relative?
+						  (relativize dir dest-exe values)
+						  dir)
+					      "")))
+				  full-cmdline))))])
+              (let-values ([(start end cmdline-end)
                             (if (and (eq? (system-type) 'macosx)
                                      (not unix-starter?))
                                 ;; For Mach-O, we know how to add a proper segment
@@ -1208,29 +1214,37 @@
                                   (let ([s (get-output-bytes s)])
                                     (let ([start (add-plt-segment dest-exe s)])
                                       (values start
-                                              (+ start (bytes-length s))))))
-                                ;; Other platforms: just add to the end of the file:
-                                (let ([start (file-size dest-exe)])
-                                  (call-with-output-file* dest-exe write-module 
-                                                          #:exists 'append)
-                                  (values start (file-size dest-exe))))])
+                                              (+ start (bytes-length s))
+					      #f))))
+                                ;; Unix starter: Maybe ELF, in which case we 
+                                ;; can add a proper section
+                                (let-values ([(s e p)
+					      (if unix-starter?
+						  (add-racket-section 
+						   orig-exe 
+						   dest-exe
+						   (if launcher? #".rackcmdl" #".rackprog")
+						   (lambda (start)
+						     (let ([s (open-output-bytes)])
+						       (write-module s)
+						       (let ([p (file-position s)])
+							 (display (make-starter-cmdline
+								   (make-full-cmdline start (+ start p)))
+								  s)
+							 (values (get-output-bytes s) p)))))
+						  (values #f #f #f))])
+                                  (if (and s e)
+				      ;; ELF succeeded:
+                                      (values s (+ s p) e)
+                                      ;; Otherwise, just add to the end of the file:
+                                      (let ([start (file-size dest-exe)])
+                                        (call-with-output-file* dest-exe write-module 
+                                                                #:exists 'append)
+                                        (values start (file-size dest-exe) #f)))))])
                 (when verbose?
                   (fprintf (current-error-port) "Setting command line\n"))
-                (let ([start-s (number->string start)]
-                      [end-s (number->string end)])
-                  (let ([full-cmdline (append
-                                       (if launcher?
-                                           (if (and (eq? 'windows (system-type))
-                                                    keep-exe?)
-                                               ;; argv[0] replacement:
-                                               (list (path->string 
-                                                      (if relative?
-                                                          (relativize exe dest-exe values)
-                                                          exe)))
-                                               ;; No argv[0]:
-                                               null)
-                                           (list "-k" start-s end-s))
-                                       cmdline)])
+		(let ()
+                  (let ([full-cmdline (make-full-cmdline start end)])
                     (when collects-path-bytes
                       (when verbose?
                         (fprintf (current-error-port) "Setting collection path\n"))
@@ -1248,27 +1262,12 @@
                                              (lambda () (find-cmdline 
                                                          "exeuctable type"
                                                          #"bINARy tYPe:"))))]
-                             [cmdline
-                              (apply bytes-append
-                                     (map (lambda (s)
-                                            (bytes-append 
-                                             (cond
-                                               [(path? s) (path->bytes s)]
-                                               [else (string->bytes/locale s)])
-                                             #"\0"))
-                                          (append
-                                           (list (if relative?
-                                                     (relativize exe dest-exe values)
-                                                     exe)
-                                                 (let ([dir (find-dll-dir)])
-                                                   (if dir
-                                                       (if relative?
-                                                           (relativize dir dest-exe values)
-                                                           dir)
-                                                       "")))
-                                           full-cmdline)))]
+                             [cmdline (if cmdline-end
+					  #f
+					  (make-starter-cmdline full-cmdline))]
                              [out (open-output-file dest-exe #:exists 'update)])
-                         (let ([cmdline-end (+ end (bytes-length cmdline))]
+                         (let ([old-cmdline-end cmdline-end]
+			       [cmdline-end (or cmdline-end (+ end (bytes-length cmdline)))]
                                [write-num (lambda (n)
                                             (write-bytes (integer->integer-bytes n 4 #t #f) out))])
                            (dynamic-wind
@@ -1290,9 +1289,10 @@
                               (write-num (length full-cmdline))
                               (write-num (if mred? 1 0))
                               (flush-output out)
-                              (file-position out end)
-                              (write-bytes cmdline out)
-                              (flush-output out))
+			      (unless old-cmdline-end
+				(file-position out end)
+				(write-bytes cmdline out)
+				(flush-output out)))
                             (lambda ()
                               (close-output-port out)))))]
                       [else
@@ -1360,4 +1360,3 @@
         [(list? p) (map mac-mred-collects-path-adjust p)]
         [(relative-path? p) (build-path 'up 'up 'up p)]
         [else p]))))
-

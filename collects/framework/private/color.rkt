@@ -1,4 +1,4 @@
-#lang scheme/unit
+#lang racket/unit
 #|
 update-region-end is now gone
 get-region is gone
@@ -13,8 +13,8 @@ added get-regions
          syntax-color/paren-tree
          syntax-color/default-lexer
          string-constants
-         "../preferences.ss"
-         "sig.ss")
+         "../preferences.rkt"
+         "sig.rkt")
 
 (import [prefix icon: framework:icon^]
         [prefix mode: framework:mode^]
@@ -137,7 +137,6 @@ added get-regions
                         (new paren-tree% (matches pairs))))
 
     (define lexer-states (list (make-new-lexer-state 0 'end)))
-
     (define/public (get-up-to-date?) 
       (andmap lexer-state-up-to-date? lexer-states))
 
@@ -209,7 +208,8 @@ added get-regions
                       (loop (cdr old) (cdr new)))]
                [else
                 (cons (make-new-lexer-state (caar new) (cadar new))
-                      (loop null (cdr new)))]))))
+                      (loop null (cdr new)))])))
+      (update-lexer-state-observers))
 
     
     (define/public (get-regions) 
@@ -236,6 +236,17 @@ added get-regions
              local-edit-sequence? get-styles-fixed has-focus?
              get-fixed-style)
     
+    (define lexers-all-valid? #t)
+    (define/private (update-lexer-state-observers)
+      (define new (for/and ([ls (in-list lexer-states)])
+                    (lexer-state-up-to-date? ls)))
+      (unless (eq? new lexers-all-valid?)
+        (set! lexers-all-valid? new)
+        (on-lexer-valid lexers-all-valid?)))
+    (define/pubment (on-lexer-valid valid?)
+      (inner (void) on-lexer-valid valid?))
+    (define/public-final (is-lexer-valid?) lexers-all-valid?)
+    
     (define/private (reset-tokens)
       (for-each
        (lambda (ls)
@@ -247,6 +258,7 @@ added get-regions
          (set-lexer-state-current-lexer-mode! ls #f)
          (set-lexer-state-parens! ls (new paren-tree% (matches pairs))))
        lexer-states)
+      (update-lexer-state-observers)
       (set! restart-callback #f)
       (set! force-recolor-after-freeze #f)
       (set! colors null)
@@ -285,6 +297,14 @@ added get-regions
                        (get-token in in-start-pos in-lexer-mode)
                        (enable-suspend #t)))])
         (unless (eq? 'eof type)
+          (unless (exact-nonnegative-integer? new-token-start)
+            (error 'color:text<%> "expected an exact nonnegative integer for the token start, got ~e" new-token-start))
+          (unless (exact-nonnegative-integer? new-token-end)
+            (error 'color:text<%> "expected an exact nonnegative integer for the token end, got ~e" new-token-end))
+          (unless (exact-nonnegative-integer? backup-delta)
+            (error 'color:text<%> "expected an exact nonnegative integer for the backup delta, got ~e" backup-delta))
+          (unless (0 . < . (- new-token-end new-token-start))
+            (error 'color:text<%> "expected the distance between the start and end position for each token to be positive, but start was ~e and end was ~e" new-token-start new-token-end))
           (enable-suspend #f)
           #; (printf "~a at ~a to ~a\n" lexeme (+ in-start-pos (sub1 new-token-start))
                      (+ in-start-pos (sub1 new-token-end)))
@@ -300,7 +320,7 @@ added get-regions
                             (sp (+ in-start-pos (sub1 new-token-start)))
                             (ep (+ in-start-pos (sub1 new-token-end))))
                        (λ ()
-                          (change-style color sp ep #f)))
+                         (change-style color sp ep #f)))
                      colors)))
             ;; Using the non-spec version takes 3 times as long as the spec
             ;; version.  In other words, the new greatly outweighs the tree
@@ -374,6 +394,7 @@ added get-regions
                                                        (send valid-tree search-max!)
                                                        (data-lexer-mode (send valid-tree get-root-data))))))
           (set-lexer-state-up-to-date?! ls #f)
+          (update-lexer-state-observers)
           (queue-callback (λ () (colorer-callback)) #f)))
        ((>= edit-start-pos (lexer-state-invalid-tokens-start ls))
         (let-values (((tok-start tok-end valid-tree invalid-tree orig-data)
@@ -454,7 +475,8 @@ added get-regions
           (when (coroutine-run 10 tok-cor)
             (for-each (lambda (ls)
                         (set-lexer-state-up-to-date?! ls #t))
-                      lexer-states)))
+                      lexer-states)
+            (update-lexer-state-observers)))
         #;(printf "end lexing\n")
         #;(printf "begin coloring\n")
         ;; This edit sequence needs to happen even when colors is null
@@ -803,16 +825,31 @@ added get-regions
     
     ;; Determines whether a position is a 'comment, 'string, etc.
     (define/public (classify-position position)
+      (define-values (tokens ls) (get-tokens-at-position 'classify-position position))
+      (and tokens
+           (let ([root-data (send tokens get-root-data)])
+             (and root-data
+                  (data-type root-data)))))
+
+    (define/public (get-token-range position)
+      (define-values (tokens ls) (get-tokens-at-position 'get-token-range position))
+      (values (and tokens ls
+                   (+ (lexer-state-start-pos ls)
+                      (send tokens get-root-start-position)))
+              (and tokens ls
+                   (+ (lexer-state-start-pos ls)
+                      (send tokens get-root-end-position)))))
+
+    (define/private (get-tokens-at-position who position)
       (when stopped?
-        (error 'classify-position "called on a color:text<%> whose colorer is stopped."))
+        (error who "called on a color:text<%> whose colorer is stopped."))
       (let ([ls (find-ls position)])
-        (and ls
-             (let ([tokens (lexer-state-tokens ls)])
+        (if ls
+            (let ([tokens (lexer-state-tokens ls)])
                (tokenize-to-pos ls position)
                (send tokens search! (- position (lexer-state-start-pos ls)))
-               (let ([root-data (send tokens get-root-data)])
-                 (and root-data
-                      (data-type root-data)))))))
+              (values tokens ls))
+            (values #f #f))))
     
     (define/private (tokenize-to-pos ls position)
       (when (and (not (lexer-state-up-to-date? ls)) 

@@ -56,7 +56,7 @@
    [lpSetupTemplateName _pointer]
    [hPrintTemplate _HGLOBAL]
    [hSetupTemplate _HGLOBAL])
-  #:alignment 2)
+  #:alignment (if is-win64? #f 2))
 
 (define-cstruct _DOCINFO
   ([cbSize _int]
@@ -78,6 +78,13 @@
 (define-gdi32 EndPage (_wfun _HDC -> (r : _int) -> (unless (positive? r) (failed 'EndPage))))
 (define-gdi32 EndDoc (_wfun _HDC -> (r : _int) -> (unless (positive? r) (failed 'EndDoc))))
 
+(define-gdi32 GetDeviceCaps (_wfun _HDC _int -> _int))
+
+(define LOGPIXELSX    88)
+(define LOGPIXELSY    90)
+(define PHYSICALOFFSETX 112)
+(define PHYSICALOFFSETY 113)
+
 (define needs-delete ((allocator DeleteDC) values))
 
 (define (clone-page-setup p)
@@ -87,6 +94,7 @@
     new-p))
 
 (define PSD_RETURNDEFAULT #x00000400)
+(define PSD_MARGINS                       #x00000002)
 
 (define (show-print-setup parent [just-create? #f])
   (let* ([pss (current-ps-setup)]
@@ -99,9 +107,14 @@
            (begin
              (memset p 0 1 _PAGESETUPDLG)
              (set-PAGESETUPDLG-lStructSize! p (ctype-sizeof _PAGESETUPDLG))))
-       (set-PAGESETUPDLG-Flags! p (if just-create?
-                                      PSD_RETURNDEFAULT
-                                      0))
+       (set-PAGESETUPDLG-Flags! p (bitwise-ior 
+				   (if just-create?
+				       PSD_RETURNDEFAULT
+				       0)
+				   PSD_MARGINS))
+       (set-PAGESETUPDLG-hwndOwner! p (and parent
+					   (send parent is-shown?)
+					   (send parent get-hwnd)))
        (let ([r (PageSetupDlgW p)])
          (when r
            (let ([new-p (clone-page-setup p)])
@@ -111,9 +124,19 @@
          ;; the hDevModes and hDevNames fields
          r)))))
 
+;; Pango uses the resolution of the screen to make point<->pixel
+;;  decisions for all devices (by default). So, we make on drawing unit in
+;;  a printing context match the relative drawing unit for the screen.
+(define SCREEN-DPI (let ([hdc (GetDC #f)])
+		     (begin0
+		      (exact->inexact (GetDeviceCaps hdc LOGPIXELSX))
+		      (ReleaseDC #f hdc))))
+
 (define printer-dc%
   (class (record-dc-mixin (dc-mixin bitmap-dc-backend%))
     (init [parent #f])
+
+    (define parent-frame parent)
 
     (super-make-object (make-object win32-bitmap% 1 1 #f))
 
@@ -129,19 +152,32 @@
                            (begin
                              (show-print-setup #f #t)
                              (send (current-ps-setup) get-native))))
-    
-    (define-values (page-width page-height)
+
+    (define-values (page-width page-height margin-left margin-top)
+      ;; We would like to make the size of the DC match the
+      ;; printable area of the device. Unfortunately, we can't get
+      ;; the printable area until after we get a DC, which is too
+      ;; late for determining a page count (that can depend on the page
+      ;; size). So, we treat the area within the user's chosen margins
+      ;; are the printable area; starting out with PSD_MARGINS with 0 margins
+      ;; and PSD_RETURNDEFAULT seems to fill in the minimum margins,
+      ;; which is probably as good an approximation as any to the value
+      ;; that we want. See also `set-point-scale' below, which has to bridge
+      ;; the printable-area coordinate system and the within-paper-margins
+      ;; coordinate system.
       (let ([scale (if (zero? (bitwise-and (PAGESETUPDLG-Flags page-setup)
                                            PSD_INTHOUSANDTHSOFINCHES))
                        ;; 100ths of mm
-                       (/ 72.0 (/ 10.0 2.54))
+                       (/ SCREEN-DPI (* 10.0 2.54))
                        ;; 1000ths of in
-                       (/ 72.0 1000.0))])
-      (values
-       (* scale (POINT-x (PAGESETUPDLG-ptPaperSize page-setup)))
-       (* scale (POINT-y (PAGESETUPDLG-ptPaperSize page-setup))))))
-
-
+                       (/ SCREEN-DPI 1000.0))]
+	    [r (PAGESETUPDLG-rtMargin page-setup)]
+	    [p (PAGESETUPDLG-ptPaperSize page-setup)])
+	(values
+	 (* scale (- (POINT-x p) (RECT-left r) (RECT-right r)))
+	 (* scale (- (POINT-y p) (RECT-top r) (RECT-bottom r)))
+	 (* scale (RECT-left r))
+	 (* scale (RECT-top r)))))
 
     (define/override (get-size) (values page-width page-height))
 
@@ -157,6 +193,9 @@
                        (set-cpointer-tag! p PRINTDLG-tag)
                        (memset p 0 1 _PRINTDLG)
                        (set-PRINTDLG-lStructSize! p (ctype-sizeof _PRINTDLG))
+		       (set-PRINTDLG-hwndOwner! p (and parent-frame
+						       (send parent-frame is-shown?)
+						       (send parent-frame get-hwnd)))
                        (set-PRINTDLG-hDevMode! p (PAGESETUPDLG-hDevMode page-setup))
                        (set-PRINTDLG-hDevNames! p (PAGESETUPDLG-hDevNames page-setup))
                        (set-PRINTDLG-Flags! p (bitwise-ior PD_RETURNDC))
@@ -190,15 +229,15 @@
                      [page-no (in-naturals 1)])
                  (when (<= from-page page-no to-page)
                    (StartPage hdc)
-                   (let* ([s (cairo_win32_surface_create hdc)]
+                   (let* ([s (cairo_win32_printing_surface_create hdc)]
                           [cr (cairo_create s)])
-                     (set-point-scale hdc cr)
+                     (set-point-scale hdc cr margin-left margin-top)
                      (proc
                       (make-object
                        (class (dc-mixin default-dc-backend%)
                          (super-new)
                          (define/override (init-cr-matrix cr)
-                           (set-point-scale hdc cr))
+                           (set-point-scale hdc cr margin-left margin-top))
                          (define/override (get-cr) cr))))
                      (cairo_destroy cr)
                      (cairo_surface_destroy s))
@@ -206,14 +245,20 @@
                (EndDoc hdc))
              (DeleteDC hdc))))))))
 
-(define-gdi32 GetDeviceCaps (_wfun _HDC _int -> _int))
-
-(define LOGPIXELSX    88)
-(define LOGPIXELSY    90)
-
-(define (set-point-scale hdc cr)
+(define (set-point-scale hdc cr margin-left margin-top)
   (let* ([lpx (GetDeviceCaps hdc LOGPIXELSX)]
          [lpy (GetDeviceCaps hdc LOGPIXELSY)]
-         [lx (/ (if (zero? lpx) 300 lpx) 72.0)]
-         [ly (/ (if (zero? lpy) 300 lpy) 72.0)])
-    (cairo_scale cr lx ly)))
+         [dpx (GetDeviceCaps hdc PHYSICALOFFSETX)]
+         [dpy (GetDeviceCaps hdc PHYSICALOFFSETY)]
+         [lx (/ (if (zero? lpx) 300 lpx) SCREEN-DPI)]
+         [ly (/ (if (zero? lpy) 300 lpy) SCREEN-DPI)])
+    ;; We declared the size of the page based on paper,
+    ;; while DC reflcts just the printable area for the device,
+    ;; so compensate by shifting (and assume that margins
+    ;; are use appropriately)
+    (cairo_translate cr (- dpx) (- dpy))
+    ;; Scale to make printer scale simulate screen resolution:
+    (cairo_scale cr lx ly)
+    ;; Shift again to skip over th emargin, which we subtracted
+    ;; from the paper size:
+    (cairo_translate cr margin-left margin-top)))

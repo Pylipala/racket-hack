@@ -25,9 +25,12 @@
               queue-window-refresh-event
               location->window
               flush-display
+	      get-default-control-font
 
               GetWindowRect
-              GetClientRect))
+              GetClientRect
+
+              _NMHDR))
 
 (define (unhide-cursor) (void))
 
@@ -56,8 +59,6 @@
                                      -> (unless r (failed 'ClientToScreen))))
 
 (define-gdi32 CreateFontIndirectW (_wfun _LOGFONT-pointer -> _HFONT))
-(define-user32 FillRect (_wfun _HDC _RECT-pointer _HBRUSH -> (r : _int)
-                               -> (when (zero? r) (failed 'FillRect))))
 
 (define-shell32 DragAcceptFiles (_wfun _HWND _BOOL -> _void))
 
@@ -72,6 +73,8 @@
 
 (define-user32 WindowFromPoint (_fun _POINT -> _HWND))
 (define-user32 GetParent (_fun _HWND -> _HWND))
+(define-user32 SetParent (_fun _HWND _HWND -> (r : _HWND)
+                               -> (unless r (failed 'SetParent))))
 
 (define-cstruct _NMHDR
   ([hwndFrom _HWND]
@@ -117,10 +120,26 @@
    [cbData _DWORD]
    [lpData _pointer]))
 
+(define-cstruct _TRACKMOUSEEVENT
+  ([cbSize _DWORD]
+   [dwFlags _DWORD]
+   [hwndTrack _HWND]
+   [dwHoverTime _DWORD]))
+
+(define TME_LEAVE #x02)
+(define TME_NONCLIENT #x10)
+
+(define-user32 TrackMouseEvent (_wfun _TRACKMOUSEEVENT-pointer -> (r : _BOOL)
+                                      -> (unless r (failed 'TrackMouseEvent))))
+(define-user32 GetCursorPos (_wfun _POINT-pointer -> _BOOL))
+
 (defclass window% object%
   (init-field parent hwnd)
   (init style
         [extra-hwnds null])
+
+  (define enabled? #t)
+  (define parent-enabled? #t)
 
   (super-new)
   
@@ -134,6 +153,7 @@
 
   (define/public (get-hwnd) hwnd)
   (define/public (get-client-hwnd) hwnd)
+  (define/public (get-content-hwnd) (get-client-hwnd))
   (define/public (get-focus-hwnd) hwnd)
   (define/public (get-eventspace) eventspace)
 
@@ -145,29 +165,40 @@
         0
         (cond
          [(= msg WM_SETFOCUS)
+          (set-top-focus this null w)
           (queue-window-event this (lambda () (on-set-focus)))
           0]
          [(= msg WM_KILLFOCUS)
           (queue-window-event this (lambda () (on-kill-focus)))
           0]
-         [(and (= msg WM_SYSKEYDOWN)
-               (or (= wParam VK_MENU) (= wParam VK_F4))) ;; F4 is close
-          (unhide-cursor)
-          (begin0
-           (default w msg wParam lParam)
-           (do-key w msg wParam lParam #f #f void))]
+         [(= msg WM_SYSKEYDOWN)
+          (let ([result (if (or (= wParam VK_MENU) (= wParam VK_F4)) ;; F4 is close
+			    (begin
+			      (unhide-cursor)
+			      (default w msg wParam lParam))
+			    0)])
+	    (do-key w msg wParam lParam #f #f void)
+	    result)]
          [(= msg WM_KEYDOWN)
           (do-key w msg wParam lParam #f #f default)]
          [(= msg WM_KEYUP)
           (do-key w msg wParam lParam #f #t default)]
-         [(and (= msg WM_SYSCHAR)
-               (= wParam VK_MENU))
-          (unhide-cursor)
-          (begin0
-           (default w msg wParam lParam)
-           (do-key w msg wParam lParam #t #f void))]
+         [(= msg WM_SYSCHAR)
+	  (let ([result (if (= wParam VK_MENU)
+			    (begin
+			      (unhide-cursor)
+			      (default w msg wParam lParam))
+			    0)])
+	    (do-key w msg wParam lParam #t #f void)
+	    result)]
          [(= msg WM_CHAR)
           (do-key w msg wParam lParam #t #f default)]
+	 [(= msg WM_MOUSEWHEEL)
+          (gen-wheels w msg lParam (HIWORD wParam) 'wheel-down 'wheel-up)
+	  0]
+         [(= msg WM_MOUSEHWHEEL) ; Vista and later
+          (gen-wheels w msg lParam (HIWORD wParam) 'wheel-left 'wheel-right)
+          0]
          [(= msg WM_COMMAND)
           (let* ([control-hwnd (cast lParam _LPARAM _HWND)]
                  [wx (any-hwnd->wx control-hwnd)]
@@ -184,7 +215,7 @@
                  [cmd (LOWORD (NMHDR-code nmhdr))])
             (if (and wx (send wx is-command? cmd))
                 (begin
-                  (send wx do-command cmd control-hwnd)
+                  (send wx do-command-ex cmd control-hwnd nmhdr)
                   0)
                 (default w msg wParam lParam)))]
          [(or (= msg WM_HSCROLL)
@@ -208,13 +239,22 @@
          [(= msg WM_COPYDATA)
           (handle-copydata lParam)
           0]
+	 [(= msg WM_INPUTLANGCHANGE)
+	  (reset-key-mapping)
+	  0]
          [else
           (default w msg wParam lParam)])))
 
   (define/public (is-command? cmd) #f)
   (define/public (control-scrolled) #f)
 
+  (define/public (do-command cmd control-hwnd)
+    (void))
+  (define/public (do-command-ex cmd control-hwnd nmhdr)
+    (do-command cmd control-hwnd))
+
   (define/public (show on?)
+    (when on? (show-children))
     (atomically (direct-show on?)))
 
   (define shown? #f)
@@ -227,14 +267,13 @@
   (unless (memq 'deleted style)
     (show #t))
   
-  (define/public (on-size w h) (void))
+  (define/public (queue-on-size) (void))
 
   (define/public (on-set-focus) (void))
   (define/public (on-kill-focus) (void))
   (define/public (get-handle) hwnd)
+  (define/public (get-client-handle) (get-content-hwnd))
 
-  (define enabled? #t)
-  (define parent-enabled? #t)
   (define/public (enable on?)
     (unless (eq? enabled? (and on? #t))
       (atomically
@@ -264,15 +303,13 @@
   (define/public (is-shown?)
     shown?)
 
-  (define/public (paint-children) (void))
-
   (define/public (get-x)
     (let ([r (GetWindowRect hwnd)]
-          [pr (GetWindowRect (send parent get-client-hwnd))])
+          [pr (GetWindowRect (send parent get-content-hwnd))])
       (- (RECT-left r) (RECT-left pr))))
   (define/public (get-y)
     (let ([r (GetWindowRect hwnd)]
-          [pr (GetWindowRect (send parent get-client-hwnd))])
+          [pr (GetWindowRect (send parent get-content-hwnd))])
       (- (RECT-top r) (RECT-top pr))))
 
   (define/public (get-width)
@@ -282,21 +319,26 @@
     (let ([r (GetWindowRect hwnd)])
       (- (RECT-bottom r) (RECT-top r))))
 
+  (define/public (notify-child-extent x y)
+    (void))
+
   (define/public (set-size x y w h)
-    (if (or (= x -11111)
-            (= y -11111)
-            (= w -1)
-            (= h -1))
-        (let ([r (GetWindowRect hwnd)])
-          (MoveWindow hwnd 
-                      (if (= x -11111) (RECT-left r) x)
-                      (if (= y -11111) (RECT-top r) y)
-                      (if (= w -1) (- (RECT-right r) (RECT-left r)) w)
-                      (if (= h -1) (- (RECT-bottom r) (RECT-top r)) h)
-                      #t))
-        (MoveWindow hwnd x y w h #t))
+    (let-values ([(x y w h)
+                  (if (or (= x -11111)
+                          (= y -11111)
+                          (= w -1)
+                          (= h -1))
+                      (let ([r (GetWindowRect hwnd)])
+                        (values (if (= x -11111) (RECT-left r) x)
+                                (if (= y -11111) (RECT-top r) y)
+                                (if (= w -1) (- (RECT-right r) (RECT-left r)) w)
+                                (if (= h -1) (- (RECT-bottom r) (RECT-top r)) h)))
+                      (values x y w h))])
+      (when parent (send parent notify-child-extent (+ x w) (+ y h)))
+      (MoveWindow hwnd x y w h #t))
     (unless (and (= w -1) (= h -1))
       (on-resized))
+    (queue-on-size)
     (refresh))
   (define/public (move x y)
     (set-size x y -1 -1))
@@ -305,7 +347,8 @@
     (unless theme-hfont
       (set! theme-hfont (CreateFontIndirectW (get-theme-logfont))))
     (let ([hfont (if font
-                     (font->hfont font)
+                     (or (font->hfont font)
+			 theme-hfont)
                      theme-hfont)])
       (SendMessageW hwnd WM_SETFONT (cast hfont _HFONT _LPARAM) 0)))
 
@@ -355,6 +398,11 @@
   (define/public (center a b) (void))
 
   (define/public (get-parent) parent)
+  (define/public (set-parent p) 
+    ;; in atomic mode
+    (set! parent p)
+    (SetParent hwnd (send parent get-content-hwnd)))
+
   (define/public (is-frame?) #f)
 
   (define/public (refresh) (void))
@@ -370,6 +418,14 @@
       (ClientToScreen (get-client-hwnd) p)
       (set-box! x (POINT-x p))
       (set-box! y (POINT-y p))))
+
+  (define/public (in-content? p)
+    (ScreenToClient (get-client-hwnd) p)
+    (let ([r (GetClientRect (get-client-hwnd))])
+      (and (< 0 (POINT-x p) (- (RECT-right r)
+			       (RECT-left r)))
+	   (< 0 (POINT-y p) (- (RECT-bottom r)
+			       (RECT-top r))))))
 
   (define/public (drag-accept-files on?)
     (DragAcceptFiles (get-hwnd) on?))
@@ -444,8 +500,21 @@
     (when parent
       (send parent register-child this on?)))
 
+  (define/public (show-children) (void))
+  (define/public (paint-children) (void))
+
   (define/public (get-top-frame)
     (send parent get-top-frame))
+
+  (define/private (gen-wheels w msg lParam val down up)
+    (let ([orig-delta (quotient val WHEEL_DELTA)])
+      (let loop ([delta (abs orig-delta)])
+        (unless (zero? delta)
+          (do-key w msg (if (negative? orig-delta)
+                            down
+                            up)
+                  lParam #f #f void)
+          (loop (sub1 delta))))))
   
   (define/private (do-key w msg wParam lParam is-char? is-up? default)
     (let ([e (make-key-event #f wParam lParam is-char? is-up? hwnd)])
@@ -461,6 +530,43 @@
           (default w msg wParam lParam))))
 
   (define/public (try-mouse w msg wParam lParam)
+    (cond
+     [(= msg WM_RBUTTONDOWN)
+      (do-mouse w msg #f 'right-down wParam lParam)]
+     [(= msg WM_RBUTTONUP)
+      (do-mouse w msg #f 'right-up wParam lParam)]
+     [(= msg WM_RBUTTONDBLCLK)
+      (do-mouse w msg #f 'right-down wParam lParam)]
+     [(= msg WM_MBUTTONDOWN)
+      (do-mouse w msg #f 'middle-down wParam lParam)]
+     [(= msg WM_MBUTTONUP)
+      (do-mouse w msg #f 'middle-up wParam lParam)]
+     [(= msg WM_MBUTTONDBLCLK)
+      (do-mouse w msg #f 'middle-down wParam lParam)]
+     [(= msg WM_LBUTTONDOWN)
+      (do-mouse w msg #f 'left-down wParam lParam)]
+     [(= msg WM_LBUTTONUP)
+      (do-mouse w msg #f 'left-up wParam lParam)]
+     [(= msg WM_LBUTTONDBLCLK)
+      (do-mouse w msg #f 'left-down wParam lParam)]
+     [(= msg WM_MOUSEMOVE)
+      (do-mouse w msg #f 'motion wParam lParam)]
+     [(= msg WM_MOUSELEAVE)
+      (let ([p (make-POINT 0 0)])
+        (let ([f (and (GetCursorPos p)
+		      (location->window (POINT-x p) (POINT-y p)))])
+          (unless (and (eq? f (get-top-frame))
+		       (send f in-content? p))
+            (do-mouse w msg #f 'leave wParam lParam))))
+      ;; send message on to default handling (e.g., for buttons):
+      #f]
+     [else (try-nc-mouse w msg wParam lParam)]))
+
+  ;; Breaking out NC mouse operations lets us not handle
+  ;; them for frames (where this method is overridden), 
+  ;; since handling them intereferes with the cursor and
+  ;; resize handling for frames.
+  (define/public (try-nc-mouse w msg wParam lParam)
     (cond
      [(= msg WM_NCRBUTTONDOWN)
       (do-mouse w msg #t 'right-down wParam lParam)]
@@ -484,28 +590,6 @@
            (not (= wParam HTVSCROLL))
            (not (= wParam HTHSCROLL)))
       (do-mouse w msg #t 'motion wParam lParam)]
-     [(= msg WM_RBUTTONDOWN)
-      (do-mouse w msg #f 'right-down wParam lParam)]
-     [(= msg WM_RBUTTONUP)
-      (do-mouse w msg #f 'right-up wParam lParam)]
-     [(= msg WM_RBUTTONDBLCLK)
-      (do-mouse w msg #f 'right-down wParam lParam)]
-     [(= msg WM_MBUTTONDOWN)
-      (do-mouse w msg #f 'middle-down wParam lParam)]
-     [(= msg WM_MBUTTONUP)
-      (do-mouse w msg #f 'middle-up wParam lParam)]
-     [(= msg WM_MBUTTONDBLCLK)
-      (do-mouse w msg #f 'middle-down wParam lParam)]
-     [(= msg WM_LBUTTONDOWN)
-      (do-mouse w msg #f 'left-down wParam lParam)]
-     [(= msg WM_LBUTTONUP)
-      (do-mouse w msg #f 'left-up wParam lParam)]
-     [(= msg WM_LBUTTONDBLCLK)
-      (do-mouse w msg #f 'left-down wParam lParam)]
-     [(= msg WM_MOUSEMOVE)
-      (do-mouse w msg #f 'motion wParam lParam)]
-     [(= msg WM_MOUSELEAVE)
-      (do-mouse w msg #f 'leave wParam lParam)]
      [else #f]))
 
   (define/private (do-mouse control-hwnd msg nc? type wParam lParam)
@@ -537,28 +621,38 @@
                     [alt-down #f]
                     [time-stamp 0]
                     [caps-down #f]))])
-        (unless nc?
-          (when (wants-mouse-capture? control-hwnd)
-            (when (memq type '(left-down right-down middle-down))
-              (SetCapture control-hwnd))
-            (when (memq type '(left-up right-up middle-up))
-              (ReleaseCapture))))
-        (if mouse-in?
-            (if (send-child-leaves (lambda (type) (make-e type)))
-                (cursor-updated-here)
-                (if (send (get-top-frame) is-wait-cursor-on?)
-                    (void (SetCursor (get-wait-cursor)))
-                    (when effective-cursor-handle
-                      (void (SetCursor effective-cursor-handle)))))
-            (let ([c (generate-mouse-ins this (lambda (type) (make-e type)))])
-              (when c
-                (set! effective-cursor-handle c)
-                (void (SetCursor (if (send (get-top-frame) is-wait-cursor-on?)
-                                     (get-wait-cursor)
-                                     c))))))
-        (when (memq type '(left-down right-down middle-down))
-          (set-focus))
-        (handle-mouse-event control-hwnd msg wParam (make-e type)))))
+        (if (eq? type 'leave)
+            (let ([t (get-top-frame)])
+              (send t send-child-leaves make-e)
+              (send t send-leaves make-e))
+            (begin
+              (unless nc?
+                (when (wants-mouse-capture? control-hwnd)
+                  (when (memq type '(left-down right-down middle-down))
+                    (SetCapture control-hwnd))
+                  (when (memq type '(left-up right-up middle-up))
+                    (ReleaseCapture))))
+              (if mouse-in?
+                  (if (send-child-leaves make-e)
+                      (cursor-updated-here)
+                      (if (send (get-top-frame) is-wait-cursor-on?)
+                          (void (SetCursor (get-wait-cursor)))
+                          (when effective-cursor-handle
+                            (void (SetCursor effective-cursor-handle)))))
+                  (let ([c (generate-mouse-ins this (lambda (type) (make-e type)))])
+                    (TrackMouseEvent (make-TRACKMOUSEEVENT 
+                                      (ctype-sizeof _TRACKMOUSEEVENT)
+                                      (bitwise-ior TME_LEAVE)
+                                      control-hwnd
+                                      0))
+                    (when c
+                      (set! effective-cursor-handle c)
+                      (void (SetCursor (if (send (get-top-frame) is-wait-cursor-on?)
+                                           (get-wait-cursor)
+                                           c))))))
+              (when (memq type '(left-down right-down middle-down))
+                (set-focus))
+              (handle-mouse-event control-hwnd msg wParam (make-e type)))))))
 
   (define/private (handle-mouse-event w msg wParam e)
     (if (definitely-wants-event? w msg wParam e)
@@ -585,13 +679,15 @@
     (send parent generate-mouse-ins this mk))
 
   (define/public (send-leaves mk)
-    (set! mouse-in? #f)
-    (let ([e (mk 'leave)])
-      (if (eq? (current-thread) 
-               (eventspace-handler-thread eventspace))
-          (handle-mouse-event (get-client-hwnd) 0 0 e)
-          (queue-window-event this
-                              (lambda () (dispatch-on-event/sync e))))))
+    (when mouse-in?
+      (set! mouse-in? #f)
+      (when mk
+        (let ([e (mk 'leave)])
+          (if (eq? (current-thread) 
+                   (eventspace-handler-thread eventspace))
+              (handle-mouse-event (get-client-hwnd) 0 0 e)
+              (queue-window-event this
+                                  (lambda () (dispatch-on-event/sync e))))))))
 
   (define/public (send-child-leaves mk)
     #f)
@@ -617,7 +713,7 @@
     (dispatch-on-event e #f))
   (define/public (dispatch-on-event e just-pre?) 
     (cond
-     [(other-modal? this) #t]
+     [(other-modal? this e) #t]
      [(call-pre-on-event this e) #t]
      [just-pre? #f]
      [else (when (is-enabled-to-root?) (on-event e)) #t]))
@@ -636,11 +732,11 @@
 
   (define/private (pre-event-refresh key?)
     ;; Since we break the connection between the
-    ;; Cocoa queue and event handling, we
+    ;; Win32 queue and event handling, we
     ;; re-sync the display in case a stream of
     ;; events (e.g., key repeat) have a corresponding
     ;; stream of screen updates.
-    (void))
+    (flush-display))
 
   (define/public (get-dialog-level) (send parent get-dialog-level)))
 
@@ -652,8 +748,8 @@
          [guid-len (bytes-length GRACKET_GUID)]
          [data-len (COPYDATASTRUCT-cbData cd)])
     (when (and (data-len
-                . > . 
-                (+ guid-len (ctype-sizeof _DWORD)))
+                . >= . 
+                (+ guid-len 4 (ctype-sizeof _DWORD)))
                (bytes=? GRACKET_GUID
                         (scheme_make_sized_byte_string data
                                                        guid-len

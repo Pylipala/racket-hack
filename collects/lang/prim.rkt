@@ -1,4 +1,3 @@
-
 ;; Provides `define-primitive' and `define-higher-order-primitive'
 ;; for use in teachpacks for Beginner, especially those that
 ;; define a primitive operator that consumes a procedure.
@@ -6,9 +5,9 @@
 
 (module prim mzscheme
   (require lang/error
-	   (rename lang/htdp-beginner beginner-app #%app))
+           (rename lang/htdp-beginner beginner-app #%app))
   
-  (require-for-syntax (prefix fo: "private/firstorder.ss")
+  (require-for-syntax (prefix fo: "private/firstorder.rkt")
                       stepper/private/shared)
   
   (provide define-primitive
@@ -24,33 +23,35 @@
        (with-syntax ([impl #'(let ([name (lambda argv
                                            (apply implementation argv))])
                                name)])
-	 #'(define-syntax name 
-             (fo:make-first-order
-              (lambda (stx)
-                (with-syntax ([tagged-impl (stepper-syntax-property
-                                            (stepper-syntax-property (quote-syntax impl) 'stepper-skip-completely #t)
-                                            'stepper-prim-name
-                                            (quote-syntax name))])
-                  (syntax-case stx ()
-                    [(_ . body)
-                     ;; HACK: we disable all checks if #%app is not beginner-app
-                     (not (module-identifier=? #'beginner-app (datum->syntax-object stx '#%app)))
-                     (syntax/loc stx (tagged-impl . body))]
-                    [_
-                     ;; HACK: see above
-                     (not (module-identifier=? #'beginner-app (datum->syntax-object stx '#%app)))
-                     (syntax/loc stx tagged-impl)]
-                    [(id . args)
-                     (syntax/loc stx (#%plain-app tagged-impl . args))]
-                    [_
-                     (raise-syntax-error
-                      #f
-                      (string-append
-                       "this primitive operator must be applied to arguments; "
-                       "expected an open parenthesis before the operator name")
-                      stx)])))
-              ((syntax-local-certifier #t)
-               #'impl))))]))
+	 #'(begin
+             ;; Make sure that `implementation' is bound:
+             (define-values () (begin (lambda () implementation) (values)))
+             ;; Bind `name':
+             (define-syntax name 
+               (fo:make-first-order
+                (lambda (stx)
+                  (with-syntax ([tagged-impl (stepper-syntax-property
+                                              (stepper-syntax-property (quote-syntax impl) 'stepper-skip-completely #t)
+                                              'stepper-prim-name
+                                              (quote-syntax name))])
+                    (syntax-case stx ()
+                      [(_ . body)
+                       ;; HACK: we disable all checks if #%app is not beginner-app
+                       (not (module-identifier=? #'beginner-app (datum->syntax-object stx '#%app)))
+                       (syntax/loc stx (tagged-impl . body))]
+                      [_
+                       ;; HACK: see above
+                       (not (module-identifier=? #'beginner-app (datum->syntax-object stx '#%app)))
+                       (syntax/loc stx tagged-impl)]
+                      [(id . args)
+                       (syntax/loc stx (#%plain-app tagged-impl . args))]
+                      [_
+                       (raise-syntax-error
+                        #f
+                        "expected a function call, but there is no open parenthesis before this function"
+                        stx)])))
+                ((syntax-local-certifier #t)
+                 #'impl)))))]))
 
   (define-syntax (define-higher-order-primitive stx)
     (define (is-proc-arg? arg)
@@ -60,7 +61,7 @@
        (let ([args (syntax->list (syntax (arg ...)))])
          (for-each (lambda (id)
                      (unless (identifier? id)
-                       (raise-syntax-error #f "not an identifier" stx id)))
+                       (raise-syntax-error #f "expected a variable" stx id)))
                    (cons (syntax name)
                          args))
 	 (let ([new-args (generate-temporaries args)])
@@ -73,9 +74,7 @@
 					 (raise-syntax-error
 					  #f
 					  (format
-					   "primitive operator ~a expects a defined procedure name (usually `~a') in this position"
-					   'name
-					   '#,arg)
+					   "expects a function in this position")
 					  s
 					  (#,#'syntax #,new-arg)))))
 			       args new-args)]
@@ -114,18 +113,20 @@
                                (syntax/loc s (tagged-impl wrapped-arg ...))
                                )]
                             [(_ . rest)
-                             (raise-syntax-error
-                              #f
-                              (format
-                               "primitive operator requires ~a arguments"
-                               num-arguments)
-                              s)]
+                             (let ([num-actuals (length (syntax->list #'rest))])
+                               (raise-syntax-error
+                                #f
+                                (format
+                                 "this function expects ~a argument~a, here it is provided ~a argument~a"
+                                 num-arguments
+                                 (if (= num-arguments 1) "" "s")
+                                 num-actuals
+                                 (if (= num-actuals 1) "" "s"))
+                                s))]
                             [_
                              (raise-syntax-error
                               #f
-                              (string-append
-                               "this primitive operator must be applied to arguments; "
-                               "expected an open parenthesis before the operator name")
+                              "expected a function call, but there is no open parenthesis before this function"
                               s)])))
                       ((syntax-local-certifier #t)
                        #'impl))))))))]))

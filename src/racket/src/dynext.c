@@ -1,6 +1,6 @@
 /*
   Racket
-  Copyright (c) 2004-2010 PLT Scheme Inc.
+  Copyright (c) 2004-2011 PLT Scheme Inc.
   Copyright (c) 1995-2002 Matthew Flatt
 
     This library is free software; you can redistribute it and/or
@@ -105,9 +105,8 @@ Scheme_Extension_Table *scheme_extension_table;
 #endif
 
 #ifndef NO_DYNAMIC_LOAD
-/* FIXME disallow extensions under places */
-FIXME_LATER static Scheme_Hash_Table *loaded_extensions; /* hash on scheme_initialize pointer */
-FIXME_LATER static Scheme_Hash_Table *fullpath_loaded_extensions; /* hash on full path name */
+THREAD_LOCAL_DECL(static Scheme_Hash_Table *loaded_extensions;) /* hash on scheme_initialize pointer */
+THREAD_LOCAL_DECL(static Scheme_Hash_Table *fullpath_loaded_extensions;) /* hash on full path name */
 #endif
 
 #ifdef MZ_PRECISE_GC 
@@ -122,13 +121,6 @@ FIXME_LATER static Scheme_Hash_Table *fullpath_loaded_extensions; /* hash on ful
 void scheme_init_dynamic_extension(Scheme_Env *env)
 {
   if (scheme_starting_up) {
-#ifndef NO_DYNAMIC_LOAD
-    REGISTER_SO(loaded_extensions);
-    REGISTER_SO(fullpath_loaded_extensions);
-    loaded_extensions = scheme_make_hash_table(SCHEME_hash_ptr);
-    fullpath_loaded_extensions = scheme_make_hash_table(SCHEME_hash_string);
-#endif
-
 #ifdef LINK_EXTENSIONS_BY_TABLE
     REGISTER_SO(scheme_extension_table);
     
@@ -138,18 +130,8 @@ void scheme_init_dynamic_extension(Scheme_Env *env)
 #endif
   }
 
-  scheme_add_global_constant("load-extension", 
-			     scheme_make_prim_w_arity2(load_extension, 
-						       "load-extension",
-						       1, 1,
-						       0, -1), 
-			     env);
-
-  scheme_add_global_constant("current-load-extension", 
-			     scheme_register_parameter(current_load_extension, 
-						       "current-load-extension",
-						       MZCONFIG_LOAD_EXTENSION_HANDLER), 
-			     env);
+  GLOBAL_PRIM_W_ARITY2("load-extension", load_extension, 1, 1, 0, -1, env);
+  GLOBAL_PARAMETER("current-load-extension", current_load_extension, MZCONFIG_LOAD_EXTENSION_HANDLER, env);
 }
 
 static Scheme_Object *
@@ -201,6 +183,15 @@ static Scheme_Object *do_load_extension(const char *filename,
   void *handle;
   int comppath;
 
+#ifndef NO_DYNAMIC_LOAD
+  if (!loaded_extensions) {
+    REGISTER_SO(loaded_extensions);
+    REGISTER_SO(fullpath_loaded_extensions);
+    loaded_extensions = scheme_make_hash_table(SCHEME_hash_ptr);
+    fullpath_loaded_extensions = scheme_make_hash_table(SCHEME_hash_string);
+  }
+#endif
+
   comppath = scheme_is_complete_path(filename, strlen(filename), SCHEME_PLATFORM_PATH_KIND);
 
   reload_f = NULL;
@@ -226,7 +217,9 @@ static Scheme_Object *do_load_extension(const char *filename,
     if (filename[0] != '/') {
       int l = strlen(filename);
       char *s;
+
       s = (char *)scheme_malloc_atomic(l + 3);
+
       s[0] = '.';
       s[1] = '/';
       memcpy(s + 2, filename, l + 1);
@@ -441,6 +434,7 @@ static Scheme_Object *do_load_extension(const char *filename,
 	slen = SCHEME_SYM_LEN(n);
 	
 	s = (char *)scheme_malloc_atomic(len + slen + 2);
+
 	memcpy(s, t, len);
 	memcpy(s + len, SCHEME_SYM_VAL(n), slen);
 	s[len + slen] = '\'';

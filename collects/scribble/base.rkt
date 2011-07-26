@@ -1,10 +1,10 @@
 #lang scheme/base
 
-(require "decode.ss"
-         "core.ss"
-         "manual-struct.ss"
-         "decode-struct.ss"
-         "html-properties.ss"
+(require "decode.rkt"
+         "core.rkt"
+         "manual-struct.rkt"
+         "decode-struct.rkt"
+         "html-properties.rkt"
          scheme/list
          scheme/class
          scheme/contract
@@ -27,7 +27,8 @@
              (#:tag (or/c #f string? (listof string?))
                     #:tag-prefix (or/c #f string? module-path?)
                     #:style (or/c style? string? symbol? (listof symbol?) #f)
-                    #:version (or/c string? #f))
+                    #:version (or/c string? #f)
+                    #:date (or/c string? #f))
              #:rest (listof pre-content?)
              title-decl?)]
  [section (title-like-contract)]
@@ -60,12 +61,18 @@
    [else (raise-type-error who "style, string, symbol, list of symbols, or #f" s)]))
 
 (define (title #:tag [tag #f] #:tag-prefix [prefix #f] #:style [style plain]
-               #:version [version #f] . str)
+               #:version [version #f] #:date [date #f]
+               . str)
   (let ([content (decode-content str)])
     (make-title-decl (prefix->string prefix)
                      (convert-tag tag content)
                      version
-                     (convert-part-style 'title style)
+                     (let ([s (convert-part-style 'title style)])
+                       (if date
+                           (make-style (style-name s)
+                                       (cons (make-document-date date)
+                                             (style-properties s)))
+                           s))
                      content)))
 
 (define (section #:tag [tag #f] #:tag-prefix [prefix #f] #:style [style plain]
@@ -262,11 +269,22 @@
 
 ;; ----------------------------------------
 
+(provide ._ .__ ~ ?- -~-)
+
+(define ._ (make-element (make-style "Sendabbrev" null) "."))
+(define .__ (make-element (make-style "Sendsentence" null) "."))
+(define ~ "\uA0")
+(define ?- "\uAD")
+(define -~- "\u2011")
+
+;; ----------------------------------------
+
 (define elem-like-contract
   (->* () () #:rest (listof pre-content?) element?))
 
 (provide/contract
  [linebreak (-> element?)]
+ [nonbreaking elem-like-contract]
  [hspace (-> exact-nonnegative-integer? element?)]
  [elem (->* ()
             (#:style element-style?)
@@ -301,6 +319,9 @@
 
 (define (linebreak)
   (make-element 'newline '("\n")))
+
+(define (nonbreaking . str)
+  (make-element 'no-break (decode-content str)))
 
 (define (elem #:style [style plain] . str)
   (make-element style (decode-content str)))
@@ -496,8 +517,8 @@
                  #:rest (listof pre-content?)
                  element?)]
  [url (-> string? element?)]
- [margin-note (->* () () #:rest (listof pre-flow?) block?)]
- [margin-note* (->* () () #:rest (listof pre-content?) element?)]
+ [margin-note (->* () (#:left? any/c) #:rest (listof pre-flow?) block?)]
+ [margin-note* (->* () (#:left? any/c) #:rest (listof pre-content?) element?)]
  [centered (->* () () #:rest (listof pre-flow?) block?)]
  [verbatim (->* (string?) (#:indent exact-nonnegative-integer?) #:rest (listof string?) block?)])
 
@@ -520,22 +541,24 @@
 (define (url str)
   (hyperlink str (make-element 'url str)))
 
-(define (margin-note . c)
+(define (margin-note #:left? [left? #f] . c)
   (make-nested-flow
-   (make-style "refpara" '(command never-indents))
+   (make-style (if left? "refparaleft" "refpara")
+               '(command never-indents))
    (list
     (make-nested-flow
-     (make-style "refcolumn" null)
+     (make-style (if left? "refcolumnleft" "refcolumn")
+                 null)
      (list
       (make-nested-flow
        (make-style "refcontent" null)
        (decode-flow c)))))))
 
-(define (margin-note* . c)
+(define (margin-note* #:left? [left? #f] . c)
   (make-element
-   (make-style "refelem" null)
+   (make-style (if left? "refelemleft" "refelem") null)
    (make-element
-    (make-style "refcolumn" null)
+    (make-style (if left? "refcolumnleft" "refcolumn") null)
     (make-element
      (make-style "refcontent" null)
      (decode-content c)))))

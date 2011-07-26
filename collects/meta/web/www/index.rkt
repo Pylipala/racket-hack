@@ -56,8 +56,9 @@
      @code{#lang web-server/insta
            ;; A "hello world" web server
            (define (start request)
-             '(html
-               (body "Hello World")))}
+             (response/xexpr
+              '(html
+                (body "Hello World"))))}
      @desc{This example implements a web server using the
        @elemcode{web-server/insta} language.  Each time a connection is made to
        the server, the @elemcode{start} function is called to get the HTML to
@@ -88,11 +89,11 @@
     (graphical-example ; ---------------------------------------------
      @code{#lang racket  ; A picture
            (require 2htdp/image)
-           (let sierpinski ([n 6])
+           (let sierpinski ([n 8])
              (if (zero? n)
-                 (triangle 2 'solid 'red)
-                 (let ([next (sierpinski (- n 1))])
-                   (above next (beside next next)))))}
+               (triangle 2 'solid 'red)
+               (let ([t (sierpinski (- n 1))])
+                 (freeze (above t (beside t t))))))}
      @desc{The @elemcode{2htdp/image} library provides easy-to-use functions
        for constructing images, and DrRacket can display an image result as
        easily as it can display a number result.  In this case, a
@@ -251,13 +252,21 @@
 
 (define blurb "Racket is a programming language")
 
+(provide set-news-flashes!)
+(define news-flashes #f)
+(define (set-news-flashes! . text)
+  (when news-flashes (error 'set-news-flashes! "text already set"))
+  (set! news-flashes text))
+
 (provide index)
 (define index
   (page #:link-title "About" #:window-title "Racket"
         #:extra-headers @list{@meta[name: 'description content: blurb]
                               @(delay more.css)}
-    @div[class: 'whatpane]{
-      @span{@span[class: 'whatb]{Racket} is a programming language.}}
+    @div[class: 'leftpane]{
+      @span[style: "font-size: large; font-weight: bold;"]{Racket}
+      is a programming language.
+      @(and news-flashes (list br (div style: "width: 100%;" news-flashes)))}
     @div[class: 'downloadbutton]{@download-button}
     @div[class: 'aboutpane]{
       @div[class: 'panetitle]{Start Quickly}
@@ -317,7 +326,7 @@
     (for/list ([elem (in-list l)] [pos (in-naturals)])
       @list{
         @invisible-separator
-        @div[class: 'slideshowframe id: @list{frame@pos}
+        @pre[class: 'slideshowframe id: @list{frame@pos}
              style: @list{display: @(if (zero? pos) "block" "none")@";"}]{
           @(example-code elem)}@;
         @; have the descriptions appear in a logical place and then ...
@@ -348,8 +357,9 @@
         set_display("none");
         showing = new_showing;
         set_display("block");
-        rewbutton_s.color = (showing==0) ? "#aaa" : "#444";
-        advbutton_s.color = (showing==@(sub1 (length l))) ? "#aaa" : "#444";
+        rewbutton_s.color = (showing==0) ? "#aaaaaa" : "#444444";
+        advbutton_s.color =
+           (showing==@(sub1 (length l))) ? "#aaaaaa" : "#444444";
       }
       function advance_show() {
         if (showing < @(sub1 (length l))) change_show_to(showing+1);
@@ -405,14 +415,10 @@
       background-repeat: no-repeat;
       background-position: center top;
     }
-    .whatpane {
+    .leftpane {
       font-size: medium;
       float: left;
       width: 20%;
-    }
-    .whatb {
-      font-size: large;
-      font-weight: bold;
     }
     .aboutpane {
       width: 56%;
@@ -423,7 +429,7 @@
       width: 100%;
       font-size: large;
       font-weight: bold;
-      color: #d00;
+      color: #dd0000;
     }
     .threepanes {
       width: 100%;
@@ -438,7 +444,7 @@
       position: relative;
     }
     .slideshowframe {
-      height: 12ex;
+      height: 17ex;
     }
     .buttonpanel {
       display: block;
@@ -450,10 +456,10 @@
     }
     #advancebutton, #rewindbutton, #helpbutton, #closebutton {
       text-decoration: none;
-      border: 1px solid #ddd;
+      border: 1px solid #ddddd;
       font-weight: bold;
-      color: #444;
-      background-color: #eee;
+      color: #44444;
+      background-color: #eeeee;
       padding: 0px 1px 0px 1px;
     }
     #advancebutton, #rewindbutton {
@@ -468,7 +474,7 @@
     }
     .helpcontent {
       width: 20em;
-      background-color: #ffe;
+      background-color: #ffffee;
       padding: 10px;
       margin-top: 3px;
       border: 1px solid black;

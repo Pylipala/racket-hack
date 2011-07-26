@@ -1,7 +1,7 @@
 #lang scheme/base
 (require scheme/class
-         "../syntax.ss"
-         "wx.ss")
+         "../syntax.rkt"
+         "wx.rkt")
 
 (provide keymap%
          map-command-as-meta-key)
@@ -38,6 +38,8 @@
         ("middlebuttonseq" . mouse-middle)
         ("wheelup" . wheel-up)
         ("wheeldown" . wheel-down)
+        ("wheelleft" . wheel-left)
+        ("wheelright" . wheel-right)
         ("esc" . escape) 
         ("delete" . #\rubout)
         ("del" . #\rubout)

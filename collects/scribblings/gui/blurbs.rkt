@@ -1,4 +1,4 @@
-#readerscribble/reader
+#reader scribble/reader
 (module blurbs scheme/base
   (require scribble/struct
            scribble/manual
@@ -9,8 +9,6 @@
            (for-syntax scheme/base)
            (only-in scribblings/draw/blurbs
                     res-sym
-                    Resource
-                    ResourceFirst
                     boxisfill
                     boxisfillnull
                     MismatchExn))
@@ -37,29 +35,26 @@
  @method[top-level-window<%> on-traverse-char]).})
 
   (define (labelstripped where detail what)
-    @elem{If @litchar{&} occurs in @|where|@|detail|, it 
- is specially parsed as for @scheme[button%].})
+    @elem{If @litchar{&} occurs in @|where|@|detail|, it
+ is specially parsed as for @racket[button%].})
 
-  (define (bitmapuseinfo pre what thing then detail)
-   @elem{@|pre| @|what| is @|thing|, @|then| the bitmap@|detail|
- must be valid (see @xmethod[bitmap% ok?]) and not installed
- in a @scheme[bitmap-dc%] object; otherwise, @|MismatchExn|. If the
+  (define (bitmapuseinfo pre what thing and the)
+   @elem{@|pre| @|what| is @|thing|,@|and| if @|the|
  bitmap has a mask (see @xmethod[bitmap% get-loaded-mask])
  that is the same size as the bitmap, then the mask is used for the
- label; furthermore, in contrast to the limitations of
- @xmethod[dc<%> draw-bitmap], non-monochrome label masks work
- consistently on all platforms.})
+ label. Modifying a bitmap while it is used as a label has
+ an unspecified effect on the displayed label.})
 
   (define-syntax bitmaplabeluse
    (syntax-rules ()
-     [(_ id) @bitmapuseinfo["If" (scheme id) "a bitmap" "then" ""]]))
+     [(_ id) @bitmapuseinfo["If" @racket[id] "a bitmap" " and" "the"]]))
   (define-syntax bitmaplabelusearray
    (syntax-rules ()
-     [(_ id) @bitmapuseinfo["If" (scheme id) "a list of bitmaps" "then" "s"]]))
+     [(_ id) @bitmapuseinfo["If" @racket[id] "a list of bitmaps" " and" "a"]]))
   (define-syntax bitmaplabeluseisbm
     (syntax-rules ()
-      [(_ id) @bitmapuseinfo["Since" (scheme id) "a bitmap" "" ""]]))
-  
+      [(_ id) @bitmapuseinfo["Since" @racket[id] "a bitmap" "" "the"]]))
+
   (define bitmapiforiglabel
     @elem{The bitmap label is installed only
           if the control was originally created with a bitmap label.})
@@ -67,7 +62,7 @@
   (define (popupmenuinfo what other more)
    (make-splice
     (list*
-     @p{Pops up the given @scheme[popup-menu%] object at the specified
+     @p{Pops up the given @racket[popup-menu%] object at the specified
         coordinates (in this window's coordinates), and returns after
         handling an unspecified number of events; the menu may still be
         popped up when this method returns. If a menu item is selected from
@@ -110,7 +105,7 @@ information@|details|, even if the editor currently has delayed refreshing (see
 
   (define FCA (FCAX "C" ""))
   (define FCAMW (FCAX "C" " if a maximum width is set for the editor"))
-  (define (FCAME) (FCAX @elem{For @scheme[text%] objects, c} " if a maximum width is set for the editor"))
+  (define (FCAME) (FCAX @elem{For @racket[text%] objects, c} " if a maximum width is set for the editor"))
   
   (define EVD
     @elem{If the editor is not displayed and the editor has a
@@ -163,20 +158,20 @@ information@|details|, even if the editor currently has delayed refreshing (see
   
   (define DrawSizeNote "")
 
-  (define LineNumbering @elem{Lines are numbered starting with @scheme[0].})
-  (define ParagraphNumbering @elem{Paragraphs are numbered starting with @scheme[0].})
+  (define LineNumbering @elem{Lines are numbered starting with @racket[0].})
+  (define ParagraphNumbering @elem{Paragraphs are numbered starting with @racket[0].})
 
   (define (italicptyStyleNote style)
     @elem{The @|style| argument is provided for future extensions. Currently, @|style| must be the empty list.})
 
   (define (HVLabelNote style what)
-    @elem{If @|style| includes @scheme['vertical-label], then the @|what| is
+    @elem{If @|style| includes @racket['vertical-label], then the @|what| is
           created with a label above the control; if @|style| does not include
-          @scheme['vertical-label] (and optionally includes @scheme['horizontal-label]), then the
+          @racket['vertical-label] (and optionally includes @racket['horizontal-label]), then the
           label is created to the left of the @|what|.})
 
   (define (DeletedStyleNote style parent what)
-    @elem{If @|style| includes @scheme['deleted], then the @|what| is created as hidden,
+    @elem{If @|style| includes @racket['deleted], then the @|what| is created as hidden,
           and it does not affect its parent's geometry; the @|what| can be made active later by calling
           @|parent|'s @method[area-container<%> add-child] method.})
 
@@ -188,18 +183,18 @@ information@|details|, even if the editor currently has delayed refreshing (see
   (define (FontLabelKWs font label-font) @elem{The @|font| argument determines the font for the control content, 
                                and @|label-font| determines the font for the control label.})
 
-  (define (WindowKWs enabled) @elem{For information about the @|enabled| argument, see @scheme[window<%>].})
+  (define (WindowKWs enabled) @elem{For information about the @|enabled| argument, see @racket[window<%>].})
   (define-inline (SubareaKWs)
-    @elem{For information about the @scheme[horiz-margin] and @scheme[vert-margin]
-              arguments, see @scheme[subarea<%>].})
+    @elem{For information about the @racket[horiz-margin] and @racket[vert-margin]
+              arguments, see @racket[subarea<%>].})
   (define-inline (AreaContKWs) 
-    @elem{For information about the @scheme[border], @scheme[spacing], and @scheme[alignment]
-              arguments, see @scheme[area-container<%>].})
+    @elem{For information about the @racket[border], @racket[spacing], and @racket[alignment]
+              arguments, see @racket[area-container<%>].})
 
   (define-inline (AreaKWs) 
     @elem{For information about the
-              @scheme[min-width], @scheme[min-height], @scheme[stretchable-width], and 
-              @scheme[stretchable-height] arguments, see @scheme[area<%>].})
+              @racket[min-width], @racket[min-height], @racket[stretchable-width], and 
+              @racket[stretchable-height] arguments, see @racket[area<%>].})
 
   (define AFM @elem{Adobe Font Metrics})
   
@@ -251,7 +246,7 @@ information@|details|, even if the editor currently has delayed refreshing (see
                         (bytes->string/latin-1 name))))
   
   (define (edsnipsize a b c)
-    @elem{An @scheme[editor-snip%] normally stretches to wrap around the size
+    @elem{An @racket[editor-snip%] normally stretches to wrap around the size
           of the editor it contains. This method @|a| of the snip
           (and if the editor is @|b|, @|c|).})
   (define (edsnipmax n)
@@ -266,5 +261,13 @@ information@|details|, even if the editor currently has delayed refreshing (see
   (define (slant . s)
     (make-element "slant" (decode-content s)))
 
+  (define (Resource s)
+    @elem{@to-element[`(quote ,(res-sym s))]
+          preference})
+  (define (ResourceFirst s) ; fixme -- add index
+    (let ([r (Resource s)])
+      (index* (list (format "~a preference" (res-sym s)))
+              (list r) 
+              r)))
   )
 

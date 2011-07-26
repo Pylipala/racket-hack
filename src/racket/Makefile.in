@@ -30,19 +30,23 @@ STRIP_DEBUG = @STRIP_DEBUG@
 
 ARLIBFLAGS = @LDFLAGS@ @LIBS@
 
-MZSRC = $(srcdir)/src
+RACKET = racket
 
-IPHONE = @IPHONE@
+# See ../../Makefile about RUN_RACKET_<X>, which 
+# typically redirects to RUN_THIS_RACKET_<X>:
+RUN_THIS_RACKET_CGC = ./racket@CGC@
+RUN_THIS_RACKET_MMM = ./racket@MMM@
+
+MZSRC = $(srcdir)/src
 
 FOREIGN_DIR = ../foreign
 FOREIGN_OBJ = $(FOREIGN_DIR)/foreign.@LTO@
-ifeq ($(IPHONE),)
-FOREIGN_OBJS = $(FOREIGN_OBJ) $(FOREIGN_DIR)/libffi/src/*.@LTO@ $(FOREIGN_DIR)/libffi/src/*/*.@LTO@
-FOREIGN_LIB = $(FOREIGN_OBJ) ../foreign/libffi/libffi@FOREIGN_CONVENIENCE@.la
-else
-FOREIGN_OBJS = $(FOREIGN_OBJ) $(FOREIGN_DIR)/libffi-ios/src/*.@LTO@ $(FOREIGN_DIR)/libffi-ios/src/*/*.@LTO@
-FOREIGN_LIB = $(FOREIGN_OBJ) ../foreign/libffi-ios/libffi@FOREIGN_CONVENIENCE@.la
-endif
+LIBFFI_OBJ_ON = $(FOREIGN_DIR)/@LIBFFI@/src/*.@LTO@ $(FOREIGN_DIR)/@LIBFFI@/src/*/*.@LTO@
+LIBFFI_OBJ_OFF = 
+FOREIGN_OBJS = $(FOREIGN_OBJ) $(LIBFFI_OBJ_@OWN_LIBFFI@)
+LIBFFI_LIB_ON = ../foreign/@LIBFFI@/libffi@FOREIGN_CONVENIENCE@.la
+LIBFFI_LIB_OFF = 
+FOREIGN_LIB = $(FOREIGN_OBJ) $(LIBFFI_LIB_@OWN_LIBFFI@)
 FOREIGN_STUB_LIB = $(FOREIGN_OBJ)
 FOREIGN_OBJSLIB = @FOREIGN_OBJSLIB@
 # Dependency always uses FOREIGN_LIB, but linker uses FOREIGN_OBJSLIB. The
@@ -78,7 +82,7 @@ cgc:
 	$(MAKE) racket@CGC@ 
 
 3m:
-	$(MAKE) cgc
+	$(MAKE) @CGC_IF_NEEDED_FOR_MMM@
 	cd gc2; $(MAKE) all
 	cd dynsrc; $(MAKE) dynlib3m
 	cd gc2; $(MAKE) ../racket@MMM@
@@ -98,7 +102,6 @@ racketlib:
 	$(MAKE) mzlibrary 
 
 dynlib:
-	cd src; $(MAKE) mzheaders
 	cd dynsrc; $(MAKE) dynlib 
 
 dynexample:
@@ -111,6 +114,9 @@ oe:
 
 g-c:
 	cd @GCDIR@; $(MAKE) ../libmzgc.@LIBSFX@ 
+
+exports:
+	cd src; $(MAKE) mzheaders
 
 sproc-extra-lib:
 	cd @GCDIR@; $(MAKE) sproc.@LTO@
@@ -130,6 +136,15 @@ mzlibrary:
 	cd src; $(MAKE) all 
 	$(MAKE) libracket.@LIBSFX@
 
+# For no-cgc-needed, we don't need to build the gc or link racketcgc, 
+# but gc2 depends on src objects; if building 3m without cgc becomes
+# more common, we could improve things to perform even less cgc-build work
+no-cgc-needed:
+	cd src; $(MAKE) all
+	$(MAKE) @FOREIGNTARGET@
+	$(MAKE) main.@LTO@
+	cd dynsrc; $(MAKE) ../starter
+
 FOREIGN_USED_LIB = $(FOREIGN_OBJ) $(FOREIGN_LIB)
 FOREIGN_USED_OBJSLIB = $(FOREIGN_OBJSLIB)
 FOREIGN_NOT_USED_LIB = $(FOREIGN_OBJ)
@@ -148,26 +163,29 @@ sproc.@LTO@: @GCDIR@/sproc.@LTO@
 racket@CGC@@NOT_OSX@: libracket.@LIBSFX@ libmzgc.@LIBSFX@ main.@LTO@ $(SPECIALIZINGOBJECTS)
 	@MZLINKER@ -o racket@CGC@ main.@LTO@ $(SPECIALIZINGOBJECTS) libracket.@LIBSFX@ libmzgc.@LIBSFX@ @LDFLAGS@ @LIBS@
 
-# Mac OS ----------------------------------------
+# Mac OS (iOS) ----------------------------------------
 
 MZFW = Racket.framework/Versions/$(FWVERSION)/Racket
 
 $(MZFW): libracket.@LIBSFX@ libmzgc.@LIBSFX@ $(SPECIALIZINGOBJECTS)
 	mkdir -p  Racket.framework/Versions/$(FWVERSION)
-ifeq ($(IPHONE),)
 	@MZLINKER@ -o $(MZFW) @LDFLAGS@ -framework CoreFoundation -dynamiclib -all_load $(SPECIALIZINGOBJECTS) libracket.@LIBSFX@ libmzgc.@LIBSFX@ @LIBS@
-else
-	/usr/bin/libtool -static -o $(MZFW) libracket.@LIBSFX@ libmzgc.@LIBSFX@
-endif
 	rm -f Racket.framework/Racket
 	ln -s Versions/$(FWVERSION)/Racket Racket.framework/Racket
 
-racket@CGC@@OSX@: $(MZFW) main.@LTO@
-ifeq ($(IPHONE),)
-	@MZLINKER@ -o racket@CGC@ @PROFFLAGS@ @LDFLAGS@ main.@LTO@ -Wl,-headerpad_max_install_names -F. -framework Racket @LIBS@
-else
+$(MSFW).ios: libracket.@LIBSFX@ libmzgc.@LIBSFX@ $(SPECIALIZINGOBJECTS)
+	mkdir -p  Racket.framework/Versions/$(FWVERSION)
+	/usr/bin/libtool -static -o $(MZFW) libracket.@LIBSFX@ libmzgc.@LIBSFX@
+	rm -f Racket.framework/Racket
+	ln -s Versions/$(FWVERSION)/Racket Racket.framework/Racket
+
+racketCGC.ios: $(MZFW).ios main.@LTO@
 	@MZLINKER@ -o racket@CGC@ @PROFFLAGS@ @LDFLAGS@ main.@LTO@ -Wl,-headerpad_max_install_names -F. -framework Racket @LIBS@ -framework CoreFoundation
-endif
+
+racketCGC: $(MZFW) main.@LTO@
+	@MZLINKER@ -o racket@CGC@ @PROFFLAGS@ @LDFLAGS@ main.@LTO@ -Wl,-headerpad_max_install_names -F. -framework Racket @LIBS@
+
+racket@CGC@@OSX@: racketCGC@IOS@
 	/usr/bin/install_name_tool -change "Racket.framework/Versions/$(FWVERSION)/Racket" "@executable_path/Racket.framework/Versions/$(FWVERSION)/Racket" "racket@CGC@"
 
 # OSKit ----------------------------------------
@@ -210,9 +228,12 @@ exn:
 	$(MAKE) $(srcdir)/src/schexn.h
 	$(MAKE) $(collectsdir)/scheme/private/kernstruct.rkt
 
+STARTUPDEST = startup.inc
 CSTARTUPDEST = cstartup.inc
 
 startup:
+	$(MAKE) $(srcdir)/src/$(STARTUPDEST)
+cstartup:
 	$(MAKE) $(srcdir)/src/$(CSTARTUPDEST)
 
 total_startup:
@@ -225,42 +246,22 @@ total_startup:
 	mv src/schminc.newh src/schminc.h
 	$(MAKE) cgc
 
-mark:
-	$(MAKE) $(srcdir)/src/mzmark.c
-
 headers:
-ifeq ($(IPHONE),)
-	  ./racket@CGC@ -cqu $(srcdir)/mkincludes.rkt "$(DESTDIR)$(includepltdir)" "$(srcdir)" .
-else
-	  $(srcdir)/../host-precompiled/racket/racket@CGC@ -cqu $(srcdir)/mkincludes.rkt "$(DESTDIR)$(includepltdir)" "$(srcdir)" .
-endif
+	@RUN_RACKET_CGC@ -cqu $(srcdir)/mkincludes.rkt "$(DESTDIR)$(includepltdir)" "$(srcdir)" .
 
 $(srcdir)/src/schexn.h: $(srcdir)/src/makeexn
-ifeq ($(IPHONE),)
-	  ./racket@CGC@ -um $(srcdir)/src/makeexn > $(srcdir)/src/schexn.h
-else
-	  $(srcdir)/../host-precompiled/racket/racket@CGC@ -um $(srcdir)/src/makeexn > $(srcdir)/src/schexn.h
-endif
+	@RUN_RACKET_MMM@ -um $(srcdir)/src/makeexn > $(srcdir)/src/schexn.h
+
 $(collectsdir)/scheme/private/kernstruct.rkt: $(srcdir)/src/makeexn
-ifeq ($(IPHONE),)
-	  ./racket@CGC@ -um $(srcdir)/src/makeexn kernstruct $(collectsdir)/scheme/private/kernstruct.rkt
-else
-	  $(srcdir)/../host-precompiled/racket/racket@CGC@ -um $(srcdir)/src/makeexn kernstruct $(collectsdir)/scheme/private/kernstruct.rkt
-endif
+	@RUN_RACKET_MMM@ -um $(srcdir)/src/makeexn kernstruct $(collectsdir)/scheme/private/kernstruct.rkt
 
-
+$(srcdir)/src/$(STARTUPDEST): $(srcdir)/src/startup.rktl $(srcdir)/src/sstoinct.rkt
+	@RUN_RACKET_MMM@ -cu $(srcdir)/src/sstoinct.rkt < $(srcdir)/src/startup.rktl > $(srcdir)/src/$(STARTUPDEST) 
 $(srcdir)/src/$(CSTARTUPDEST): $(srcdir)/src/startup.rktl $(srcdir)/src/schvers.h $(srcdir)/src/schminc.h
-ifeq ($(IPHONE),)
-	  ./racket@CGC@ -cqu $(srcdir)/src/sstoinc.rkt $(CSTARTUPEXTRA) $(srcdir)/src/$(CSTARTUPDEST) < $(srcdir)/src/startup.rktl
-else
-	  $(srcdir)/../host-precompiled/racket/racket@CGC@ -cqu $(srcdir)/src/sstoinc.rkt $(CSTARTUPEXTRA) $(srcdir)/src/$(CSTARTUPDEST) < $(srcdir)/src/startup.rktl
-endif
-$(srcdir)/src/mzmark.c: $(srcdir)/src/mzmarksrc.c $(srcdir)/src/mkmark.rkt
-ifeq ($(IPHONE),)
-	  racket -cu $(srcdir)/src/mkmark.rkt < $(srcdir)/src/mzmarksrc.c > $(srcdir)/src/mzmark.c
-else
-	  $(srcdir)/../host-precompiled/racket/racket -cu $(srcdir)/src/mkmark.rkt < $(srcdir)/src/mzmarksrc.c > $(srcdir)/src/mzmark.c
-endif
+	$(RUN_THIS_RACKET_CGC) -cu $(srcdir)/src/sstoinc.rkt $(CSTARTUPEXTRA) $(srcdir)/src/$(CSTARTUPDEST) < $(srcdir)/src/startup.rktl 
+
+mark:
+	@RUN_RACKET_MMM@ -cu $(srcdir)/src/mkmark.rkt $(srcdir)/src < $(srcdir)/src/mzmarksrc.c
 
 cstartup.zo:
 	$(MAKE) startup CSTARTUPEXTRA='zo' CSTARTUPDEST="../cstartup.zo"
@@ -318,11 +319,7 @@ unix-install:
 	cd ..; rm -f "$(DESTDIR)$(bindir)/racket@MMM_INSTALLED@"
 	cd ..; cp racket/starter "$(DESTDIR)$(libpltdir)/starter"
 	cd ..; $(STRIP_DEBUG) "$(DESTDIR)$(libpltdir)/starter"
-ifeq ($(IPHONE),)
-	  ./racket@CGC@ -cu "$(srcdir)/collects-path.rkt" "$(DESTDIR)$(libpltdir)/starter" @COLLECTS_PATH@
-else
-	  $(srcdir)/../host-precompiled/racket/racket@CGC@ -cu "$(srcdir)/collects-path.rkt" "$(DESTDIR)$(libpltdir)/starter" @COLLECTS_PATH@
-endif
+	@RUN_RACKET_CGC@ -cu "$(srcdir)/collects-path.rkt" "$(DESTDIR)$(libpltdir)/starter" @COLLECTS_PATH@
 	cd ..; echo 'CC=@CC@' > "$(BUILDINFO)"
 	cd ..; echo 'CFLAGS=@CFLAGS@ @PREFLAGS@ @COMPFLAGS@' >> "$(BUILDINFO)"
 	cd ..; echo 'OPTIONS=@OPTIONS@' >> "$(BUILDINFO)"
@@ -335,11 +332,7 @@ unix-install-cgc:
 	cd ..; $(ICP) racket/libracket.@LIBSFX@ "$(DESTDIR)$(libdir)/libracket.@LIBSFX@"
 	cd ..; $(ICP) racket/racket@CGC@ "$(DESTDIR)$(bindir)/racket@CGC_INSTALLED@"
 	cd ..; cp racket/mzdyn.o "$(DESTDIR)$(libpltdir)/mzdyn.o"
-ifeq ($(IPHONE),)
-	  ./racket@CGC@ -cu "$(srcdir)/collects-path.rkt" "$(DESTDIR)$(bindir)/racket@CGC_INSTALLED@@EXE_SUFFIX@" @COLLECTS_PATH@
-else
-	  $(srcdir)/../host-precompiled/racket/racket@CGC@ -cu "$(srcdir)/collects-path.rkt" "$(DESTDIR)$(bindir)/racket@CGC_INSTALLED@@EXE_SUFFIX@" @COLLECTS_PATH@
-endif
+	@RUN_RACKET_CGC@ -cu "$(srcdir)/collects-path.rkt" "$(DESTDIR)$(bindir)/racket@CGC_INSTALLED@@EXE_SUFFIX@" @COLLECTS_PATH@
 
 unix-install-cgc-final:
 	$(NOOP)
@@ -348,11 +341,7 @@ unix-install-3m:
 	cd ..; $(ICP) racket/racket@MMM@ "$(DESTDIR)$(bindir)/racket@MMM_INSTALLED@"
 	cd ..; $(ICP) racket/libracket3m.@LIBSFX@ "$(DESTDIR)$(libdir)/libracket3m.@LIBSFX@"
 	cd ..; $(ICP) racket/mzdyn3m.o "$(DESTDIR)$(libpltdir)/mzdyn3m.o"
-ifeq ($(IPHONE),)
-	  ./racket@MMM@ -cu "$(srcdir)/collects-path.rkt" "$(DESTDIR)$(bindir)/racket@MMM_INSTALLED@@EXE_SUFFIX@" @COLLECTS_PATH@
-else
-	  $(srcdir)/../host-precompiled/racket/racket@MMM@ -cu "$(srcdir)/collects-path.rkt" "$(DESTDIR)$(bindir)/racket@MMM_INSTALLED@@EXE_SUFFIX@" @COLLECTS_PATH@
-endif
+	@RUN_RACKET_MMM@ -cu "$(srcdir)/collects-path.rkt" "$(DESTDIR)$(bindir)/racket@MMM_INSTALLED@@EXE_SUFFIX@" @COLLECTS_PATH@
 
 unix-install-3m-final:
 	$(NOOP)
@@ -417,4 +406,4 @@ unix-cygwin-install-3m-final:
 # Generate plt-gdbinit ----------------------------------------
 
 mz-gdbinit: $(srcdir)/mk-gdbinit.rkt $(srcdir)/src/stypes.h
-	racket $(srcdir)/mk-gdbinit.rkt
+	@RUN_RACKET_MMM@ $(srcdir)/mk-gdbinit.rkt

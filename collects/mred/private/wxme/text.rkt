@@ -3,21 +3,25 @@
          scheme/port
          scheme/file
          (for-syntax scheme/base)
-         "../syntax.ss"
-         "const.ss"
-         "mline.ss"
-         "private.ss"
-         "editor.ss"
-         "undo.ss"
-         "style.ss"
-         "snip.ss"
-         "snip-flags.ss"
-         "snip-admin.ss"
-         "keymap.ss"
-         (only-in "cycle.ss" set-text%!)
-         "wordbreak.ss"
-         "stream.ss"
-         "wx.ss")
+         "../syntax.rkt"
+         "const.rkt"
+         "mline.rkt"
+         "private.rkt"
+         racket/snip/private/private
+         racket/snip/private/prefs
+         "editor.rkt"
+         "editor-data.rkt"
+         "undo.rkt"
+         racket/snip
+         racket/snip/private/snip-flags
+         "standard-snip-admin.rkt"
+         "keymap.rkt"
+         (only-in "cycle.rkt"
+                  printer-dc%
+                  set-text%!)
+         "wordbreak.rkt"
+         "stream.rkt"
+         "wx.rkt")
 
 (provide text%
          add-text-keymap-functions)
@@ -42,8 +46,12 @@
 
 (define TAB-WIDTH 20.0)
 
+;; Used when max-width is set, but padding takes up
+;; all available space:
+(define ZERO-LINE-WIDTH 0.1)
+
 (define show-outline-for-inactive?
-  (and (get-preference 'MrEd:outline-inactive-selection) #t))
+  (and (get-preference* 'GRacket:outline-inactive-selection) #t))
 
 (define caret-pen (send the-pen-list find-or-create-pen "BLACK" 1 'xor))
 (define outline-pen (send the-pen-list find-or-create-pen "BLACK" 0 'transparent))
@@ -76,7 +84,6 @@
   (inherit on-change
            on-local-event
            on-local-char
-           scroll-editor-to
            free-old-copies
            install-copy-buffer
            begin-copy-buffer
@@ -191,6 +198,13 @@
   (define min-height 0.0)
   (define wrap-bitmap-width 0.0)
 
+  (define max-line-width 0.0)
+  
+  (define padding-l 0.0) ; space conceptually at the left of each line,
+  (define padding-t 0.0) ; space conceptually added to the top of the first line,
+  (define padding-r 0.0) ; etc. --- locations in mline do not take this
+  (define padding-b 0.0) ;          padding into account
+
   (define auto-wrap-bitmap #f)
 
   (define delay-refresh 0)
@@ -220,11 +234,12 @@
 
   (define extra-line-h 0.0)
 
-  (define total-height 0.0) ; total height/width in canvas units
+  (define total-height 0.0) ; total height/width in canvas units, not including padding
   (define total-width 0.0)
   (define final-descent 0.0) ; descent of last line
   (define initial-space 0.0) ; space from first line
   (define initial-line-base 0.0) ; inverse descent from first line
+  (define reported-padding (vector 0.0 0.0 0.0 0.0))
 
   (define/public (get-s-snips) snips)
   (define/public (get-s-last-snip) last-snip)
@@ -777,7 +792,7 @@
                             [any? [ateol? #f]]
                             [any? [scroll? #t]]
                             [(symbol-in default x local) [seltype 'default]])
-    (do-set-position #f 'none start end ateol? scroll? seltype))
+    (do-set-position #f 'none start end ateol? scroll? seltype #f))
 
   (def/public (set-position-bias-scroll [symbol? bias]
                                         [exact-nonnegative-integer? start]
@@ -785,13 +800,13 @@
                                         [any? [ateol? #f]]
                                         [any? [scroll? #t]]
                                         [(symbol-in default x local) [seltype 'default]])
-    (do-set-position #f bias start end ateol? scroll? seltype))
+    (do-set-position #f bias start end ateol? scroll? seltype #f))
 
-  (define/private (do-set-position setflash? bias start end ateol? scroll? seltype)
+  (define/private (do-set-position setflash? bias start end ateol? scroll? seltype dont-end-cursor?)
     (unless flow-locked?
       (when (and (not setflash?)
                  (or (not flash?) (not flashautoreset?) (not flashdirectoff?)))
-        (end-streaks '(delayed)))
+        (end-streaks (if dont-end-cursor? '(cursor delayed) '(delayed))))
       
       (unless (or (start . < . 0) 
                   (and (number? end)
@@ -936,7 +951,7 @@
            (let-values ([(topx botx)
                          (if (botx . < . topx)
                              ;; when the end position is to the left of the start position 
-                             (values 0 total-width)
+                             (values 0 (+ total-width padding-t padding-b))
                              (values topx botx))])
              (scroll-editor-to topx topy (- botx topx) (- boty topy) refresh? bias)))]))))
 
@@ -966,6 +981,28 @@
 
   ;; ----------------------------------------
 
+  (def/public (extend-position [exact-nonnegative-integer? dest])
+    (cond
+      [extend-streak?
+       (values extendstartpos extendendpos)]
+      [anchor-streak?
+       (set! extend-streak? #t)
+       (values extendstartpos extendendpos)]
+      [else
+       (set! extend-streak? #t)
+       (set! extendstartpos startpos)
+       (set! extendendpos endpos)])
+
+    (define-values (start end bias)
+      (cond
+        [(dest . < . extendstartpos)
+         (values dest extendendpos 'start)]
+        [(dest . > . extendendpos)
+         (values extendstartpos dest 'end)]
+        [else
+         (values extendstartpos extendendpos 'none)]))
+    (do-set-position #f bias start end #f #t 'default #t))
+  
   (def/public (move-position [(make-alts symbol? char?) code]
                              [any? [extend-selection? #f]]
                              [(symbol-in simple word page line) [kind 'simple]])
@@ -1221,6 +1258,9 @@
         (set! extendendpos endpos)
         (set! extendstartpos startpos))))
 
+  (def/public (get-extend-start-position) (if (or extend-streak? anchor-streak?) extendstartpos startpos))
+  (def/public (get-extend-end-position) (if (or extend-streak? anchor-streak?) extendendpos endpos))
+  
   (def/public (get-anchor)
     anchor-streak?)
 
@@ -2020,10 +2060,10 @@
         (copy extend? time start end)
         (delete start end))))
 
-  (def/override (do-copy [exact-nonnegative-integer? startp] 
-                         [exact-nonnegative-integer? endp] 
-                         [exact-integer? time] 
-                         [bool? extend?])
+  (def/public (do-copy [exact-nonnegative-integer? startp] 
+                       [exact-nonnegative-integer? endp] 
+                       [exact-integer? time] 
+                       [bool? extend?])
     (let ([startp (max startp 0)]
           [endp (min endp len)])
       (unless (endp . <= . startp)
@@ -2082,10 +2122,10 @@
         (set! prev-paste-start start)
         (set! prev-paste-end (+ start delta)))))
 
-  (define/override (do-paste start time)
+  (define/public (do-paste start time)
     (do-generic-paste the-clipboard start time))
 
-  (define/override (do-paste-x-selection start time)
+  (define/public (do-paste-x-selection start time)
     (do-generic-paste the-x-selection-clipboard start time))
 
   (define/private (generic-paste x-sel? time start end)
@@ -2328,7 +2368,7 @@
     (set! clickbacks
           (filter (lambda (cb)
                     (not (and (= start (clickback-start cb))
-                              (= end (clickback-start cb)))))
+                              (= end (clickback-end cb)))))
                   clickbacks)))
 
   (def/public (call-clickback [exact-nonnegative-integer? start]
@@ -2434,7 +2474,7 @@
                         [any? [ateol? #f]]
                         [any? [scroll? #t]]
                         [exact-nonnegative-integer? [timeout 500]])
-    (do-set-position #t 'none start end ateol? scroll? 'default)
+    (do-set-position #t 'none start end ateol? scroll? 'default #f)
     (when (timeout . > . 0)
       (set! flashautoreset? #t)
       (when flash-timer
@@ -2447,7 +2487,7 @@
     (when flash?
       (set! flashautoreset? #t)
       (set! flashdirectoff? #t)
-      (do-set-position #f 'none startpos endpos posateol? flashscroll? 'default)))
+      (do-set-position #f 'none startpos endpos posateol? flashscroll? 'default #f)))
 
   ;; ----------------------------------------
 
@@ -2485,6 +2525,28 @@
 
   (def/public (get-line-spacing) line-spacing)
 
+  (def/public (get-padding)
+    (values padding-l padding-t padding-r padding-b))
+  (def/public (set-padding [nonnegative-real? l]
+                           [nonnegative-real? t]
+                           [nonnegative-real? r]
+                           [nonnegative-real? b])
+    (unless (and (= l padding-l)
+                 (= t padding-t)
+                 (= r padding-r)
+                 (= b padding-b))
+      (set! padding-l (exact->inexact l))
+      (set! padding-t (exact->inexact t))
+      (set! padding-r (exact->inexact r))
+      (set! padding-b (exact->inexact b))
+      (unless (= 0.0 max-width)
+        (set! max-line-width (max (- max-width padding-t padding-r)
+                                  ZERO-LINE-WIDTH)))
+      (set! flow-invalid? #t)
+      (set! graphic-maybe-invalid? #t)
+      (set! changed? #t)
+      (need-refresh -1 -1)))
+
   (def/override (get-max-width)
     (if (max-width . <= . 0)
         'none
@@ -2514,6 +2576,10 @@
                        (+ CURSOR-WIDTH 1)
                        w)])
             (set! max-width w)
+            (set! max-line-width (if (= w 0.0)
+                                     0.0
+                                     (max (- w padding-t padding-r)
+                                          ZERO-LINE-WIDTH)))
             (set! flow-invalid? #t)
             (set! graphic-maybe-invalid? #t)
             (set! changed? #t)
@@ -2562,7 +2628,9 @@
                              [(symbol-in guess same copy standard text text-force-cr) [format 'guess]]
                              [any? [replace-styles? #t]])
     (if (or write-locked? s-user-locked?)
-        'guess ;; FIXME: docs say that this is more specific
+        (if (not (detect-wxme-file (method-name 'text% 'insert-file) f #t))
+            'text
+            'standard)
         (do-insert-file (method-name 'text% 'insert-file) f format replace-styles?)))
 
   (define/private (do-insert-file who f fmt clear-styles?)
@@ -2784,7 +2852,7 @@
      [(i . >= . num-valid-lines) len]
      [else
       (let* ([line (mline-find-line (unbox line-root-box) i)]
-             [x (- x (mline-get-left-location line max-width))])
+             [x (- x padding-l (mline-get-left-location line max-line-width))])
         (if (x . <= . 0)
             (find-first-visible-position line)
             (let ([p (mline-get-position line)])
@@ -2806,7 +2874,7 @@
                                     (set! write-locked? #t)
                                     (set! flow-locked? #t)
 
-                                    ;; linear seach for snip
+                                    ;; linear search for snip
                                     (let ([topy (mline-get-location line)])
                                       (let loop ([snip (mline-snip line)]
                                                  [X X]
@@ -2930,15 +2998,16 @@
     (when onit?
       (set-box! onit? #f))
     
-    (cond
-     [(not (check-recalc #t #f)) 0]
-     [(y . <= . 0) 0]
-     [(or (y . >= . total-height) (and extra-line? (y . >= . (- total-height extra-line-h))))
-      (- num-valid-lines (if extra-line? 0 1))]
-     [else
-      (when onit?
-        (set-box! onit? #t))
-      (mline-get-line (mline-find-location (unbox line-root-box) y))]))
+    (let ([y (- y padding-t)])
+      (cond
+       [(not (check-recalc #t #f)) 0]
+       [(y . <= . 0) 0]
+       [(or (y . >= . total-height) (and extra-line? (y . >= . (- total-height extra-line-h))))
+        (- num-valid-lines (if extra-line? 0 1))]
+       [else
+        (when onit?
+          (set-box! onit? #t))
+        (mline-get-line (mline-find-location (unbox line-root-box) y))])))
 
   (def/public (find-position [real? x] [real? y]
                              [maybe-box? [ateol? #f]]
@@ -3054,11 +3123,13 @@
                (if whole-line?
                    (begin
                      (when (or tx bx)
-                       (let ([xl (mline-get-left-location first-line max-width)])
+                       (let ([xl (+ (mline-get-left-location first-line max-line-width)
+                                    padding-l)])
                          (when tx (set-box! tx xl))
                          (when bx (set-box! bx xl))))
                      (when (or ty by)
-                       (let ([yl (mline-get-location first-line)])
+                       (let ([yl (+ (mline-get-location first-line)
+                                    padding-t)])
                          (when ty (set-box! ty yl))
                          (when by (set-box! by (+ yl (mline-h first-line))))))
                      #f)
@@ -3066,19 +3137,21 @@
               [(start . >= . len)
                (if (and extra-line? (not eol?))
                    (begin
-                     (when ty (set-box! ty (- total-height extra-line-h)))
-                     (when by (set-box! by total-height))
-                     (when tx (set-box! tx 0))
-                     (when bx (set-box! bx 0))
+                     (when ty (set-box! ty (+ (- total-height extra-line-h) padding-t)))
+                     (when by (set-box! by (+ total-height padding-t)))
+                     (when tx (set-box! tx padding-l))
+                     (when bx (set-box! bx padding-l))
                      #f)
                    (if (or whole-line? (zero? len))
                        (begin
                          (when (or tx bx)
-                           (let ([xl (mline-get-right-location last-line max-width)])
+                           (let ([xl (+ (mline-get-right-location last-line max-line-width)
+                                        padding-l)])
                              (when tx (set-box! tx xl))
                              (when bx (set-box! bx xl))))
                          (when (or ty by)
-                           (let ([yl (mline-get-location last-line)])
+                           (let ([yl (+ (mline-get-location last-line)
+                                        padding-t)])
                              (when ty (set-box! ty yl))
                              (when by (set-box! by (+ yl (mline-h last-line))))))
                          #f)
@@ -3088,7 +3161,7 @@
                  (if whole-line?
                      (begin
                        (when (or by ty)
-                         (let ([yl (mline-get-location line)])
+                         (let ([yl (+ (mline-get-location line) padding-t)])
                            (when ty (set-box! ty yl))
                            (when by (set-box! by (+ yl (mline-h line))))))
                        (if (not (or tx bx))
@@ -3101,8 +3174,8 @@
             (set! write-locked? #t)
             (set! flow-locked? #t)
 
-            (let ([horiz (mline-get-left-location line max-width)]
-                  [topy (mline-get-location line)]
+            (let ([horiz (+ (mline-get-left-location line max-line-width) padding-l)]
+                  [topy (+ (mline-get-location line) padding-t)]
                   [start (- start (mline-get-position line))])
               (let-values ([(snip horiz start dc)
                             (cond
@@ -3111,7 +3184,7 @@
                               (values (mline-last-snip line) (+ horiz (- (mline-w line) (mline-last-w line)))
                                       start #f)]
                              [else
-                              ;; linear seach for snip
+                              ;; linear search for snip
                               (let loop ([snip (mline-snip line)]
                                          [start start]
                                          [horiz horiz]
@@ -3182,18 +3255,20 @@
                              [any? [top? #t]])
     (cond
      [(not (check-recalc #t #f)) 0.0]
-     [(i . < . 0) 0.0]
-     [(i . > . num-valid-lines) total-height]
+     [(i . < . 0) padding-t]
+     [(i . > . num-valid-lines) (+ padding-t total-height)]
      [(= num-valid-lines i)
-      (if extra-line?
-          (- total-height extra-line-h)
-          total-height)]
+      (+ padding-t
+         (if extra-line?
+             (- total-height extra-line-h)
+             total-height))]
      [else
       (let* ([line (mline-find-line (unbox line-root-box) i)]
              [y (mline-get-location line)])
-        (if top?
-            y
-            (+ y (mline-h line))))]))
+        (+ padding-t
+           (if top?
+               y
+               (+ y (mline-h line)))))]))
 
   (define/private (do-line-position start? i visible-only?)
     (cond
@@ -3339,41 +3414,42 @@
 
   (def/override (get-extent [maybe-box? w] [maybe-box? h])
     (check-recalc #t #f)
-    (when w (set-box! w total-width))
-    (when h (set-box! h total-height)))
+    (when w (set-box! w (+ total-width padding-l padding-r)))
+    (when h (set-box! h (+ total-height padding-t padding-b))))
 
   (def/override (get-descent)
     (check-recalc #t #f)
-    final-descent)
+    (+ final-descent padding-b))
   
   (def/override (get-space)
     (check-recalc #t #f)
-    initial-space)
+    (+ initial-space padding-t))
   
   (def/public (get-top-line-base)
     (check-recalc #t #f)
-    initial-line-base)
+    (+ initial-line-base padding-t))
   
   (def/override (scroll-line-location [exact-nonnegative-integer? scroll])
     (if read-locked?
         0.0
         (begin
           (check-recalc #t #f)
-          (let ([total (+ (mline-get-scroll last-line) (mline-numscrolls last-line))])
-            (cond
-             [(= total scroll)
-              (if extra-line?
-                  (- total-height extra-line-h)
-                  total-height)]
-             [(scroll . > . total)
-              total-height]
-             [else
-              (let* ([line (mline-find-scroll (unbox line-root-box) scroll)]
-                     [p (mline-get-scroll line)]
-                     [y (mline-get-location line)])
-                (if (p . < . scroll)
-                    (+ y (mline-scroll-offset line (- scroll p)))
-                    y))])))))
+          (+ padding-t
+             (let ([total (+ (mline-get-scroll last-line) (mline-numscrolls last-line))])
+               (cond
+                [(= total scroll)
+                 (if extra-line?
+                     (- total-height extra-line-h)
+                     (+ total-height padding-b))]
+                [(scroll . > . total)
+                 (+ total-height padding-b)]
+                [else
+                 (let* ([line (mline-find-scroll (unbox line-root-box) scroll)]
+                        [p (mline-get-scroll line)]
+                        [y (mline-get-location line)])
+                   (if (p . < . scroll)
+                       (+ y (mline-scroll-offset line (- scroll p)))
+                       y))]))))))
 
   (def/override (num-scroll-lines)
     (if read-locked?
@@ -3390,12 +3466,12 @@
         (begin
           (check-recalc #t #f)
           (if (and extra-line?
-                   (p . >= . (- total-height extra-line-h)))
+                   (p . >= . (- total-height extra-line-h padding-t)))
               (- (num-scroll-lines) 1)
-              (let* ([line (mline-find-location (unbox line-root-box) p)]
+              (let* ([line (mline-find-location (unbox line-root-box) (- p padding-t))]
                      [s (mline-get-scroll line)])
                 (if ((mline-numscrolls line) . > . 1)
-                    (let ([y (mline-get-location line)])
+                    (let ([y (+ (mline-get-location line) padding-t)])
                       (+ s (mline-find-extra-scroll line (- p y))))
                     s))))))
 
@@ -3848,6 +3924,14 @@
           #t]
          [else #f]))]))
 
+  (define/override (scroll-editor-to localx localy w h refresh? bias)
+    (super scroll-editor-to 
+           (- localx padding-l)
+           (- localy padding-t)
+           (+ w padding-l padding-r)
+           (+ h padding-t padding-b)
+           refresh? bias))
+
   (def/public (scroll-to [snip% snip] [real? localx] [real? localy]
                          [nonnegative-real? w] [nonnegative-real? h]
                          [any? refresh?]
@@ -3944,8 +4028,8 @@
                                          [real? [y 0.0]]
                                          [(make-alts nonnegative-real? (symbol-in end display-end)) [w 'end]]
                                          [(make-alts nonnegative-real? (symbol-in end display-end)) [h 'end]])
-    (let ([w (if (eq? w 'end) (- total-width x) w)]
-          [h (if (eq? h 'end) (- total-height y) h)])
+    (let ([w (if (eq? w 'end) (- (+ total-width padding-l padding-r) x) w)]
+          [h (if (eq? h 'end) (- (+ total-height padding-t padding-b) y) h)])
 
       (refresh-box x y w h)
       (when (zero? delay-refresh)
@@ -4535,7 +4619,7 @@
 
       (let loop ([snip start]
                  [p p]
-                 [_total-width 0])
+                 [_total-width padding-l])
         (if (and snip (not (has-flag? (snip->flags snip) HARD-NEWLINE)))
             (begin
               (when (not checking-underflow?)
@@ -4662,7 +4746,7 @@
                      (set! write-locked? #t)
                      (set! flow-locked? #t)
                      
-                     (let ([w (- max-width CURSOR-WIDTH)])
+                     (let ([w (- max-width padding-l padding-t CURSOR-WIDTH)])
                        (let loop ([-changed? #f])
                          (if (begin0
                               (mline-update-flow (unbox line-root-box) line-root-box this w dc
@@ -4696,7 +4780,8 @@
             (set! num-valid-lines (mline-number (unbox line-root-box))))
 
           (let ([-changed?
-                 (or (mline-update-graphics (unbox line-root-box) this dc)
+                 (or (mline-update-graphics (unbox line-root-box) this dc
+                                            padding-l padding-t)
                      -changed?)])
 
             (if (and (not -changed?)
@@ -4736,13 +4821,17 @@
                                      (not (= total-width X))
                                      (not (= final-descent descent))
                                      (not (= initial-space space))
-                                     (not (= line-base initial-line-base)))
+                                     (not (= line-base initial-line-base))
+                                     (not (equal? reported-padding
+                                                  (vector padding-l padding-t padding-r padding-b))))
                                  (begin
                                    (set! total-height Y)
                                    (set! total-width X)
                                    (set! final-descent descent)
                                    (set! initial-space space)
                                    (set! initial-line-base line-base)
+                                   (set! reported-padding
+                                         (vector padding-l padding-t padding-r padding-b))
                                    #t)
                                  #f)])
 
@@ -5074,7 +5163,7 @@
 
         (send dc set-text-mode 'solid)
 
-        (let ([line (mline-find-location (unbox line-root-box) starty)])
+        (let ([line (mline-find-location (unbox line-root-box) (- starty padding-t))])
 
           (when (and bg-color
                      (not (pair? show-caret)))
@@ -5106,7 +5195,22 @@
                   (lambda ()
                     (call-on-paint #f)
                     (set! write-locked? wl?)
-                    (set! flow-locked? #f))])
+                    (set! flow-locked? #f))]
+
+                 [local-caret-pen
+                  (if bg-color
+                      (let ([r (send bg-color red)]
+                            [g (send bg-color green)]
+                            [b (send bg-color blue)])
+                        (if (and (= r 255) (= g 255) (= b 255))
+                            caret-pen
+                            (make-object pen% (make-object color% 
+                                                           (- 255 r)
+                                                           (- 255 g)
+                                                           (- 255 b))
+                                         (send caret-pen get-width) 
+                                         'solid)))
+                      caret-pen)])
 
             (call-on-paint #t)
             
@@ -5117,7 +5221,7 @@
                     [tendy (+ endy dy)])
                 (let lloop ([line line]
                             [old-style #f]
-                            [ycounter (mline-get-location line)]
+                            [ycounter (+ (mline-get-location line) padding-t)]
                             [pcounter (mline-get-position line)]
                             [prevwasfirst 0.0])
                   (cond
@@ -5132,8 +5236,10 @@
                                hilite-on?)
                       (let ([y ycounter]
                             [save-pen (send dc get-pen)])
-                        (send dc set-pen caret-pen)
-                        (send dc draw-line dx (+ y dy) dx (sub1 (+ y extra-line-h dy)))
+                        (send dc set-pen local-caret-pen)
+                        (send dc draw-line 
+                              (+ dx padding-l) (+ y dy)
+                              (+ dx padding-l) (sub1 (+ y extra-line-h dy)))
                         (send dc set-pen save-pen)))
                     (paint-done)]
                    [(ycounter . >= . endy)
@@ -5146,7 +5252,7 @@
                       (define (process-snips draw? maybe-hilite? old-style)
                         (let sloop ([snip first]
                                     [p pcounter]
-                                    [x (mline-get-left-location line max-width)]
+                                    [x (+ (mline-get-left-location line max-line-width) padding-l)]
                                     [hilite-some? #f]
                                     [hsxs 0.0]
                                     [hsxe 0.0]
@@ -5312,7 +5418,7 @@
                                          (when (eq? 'show-caret show-caret)
                                            (when (and (hsxs . <= . rightx) (hsxs . >= . leftx))
                                              (let ([save-pen (send dc get-pen)])
-                                               (send dc set-pen caret-pen)
+                                               (send dc set-pen local-caret-pen)
                                                (send dc draw-line (+ hsxs dx) (+ hsys dy) 
                                                      (+ hsxs dx) 
                                                      (+ hsye (sub1 dy)))
@@ -5513,7 +5619,8 @@
               (begin
                 (when (or (zero? (unbox W)) (zero? (unbox H)))
                   (get-default-print-size W H))
-                (send (current-ps-setup) get-editor-margin hm vm))
+                (when (not (zero? page))
+                  (send (current-ps-setup) get-editor-margin hm vm)))
             (let ([H (- H (* 2 vm))]
                   [W (- W (* 2 hm))])
 
@@ -5539,7 +5646,8 @@
                      (cond
                       [(or (zero? h)
                            (and (i . < . num-valid-lines)
-                                ((mline-h line) . < . (- H h))
+                                (or (zero? page)
+                                    ((mline-h line) . < . (- H h)))
                                 can-continue?))
                        (let ([lh (mline-h line)]
                              [new-page? (new-page-line? line)])
@@ -5551,7 +5659,8 @@
                       [else
                        (let-values ([(h i line)
                                      (cond
-                                      [(and (h . < . H)
+                                      [(and (not (zero? page))
+                                            (h . < . H)
                                             (i . < . num-valid-lines)
                                             ((mline-h line) . > . H))
                                        ;; we'll have to break it up anyway; start now?
@@ -5566,7 +5675,8 @@
                                       [else
                                        (values h i line)])])
                          (let-values ([(next-h h)
-                                       (if (h . > . H)
+                                       (if (and (not (zero? page))
+                                                (h . > . H))
                                            ;; only happens if we have something that's too big to fit on a page;
                                            ;; look for internal scroll positions
                                            (let* ([pos (find-scroll-line (+ y H))]
@@ -5579,16 +5689,17 @@
                                            (values next-h h))])
                            (or (if print?
                                    (begin
-                                     (when (or (negative? page) (= this-page page))
+                                     (when (or (page . <= . 0)
+                                               (= this-page page))
                                        (begin
-                                         (when (negative? page)
+                                         (when (page . <= . 0)
                                            (send dc start-page))
                                          (do-redraw dc 
                                                     (+ y (if (zero? i) 0 1))
                                                     (+ y (- h 1 unline))
                                                     0 W (+ (- y) vm) hm
                                                     'no-caret #f #f)
-                                         (when (negative? page)
+                                         (when (page . <= . 0)
                                            (send dc end-page))))
                                      #f)
                                    (= this-page page))

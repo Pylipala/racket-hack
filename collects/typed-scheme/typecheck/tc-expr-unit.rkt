@@ -11,24 +11,15 @@
          (only-in (infer infer) restrict)
          (except-in (utils tc-utils stxclass-util))
          (env lexical-env type-env-structs tvar-env index-env)
-         racket/private/class-internal unstable/debug
+         racket/private/class-internal
          (except-in syntax/parse id)
-         unstable/function
+         unstable/function #;unstable/debug
          (only-in srfi/1 split-at))
 
 (require (for-template scheme/base racket/private/class-internal))
 
 (import tc-if^ tc-lambda^ tc-app^ tc-let^ check-subforms^)
 (export tc-expr^)
-
-;; Is the number a fixnum on *all* the platforms Racket supports?  This
-;; works because Racket compiles only on 32+ bit systems.  This check is
-;; done at compile time to typecheck literals -- so use it instead of
-;; `fixnum?' to avoid creating platform-dependent .zo files.
-(define (portable-fixnum? n)
-  (and (exact-integer? n)
-       (< n (expt 2 31))
-       (> n (- (expt 2 31)))))
 
 ;; return the type of a literal value
 ;; scheme-value -> type
@@ -38,29 +29,46 @@
              #:fail-unless expected #f
              #:attr datum (syntax-e #'i)
              #:fail-unless (subtype (-val (attribute datum)) expected) #f))
-  (syntax-parse v-stx 
+  (syntax-parse v-stx
     [i:exp expected]
     [i:boolean (-val (syntax-e #'i))]
     [i:identifier (-val (syntax-e #'i))]
+
+    ;; Numbers
     [0 -Zero]
-    [(~var i (3d (conjoin portable-fixnum? positive?))) -PositiveFixnum]
-    [(~var i (3d (conjoin portable-fixnum? negative?))) -NegativeFixnum]
-    [(~var i (3d (conjoin portable-fixnum?))) -Fixnum]
-    [(~var i (3d exact-positive-integer?)) -ExactPositiveInteger]
-    [(~var i (3d exact-nonnegative-integer?)) -ExactNonnegativeInteger]
-    [(~var i (3d exact-integer?)) -Integer]
-    [(~var i (3d (conjoin number? exact? rational?))) -ExactRational]
-    [(~var i (3d (conjoin flonum?
-                          (lambda (x) (or (positive? x) (zero? x)))
-                          (lambda (x) (not (eq? x -0.0))))))
-     -NonnegativeFlonum]
-    [(~var i (3d flonum?)) -Flonum]
-    [(~var i (3d real?)) -Real]
+    [1 -One]
+    [(~var i (3d (conjoin byte? positive?))) -PosByte]
+    [(~var i (3d byte?)) -Byte]
+    [(~var i (3d (conjoin portable-index? positive?))) -PosIndex]
+    [(~var i (3d (conjoin portable-fixnum? positive?))) -PosFixnum]
+    [(~var i (3d (conjoin portable-fixnum? negative?))) -NegFixnum]
+    [(~var i (3d exact-positive-integer?)) -PosInt]
+    [(~var i (3d (conjoin exact-integer? negative?))) -NegInt]
+    [(~var i (3d (conjoin number? exact? rational? positive?))) -PosRat]
+    [(~var i (3d (conjoin number? exact? rational? negative?))) -NegRat]
+    [(~var i (3d (lambda (x) (eq? x 0.0)))) -FlonumPosZero]
+    [(~var i (3d (lambda (x) (eq? x -0.0)))) -FlonumNegZero]
+    [(~var i (3d (conjoin flonum? positive?))) -PosFlonum]
+    [(~var i (3d (conjoin flonum? negative?))) -NegFlonum]
+    [(~var i (3d flonum?)) -Flonum] ; for nan
+    [(~var i (3d (lambda (x) (eq? x 0.0f0)))) -SingleFlonumPosZero]
+    [(~var i (3d (lambda (x) (eq? x -0.0f0)))) -SingleFlonumNegZero]
+    [(~var i (3d (conjoin single-flonum? positive?))) -PosSingleFlonum]
+    [(~var i (3d (conjoin single-flonum? negative?))) -NegSingleFlonum]
+    [(~var i (3d single-flonum?)) -SingleFlonum] ; for nan
+    [(~var i (3d inexact-real?)) -InexactReal] ; catch-all, just in case
+    [(~var i (3d real?)) -Real] ; catch-all, just in case
     ;; a complex number can't have a float imaginary part and an exact real part
+    [(~var i (3d (conjoin number? exact?)))
+     -ExactNumber]
     [(~var i (3d (conjoin number? (lambda (x) (and (flonum? (imag-part x))
                                                    (flonum? (real-part x)))))))
      -FloatComplex]
-    [(~var i (3d number?)) -Number]
+    [(~var i (3d (conjoin number? (lambda (x) (and (single-flonum? (imag-part x))
+                                                   (single-flonum? (real-part x)))))))
+     -InexactComplex]
+    [(~var i (3d number?)) -Number] ; otherwise, Number
+
     [i:str -String]
     [i:char -Char]
     [i:keyword (-val (syntax-e #'i))]
@@ -81,11 +89,11 @@
     [(~var i (3d vector?))
      (match expected
        [(Vector: t)
-        (make-Vector (apply Un 
+        (make-Vector (apply Un
                             (for/list ([l (in-vector (syntax-e #'i))])
                               (tc-literal l t))))]
        [(HeterogenousVector: ts)
-        (make-HeterogenousVector 
+        (make-HeterogenousVector
          (for/list ([l (in-vector (syntax-e #'i))]
                     [t (in-list ts)])
            (tc-literal l t)))]
@@ -96,7 +104,7 @@
      (let* ([h (syntax-e #'i)]
             [ks (hash-map h (lambda (x y) (tc-literal x)))]
             [vs (hash-map h (lambda (x y) (tc-literal y)))])
-       (make-Hashtable (apply Un ks) (apply Un vs)))]
+       (make-Hashtable (generalize (apply Un ks)) (generalize (apply Un vs))))]
     [(a . b) (-pair (tc-literal #'a) (tc-literal #'b))]
     [_ Univ]))
 
@@ -134,19 +142,23 @@
               [(PolyDots? ty)
                ;; In this case, we need to check the last thing.  If it's a dotted var, then we need to
                ;; use instantiate-poly-dotted, otherwise we do the normal thing.
-               (let-values ([(all-but-last last-stx) (split-last (syntax->list inst))])
-                 (match (syntax-e last-stx)
-                   [(cons last-ty-stx (? identifier? last-id-stx))
-                    (unless (bound-index? (syntax-e last-id-stx))
-                      (tc-error/stx last-id-stx "~a is not a type variable bound with ..." (syntax-e last-id-stx)))
-                    (if (= (length all-but-last) (sub1 (PolyDots-n ty)))
-                        (let* ([last-id (syntax-e last-id-stx)]
-                               [last-ty (extend-tvars (list last-id) (parse-type last-ty-stx))])
-                          (instantiate-poly-dotted ty (map parse-type all-but-last) last-ty last-id))
-                        (tc-error/expr #:return (Un) "Wrong number of fixed type arguments to polymorphic type ~a:\nexpected: ~a\ngot: ~a"
-                                       ty (sub1 (PolyDots-n ty)) (length all-but-last)))]
-                   [_
-                    (instantiate-poly ty (map parse-type (syntax->list inst)))]))]
+               ;; In the case that the list is empty we also do the normal thing
+               (let ((stx-list (syntax->list inst)))
+                 (if (null? stx-list)
+                     (instantiate-poly ty (map parse-type stx-list))
+                     (let-values ([(all-but-last last-stx) (split-last stx-list)])
+                       (match (syntax-e last-stx)
+                         [(cons last-ty-stx (? identifier? last-id-stx))
+                          (unless (bound-index? (syntax-e last-id-stx))
+                            (tc-error/stx last-id-stx "~a is not a type variable bound with ..." (syntax-e last-id-stx)))
+                          (if (= (length all-but-last) (sub1 (PolyDots-n ty)))
+                              (let* ([last-id (syntax-e last-id-stx)]
+                                     [last-ty (extend-tvars (list last-id) (parse-type last-ty-stx))])
+                                (instantiate-poly-dotted ty (map parse-type all-but-last) last-ty last-id))
+                              (tc-error/expr #:return (Un) "Wrong number of fixed type arguments to polymorphic type ~a:\nexpected: ~a\ngot: ~a"
+                                             ty (sub1 (PolyDots-n ty)) (length all-but-last)))]
+                         [_
+                          (instantiate-poly ty (map parse-type stx-list))]))))]
               [else
                (instantiate-poly ty (map parse-type (syntax->list inst)))])))]
     [_ (if inst
@@ -158,11 +170,11 @@
 ;; typecheck an identifier
 ;; the identifier has variable effect
 ;; tc-id : identifier -> tc-results
-(d/c (tc-id id)
+(define/cond-contract (tc-id id)
   (--> identifier? tc-results?)
   (let* ([ty (lookup-type/lexical id)])
     (ret ty
-         (make-FilterSet (-not-filter (-val #f) id) 
+         (make-FilterSet (-not-filter (-val #f) id)
                          (-filter (-val #f) id))
          (make-Path null id))))
 
@@ -183,12 +195,12 @@
 (define (tc-expr/check form expected)
   (parameterize ([current-orig-stx form])
     ;; the argument must be syntax
-    (unless (syntax? form) 
+    (unless (syntax? form)
       (int-err "bad form input to tc-expr: ~a" form))
     ;; typecheck form
     (let loop ([form* form] [expected expected] [checked? #f])
-      (cond [(type-ascription form*) 
-             => 
+      (cond [(type-ascription form*)
+             =>
              (lambda (ann)
                (let* ([r (tc-expr/check/internal form* ann)]
                       [r* (check-below r expected)])
@@ -217,15 +229,16 @@
                     t)]))))
 
 ;; tc-expr/check : syntax tc-results -> tc-results
-(d/c (tc-expr/check/internal form expected)
+(define/cond-contract (tc-expr/check/internal form expected)
   (--> syntax? tc-results? tc-results?)
   (parameterize ([current-orig-stx form])
     ;(printf "form: ~a\n" (syntax-object->datum form))
     ;; the argument must be syntax
-    (unless (syntax? form) 
+    (unless (syntax? form)
       (int-err "bad form input to tc-expr: ~a" form))
-    (let (;; a local version of ret that does the checking
-          [ret 
+    (let ([old-ret ret]
+          ;; a local version of ret that does the checking
+          [ret
            (lambda args
              (define te (apply ret args))
              (check-below te expected))])
@@ -235,7 +248,7 @@
         [stx
          #:when (syntax-property form 'typechecker:with-handlers)
          (check-subforms/with-handlers/check form expected)]
-        [stx 
+        [stx
          #:when (syntax-property form 'typechecker:ignore-some)
          (let ([ty (check-subforms/ignore form)])
            (unless ty
@@ -260,7 +273,7 @@
         [(#%top . id) (check-below (tc-id #'id) expected)]
         ;; weird
         [(#%variable-reference . _)
-         (tc-error/expr #:return (ret expected) "#%variable-reference is not supported by Typed Scheme")]
+         (tc-error/expr #:return (ret expected) "#%variable-reference is not supported by Typed Racket")]
         ;; identifiers
         [x:identifier
            (check-below (tc-id #'x) expected)]
@@ -268,8 +281,8 @@
         [(with-continuation-mark e1 e2 e3)
          (begin (tc-expr/check/type #'e1 Univ)
                 (tc-expr/check/type #'e2 Univ)
-                (tc-expr/check #'e3 expected))]  
-        ;; application        
+                (tc-expr/check #'e3 expected))]
+        ;; application
         [(#%plain-app . _) (tc/app/check form expected)]
         ;; #%expression
         [(#%expression e) (tc-expr/check #'e expected)]
@@ -280,7 +293,7 @@
         ;; begin
         [(begin e . es) (tc-exprs/check (syntax->list #'(e . es)) expected)]
         [(begin0 e . es)
-         (begin (tc-exprs/check (syntax->list #'es) Univ)
+         (begin (tc-exprs/check (syntax->list #'es) (old-ret Univ))
                 (tc-expr/check #'e expected))]
         ;; if
         [(if tst thn els) (tc/if-twoarm #'tst #'thn #'els expected)]
@@ -291,8 +304,9 @@
          (tc/lambda/check form #'(formals ...) #'(body ...) expected)]
         ;; send
         [(let-values (((_) meth))
-           (let-values (((_ _) (~and find-app (#%plain-app find-method/who _ rcvr _))))
-             (#%plain-app _ _ args ...)))
+           (let-values (((_) rcvr))
+             (let-values (((_) (~and find-app (#%plain-app find-method/who _ _ _))))
+               (#%plain-app _ _ args ...))))
          (tc/send #'find-app #'rcvr #'meth #'(args ...) expected)]
         ;; let
         [(let-values ([(name ...) expr] ...) . body)
@@ -316,29 +330,29 @@
 ;; syntax[expr] -> type
 (define (tc-expr form)
   ;; do the actual typechecking of form
-  ;; internal-tc-expr : syntax -> Type    
+  ;; internal-tc-expr : syntax -> Type
   (define (internal-tc-expr form)
     (syntax-parse form
       #:literal-sets (kernel-literals)
       #:literals (#%app lambda find-method/who)
-      ;; 
+      ;;
       [stx
        #:when (syntax-property form 'typechecker:with-handlers)
        (let ([ty (check-subforms/with-handlers form)])
          (unless ty
            (int-err "internal error: with-handlers"))
          ty)]
-      [stx 
+      [stx
        #:when (syntax-property form 'typechecker:ignore-some)
        (let ([ty (check-subforms/ignore form)])
          (unless ty
            (int-err "internal error: ignore-some"))
          ty)]
-      
+
       ;; data
       [(quote #f) (ret (-val #f) false-filter)]
       [(quote #t) (ret (-val #t) true-filter)]
-      
+
       [(quote val)  (ret (tc-literal #'val) true-filter)]
       ;; syntax
       [(quote-syntax datum) (ret (-Syntax (tc-literal #'datum)) true-filter)]
@@ -349,59 +363,62 @@
               (tc-expr #'e3))]
       ;; lambda
       [(#%plain-lambda formals . body)
-       (tc/lambda form #'(formals) #'(body))]        
+       (tc/lambda form #'(formals) #'(body))]
       [(case-lambda [formals . body] ...)
-       (tc/lambda form #'(formals ...) #'(body ...))]  
+       (tc/lambda form #'(formals ...) #'(body ...))]
       ;; send
       [(let-values (((_) meth))
-         (let-values (((_ _) (~and find-app (#%plain-app find-method/who _ rcvr _))))
-           (#%plain-app _ _ args ...)))
+         (let-values (((_) rcvr))
+           (let-values (((_) (~and find-app (#%plain-app find-method/who _ _ _))))
+             (#%plain-app _ _ args ...))))
        (tc/send #'find-app #'rcvr #'meth #'(args ...))]
       ;; let
       [(let-values ([(name ...) expr] ...) . body)
        (tc/let-values #'((name ...) ...) #'(expr ...) #'body form)]
       [(letrec-values ([(name ...) expr] ...) . body)
-       (tc/letrec-values #'((name ...) ...) #'(expr ...) #'body form)]        
+       (tc/letrec-values #'((name ...) ...) #'(expr ...) #'body form)]
       ;; mutation!
       [(set! id val)
        (match-let* ([(tc-result1: id-t) (tc-expr #'id)]
                     [(tc-result1: val-t) (tc-expr #'val)])
          (unless (subtype val-t id-t)
            (tc-error/expr "Mutation only allowed with compatible types:\n~a is not a subtype of ~a" val-t id-t))
-         (ret -Void))]        
+         (ret -Void))]
       ;; top-level variable reference - occurs at top level
       [(#%top . id) (tc-id #'id)]
       ;; #%expression
       [(#%expression e) (tc-expr #'e)]
       ;; weird
       [(#%variable-reference . _)
-       (tc-error/expr #:return (ret (Un)) "#%variable-reference is not supported by Typed Scheme")]
+       (tc-error/expr #:return (ret (Un)) "#%variable-reference is not supported by Typed Racket")]
       ;; identifiers
       [x:identifier (tc-id #'x)]
-      ;; application        
+      ;; application
       [(#%plain-app . _) (tc/app form)]
       ;; if
-      [(if tst thn els) (tc/if-twoarm #'tst #'thn #'els)]                          
+      [(if tst thn els) (tc/if-twoarm #'tst #'thn #'els)]
 
-      
-      
+
+
       ;; syntax
       ;; for now, we ignore the rhs of macros
       [(letrec-syntaxes+values stxs vals . body)
        (tc-expr (syntax/loc form (letrec-values vals . body)))]
-      
+
       ;; begin
       [(begin e . es) (tc-exprs (syntax->list #'(e . es)))]
       [(begin0 e . es)
        (begin (tc-exprs (syntax->list #'es))
               (tc-expr #'e))]
       ;; other
-      [_ (tc-error/expr #:return (ret (Un)) "cannot typecheck unknown form : ~a\n" (syntax->datum form))]))
-  
+      [_
+       (printf "~s\n" (continuation-mark-set->context (current-continuation-marks)))
+       (tc-error/expr #:return (ret (Un)) "cannot typecheck unknown form : ~a\n" (syntax->datum form))]))
+
   (parameterize ([current-orig-stx form])
     ;(printf "form: ~a\n" (syntax->datum form))
     ;; the argument must be syntax
-    (unless (syntax? form) 
+    (unless (syntax? form)
       (int-err "bad form input to tc-expr: ~a" form))
     ;; typecheck form
     (let ([ty (cond [(type-ascription form) => (lambda (ann)
@@ -414,7 +431,7 @@
            (add-typeof-expr form r)
            r)]))))
 
-(d/c (tc/send form rcvr method args [expected #f])
+(define/cond-contract (tc/send form rcvr method args [expected #f])
   (-->* (syntax? syntax? syntax? syntax?) ((-or/c tc-results? #f)) tc-results?)
   (match (tc-expr rcvr)
     [(tc-result1: (Instance: (and c (Class: _ _ methods))))
@@ -428,14 +445,17 @@
                            ret-ty)])
           (add-typeof-expr form retval)
           retval)]
-       [(tc-result1: t) (int-err "non-symbol methods not supported by Typed Scheme: ~a" t)])]
+       [(tc-result1: t) (int-err "non-symbol methods not supported by Typed Racket: ~a" t)])]
     [(tc-result1: t) (tc-error/expr #:return (or expected (ret (Un))) "send: expected a class instance, got ~a" t)]))
 
-(define (single-value form [expected #f])  
+(define (single-value form [expected #f])
   (define t (if expected (tc-expr/check form expected) (tc-expr form)))
   (match t
     [(tc-result1: _ _ _) t]
-    [_ (tc-error/stx form "expected single value, got multiple (or zero) values")]))
+    [_ (tc-error/expr
+          #:stx form
+          #:return (or expected (ret (Un)))
+     "expected single value, got multiple (or zero) values")]))
 
 ;; type-check a list of exprs, producing the type of the last one.
 ;; if the list is empty, the type is Void.

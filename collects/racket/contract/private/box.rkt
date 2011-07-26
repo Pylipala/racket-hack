@@ -1,7 +1,10 @@
 #lang racket/base
 
 (require (for-syntax racket/base)
-         "guts.rkt")
+         "prop.rkt"
+         "blame.rkt"
+         "guts.rkt"
+         "misc.rkt")
 
 (provide box-immutable/c 
          (rename-out [wrap-box/c box/c]))
@@ -28,7 +31,7 @@
         [(dont-care) (void)])
       (when first-order?
         (unless (contract-first-order-passes? elem-ctc (unbox val))
-          (fail "expected <~s>, got ~v" (contract-name elem-ctc) val)))
+          (fail "expected: ~s, got ~v" (contract-name elem-ctc) val)))
       #t)))
 
 (define (box/c-first-order ctc)

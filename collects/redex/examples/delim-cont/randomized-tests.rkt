@@ -1,26 +1,69 @@
 #lang racket
 
-(require "grammar.ss" 
+(require "grammar.rkt"
          "reduce.rkt"
          (except-in redex/reduction-semantics plug)
          racket/runtime-path)
 
 (provide (all-defined-out))
 
-(define (main [seed-arg #f])
-  (define seed
-    (if seed-arg 
-        (string->number seed-arg)
-        (add1 (random (sub1 (expt 2 31))))))
-  (printf "Test seed: ~s\n" seed)
-  (parameterize ([current-pseudo-random-generator test-prg])
-    (random-seed seed))
-  (parameterize ([redex-pseudo-random-generator test-prg])
-    (time (test #:attempts 3000))
-    (time (test #:source :-> #:attempts 3000))))
+(define (main . args)
+  (define from-grammar-tests #f)
+  (define from-rules-tests #f)
+  
+  (define seed (add1 (random (sub1 (expt 2 31)))))
+  
+  (define size #f)
+  (define attempt->size default-attempt-size)
+
+  (define repetitions 1)
+  
+  (command-line
+   #:argv args
+   #:once-each
+   ["--grammar"
+    n
+    "Perform n tests generated from the grammar for programs"
+    (set! from-grammar-tests (string->number n))]
+   ["--rules"
+    n
+    "Perform n tests generated from the reduction relation"
+    (set! from-rules-tests (string->number n))]
+   ["--seed"
+    n
+    "Generate tests using the PRG seed n"
+    (set! seed (string->number n))]
+   ["--size"
+    n
+    "Generate tests of size at most n"
+    (set! size (string->number n))
+    (set! attempt->size (const size))]
+   ["--log"
+    p
+    "Log generated tests to path p"
+    (log-test (curryr pretty-write (open-output-file p #:exists 'truncate)))]
+   ["--repetitions"
+    n
+    "Repeats the command n times"
+    (set! repetitions (string->number n))])
+  
+  
+  (for ([_ (in-range 0 repetitions)])
+    
+    (printf "Test seed: ~a (size: ~a)\n" seed (or size "variable"))
+    (parameterize ([current-pseudo-random-generator test-prg])
+      (random-seed seed))
+    
+    (parameterize ([redex-pseudo-random-generator test-prg])
+      (when from-grammar-tests
+        (time (test #:attempts from-grammar-tests #:attempt-size attempt->size)))
+      (when from-rules-tests
+        (time (test #:source :-> #:attempts from-rules-tests #:attempt-size attempt->size))))))
+
+(define log-test (make-parameter void))
 
 (define-syntax-rule (test . kw-args)
-  (redex-check grammar p (same-behavior? (term p)) 
+  (redex-check grammar p (begin ((log-test) (term p)) (same-behavior? (term p))) 
                #:prepare fix-prog . kw-args))
 
 (define fix-prog
@@ -30,10 +73,41 @@
        `(<> ,(map list xs (map (fix-expr xs) vs)) [] ,((fix-expr xs) e)))]))
 
 (define (fix-expr top-vars) 
-  (compose drop-duplicate-binders
-           proper-wcms 
-           consistent-dws
-           (curry close top-vars '())))
+  (define rewrite
+    (compose drop-duplicate-binders
+             proper-wcms
+             proper-conts
+             consistent-dws
+             (curry close top-vars '())))
+  ; Must call proper-wcm after proper-conts because the latter
+  ; exposes opportunities to the former.
+  ;
+  ; (% 1 
+  ;    (cont 1
+  ;          (wcm ([2 3])
+  ;               (% 1
+  ;                  (wcm ([2 4])
+  ;                       hole)
+  ;                  (λ (x) x))))
+  ;   (λ (x) x))
+  ;
+  ; But proper-conts sometimes cannot do its job until proper-wcms
+  ; turns an arbitrary context into an evaluation context.
+  ;
+  ; (% 1 
+  ;  (cont 1
+  ;        (wcm ([2 3])
+  ;             (wcm ([2 4])
+  ;                  (% 1 hole (λ (x) x)))))
+  ;  (λ (x) x))
+  ;
+  ; It might work to make proper-conts work in more contexts,
+  ; but it's easier to iterate the rules to a fixed point (and
+  ; there may be more dependencies that require iteration anyway).
+  (λ (e)
+    (let loop ([e e])
+      (define e’ (rewrite e))
+      (if (equal? e e’) e (loop e’)))))
 
 (struct error (cause) #:transparent)
 (struct answer (output result) #:transparent)
@@ -54,7 +128,18 @@
 (define impl-program
   (match-lambda
     [`(<> ,s [] ,e)
-     `(letrec ,s ,e)]
+     `(let* ([previous-error #f]
+             [result 
+              (with-handlers ([exn:fail? void])
+                (call-with-exception-handler
+                 (λ (exn)
+                   (when (and (exn:fail? exn) (not previous-error))
+                     (set! previous-error exn))
+                   exn)
+                 (λ () (letrec ,s ,e))))])
+            (if (exn:fail? previous-error)
+                (raise previous-error)
+                result))]
     [e e]))
 
 (define-runtime-module-path model-impl "model-impl.rkt")
@@ -72,12 +157,12 @@
     (λ (test)
       (define output (open-output-string))
       (define result
-        (with-handlers ([exn:fail? 
-                         (λ (e)
-                           (match (exn-message e)
-                             [(regexp #rx"%: expected argument of type <non-procedure>")
-                              (bad-test "procedure as tag")]
-                             [_ (error e)]))])
+        (with-handlers ([exn:fail?
+                         (match-lambda
+                           [(exn:fail (regexp "%: expected argument of type <non-procedure>") _)
+                            (bad-test "procedure as tag")]
+                           [(exn:fail m _)
+                            (error m)])])
           (parameterize ([current-output-port output])
             (eval test ns))))
       (if (or (error? result) (bad-test? result))
@@ -149,20 +234,25 @@
               (random-member bound)]
              [else (random-literal)]))]
     [`(set! ,x ,e)
-     (if (empty? top-vars)
-         (close top-vars loc-vars e)
-         `(set! ,(random-member top-vars)
-                ,(close top-vars loc-vars e)))]
+     (define e’ (close top-vars loc-vars e))
+     (cond [(memq x top-vars)
+            `(set! ,x ,e’)]
+           [(empty? top-vars) e’]
+           [else `(set! ,(random-member top-vars) ,e’)])]
     [`(λ ,xs ,e) 
      `(λ ,xs 
         ,(close (filter (negate (curryr member xs)) top-vars) 
                 (append xs loc-vars)
                 e))]
     [`(dw ,x ,e_1 ,e_2 ,e_3)
+     ; Local variables are substituted away in realistic pre-
+     ; and post-thunks. This invariant is important to 
+     ; `consistent-dws', which copies such thunks into different
+     ; scopes.
      `(dw ,x 
-          ,(close top-vars loc-vars e_1) 
+          ,(close top-vars '() e_1) 
           ,(close top-vars loc-vars e_2) 
-          ,(close top-vars loc-vars e_3))]
+          ,(close top-vars '() e_3))]
     ; substitution does not recur inside continuation values
     ; (not sure why it bothers to recur within dw expression)
     [`(cont ,v ,E)
@@ -205,38 +295,107 @@
       [_ x])))
 
 (define (proper-wcms e)
-  (let fix ([ok? #t] [e e])
+  ; Performs two tasks:
+  ; 1. drops duplicate cm keys, and
+  ; 2. drops `wcm' frames when the reduction relation
+  ; would not otherwise merge the marks (replacing them
+  ; with `call/cm' requires more care, since the `wcm'
+  ; body may contain a hole).
+  (let fix ([ctxt 'wont-have-wcm] [e e])
+    (define tail
+      (match-lambda
+        [(or 'comp-top 'may-have-wcm) 'may-have-wcm]
+        ['wont-have-wcm 'wont-have-wcm]))
     (match e
       [`(wcm ,w ,e)
-       (if ok? 
-           `(wcm ,(remove-duplicates (fix #t w) #:key first) 
-                 ,(fix #f e))
-           (fix #f e))]
+       (match ctxt
+         [(or 'comp-top 'wont-have-wcm)
+          `(wcm ,(remove-duplicates (fix 'dont-care w) #:key first) 
+                ,(fix 'may-have-wcm e))]
+         ['may-have-wcm
+          (fix 'may-have-wcm e)])]
       [`(list . ,vs)
-       `(list . ,(map (curry fix #t) vs))]
+       ; context doesn't matter for values
+       `(list . ,(map (curry fix 'dont-care) vs))]
       [`(λ ,xs ,e)
-       ; #f in case applied with a continuation that's already marked
-       `(λ ,xs ,(fix #f e))]
+       ; caller's continuation may be marked
+       `(λ ,xs ,(fix 'may-have-wcm e))]
       [`(cont ,v ,E)
-       `(cont ,(fix #t v) ,(fix #t E))]
+       ; body will be wrapped in a prompt
+       `(cont ,(fix 'dont-care v) ,(fix 'wont-have-wcm E))]
       [`(comp ,E)
-       `(comp ,(fix #t E))]
+       ; comp application merges only top-level marks
+       `(comp ,(fix 'comp-top E))]
       [`(begin ,e1 ,e2)
-       `(begin ,(fix #t e1)
-               ,(fix ok? e2))]
+       `(begin ,(fix 'wont-have-wcm e1)
+               ; "begin-v" does not merge marks
+               ,(fix (tail ctxt) e2))]
       [`(% ,e1 ,e2 ,e3)
-       `(% ,(fix #t e1) ,(fix ok? e2) ,(fix #t e3))]
+       `(% ,(fix 'wont-have-wcm e1)
+           ; prompt persists until e2 is a value
+           ,(fix 'wont-have-wcm e2)
+           ,(fix 'wont-have-wcm e3))]
       [`(dw ,x ,e1 ,e2 ,e3)
-       `(dw ,x ,(fix #t e1) ,(fix ok? e2) ,(fix #t e3))]
+       `(dw ,x 
+            ,(fix 'wont-have-wcm e1)
+            ; dw persists until e2 is a value
+            ,(fix 'wont-have-wcm e2)
+            ,(fix 'wont-have-wcm e3))]
       [`(if ,e1 ,e2 ,e3)
-       `(if ,(fix #t e1) 
-            ,(fix ok? e2)
-            ,(fix ok? e3))]
+       `(if ,(fix 'wont-have-wcm e1) 
+            ; "ift" and "iff" do not merge marks
+            ,(fix (tail ctxt) e2)
+            ,(fix (tail ctxt) e3))]
       [`(set! ,x ,e)
-       `(set! ,x ,(fix #t e))]
+       `(set! ,x ,(fix 'wont-have-wcm e))]
       [(? list?) 
-       (map (curry fix #t) e)]
+       (map (curry fix 'wont-have-wcm) e)]
       [_ e])))
+
+(define proper-conts
+  ; Turns (cont v_1 (in-hole E_1 (% v_1 E_2 v_2)))
+  ; into  (cont v_1 (in-hole E_1        E_2     ))
+  ; since no real program can construct the former.
+  ;
+  ; It would be nice to perform this transformation
+  ; by iteratively applying this rewrite rule
+  ;
+  ; (--> (in-hole (name C (cross e)) (cont v_1 (in-hole E_1 (% v_1 E_2 v_2))))
+  ;      (in-hole C (cont v_1 (in-hole E_1 E_2))))
+  ;
+  ; but a Redex bug (PR 11579) prevents that from working.
+  (let ([none (gensym)])
+    (define-metafunction grammar
+      [(fix (cont v E) any)
+       (cont (fix v ,none) (fix E v))]
+      
+      [(fix (dw x e_1 E e_2) any)
+       (dw x (fix e_1 ,none) (fix E any) (fix e_2 ,none))]
+      [(fix (wcm w E) any)
+       (wcm (fix w ,none) (fix E any))]
+      [(fix (v ... E e ...) any)
+       ((fix v ,none) ... (fix E any) (fix e ,none) ...)]
+      [(fix (begin E e) any)
+       (begin (fix E any) (fix e ,none))]
+      [(fix (% E e_1 e_2) any)
+       (% (fix E any) (fix e_1 ,none) (fix e_2 ,none))]
+      [(fix (% v e E) any)
+       (% (fix v ,none) (fix e ,none) (fix E any))]
+      [(fix (% any E v) any)
+       (fix E any)]
+      [(fix (% v_1 E v_2) any)
+       (% (fix v_1 ,none) (fix E any) (fix v_2 ,none))]
+      [(fix (set! x E) any)
+       (set! x (fix E any))]
+      [(fix (if E e_1 e_2) any)
+       (if (fix E any) (fix e_1 ,none) (fix e_2 ,none))]
+      
+      [(fix (any_1 ...) any_2)
+       ((fix any_1 ,none) ...)]
+      [(fix any_1 any_2)
+       any_1])
+    (λ (expr)
+      (term (fix ,expr ,none)))))
 
 (define transform-intermediate
   (match-lambda
@@ -247,7 +406,7 @@
        (define cell (fresh prefix))
        (set! allocated (cons cell allocated))
        cell)
-     (define no-dw? (alloc-cell "handlers-disabled?"))
+     (define capts (alloc-cell "active-cont-capts"))
      (define dw-frame-locs
        (let ([locs (make-hash)])
          (λ (x)
@@ -270,15 +429,15 @@
                       [t (fresh "t")])
             `((λ (,t)
                 (if ,a?
-                    (begin (if ,no-dw? #f (set! ,s? #t)) (,c ,t))
+                    (begin (if (zero? ,capts) (set! ,s? #t) #f) (,c ,t))
                     (% 1
                        (dynamic-wind
                         (λ () 
-                          (if ,no-dw?
-                              #f
+                          (if (zero? ,capts)
                               (if ,a? 
                                   (if ,s? (set! ,s? #f) ,(transform e1))
-                                  #f)))
+                                  #f)
+                              #f))
                         (λ ()
                           ((call/comp 
                             (λ (k)
@@ -287,22 +446,22 @@
                                 (abort 1 k)))
                             1)))
                         (λ () 
-                          (if ,no-dw?
-                              (set! ,a? #t)
+                          (if (zero? ,capts)
                               (if ,a?
                                   ,(transform e3)
-                                  (set! ,a? #t)))))
-                       (λ (k) (begin (if ,no-dw? #f (set! ,s? #t)) (k ,t))))))
+                                  (set! ,a? #t))
+                              (set! ,a? #t))))
+                       (λ (k) (begin (if (zero? ,capts) (set! ,s? #t) #f) (k ,t))))))
               (λ () ,(transform e2))))]
          [`(cont ,v ,E)
           (let ([x (fresh "v")])
             `(begin
-               (set! ,no-dw? #t)
+               (set! ,capts (+ ,capts 1))
                ((λ (,x)
                   (% ,x 
                      ,(transform 
                        (term (plug ,E (call/cc (λ (k) (abort ,x k)) ,x))))
-                     (λ (x) (begin (set! ,no-dw? #f) x))))
+                     (λ (x) (begin (set! ,capts (+ ,capts -1)) x))))
                 ,(transform v))))]
          [`(comp ,E)
           (define numbers
@@ -312,11 +471,11 @@
               [_ (list)]))
           (define t (add1 (apply max 0 (numbers E))))
           `(begin
-             (set! ,no-dw? #t)
+             (set! ,capts (+ ,capts 1))
              (% ,t 
                 ,(transform
                   (term (plug ,E (call/comp (λ (k) (abort ,t k)) ,t))))
-                (λ (x) (begin (set! ,no-dw? #f) x))))]
+                (λ (x) (begin (set! ,capts (+ ,capts -1)) x))))]
          [`(list ,vs ...)
           `(list ,@(map transform-value vs))]
          [(? list? xs) 
@@ -334,7 +493,9 @@
                          [(list _ v’) (list x v’)]))
                 allocated)
           ,o
-          ,e’)]))
+          (begin
+            (set! ,capts 0)
+            ,e’))]))
 
 ;; The built-in `plug' sometimes chooses the wrong hole.
 (define-metafunction grammar

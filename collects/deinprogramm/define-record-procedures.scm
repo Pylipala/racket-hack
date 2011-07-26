@@ -208,7 +208,7 @@
 	       ;; again, with properties
 	       (with-syntax ((struct-type-defs
 			      (stepper-syntax-property
-			       (syntax/loc x struct-type-defs) 'stepper-define-struct-hint #'?stx))
+			       (syntax/loc x struct-type-defs) 'stepper-black-box-expr #'?stx))
 			     (constructor-def
 			      (stepper-syntax-property #'constructor-def 'stepper-skip-completely #t))
 			     (predicate-def
@@ -220,7 +220,7 @@
 		 #'(begin
 		     signature-def
 		     ;; the signature might be used in the definitions, hence this ordering
-		     struct-type-defs constructor-def predicate-def accessor-defs mutator-defs))))))
+		     struct-type-defs predicate-def constructor-def accessor-defs mutator-defs))))))
       ((_ ?type-name
 	  ?signature-constructor-name
 	  ?constructor

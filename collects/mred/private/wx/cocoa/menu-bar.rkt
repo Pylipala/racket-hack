@@ -46,14 +46,24 @@
                (tell #:type _BOOL the-apple-menu performKeyEquivalent: evt))
           ;; Explicity send the event to the keyWindow:
           (and
+           ;; Don't go into an infinite loop:
            (not (recurring-for-command))
+           ;; Don't handle Cmd-` for cycling through windows:
+           ;; [Is this right for all locales?]
+           (not (equal? "`" (tell #:type _NSString evt characters)))
+           ;; Otherwise, try to dispatch to the first respnder:
            (let ([w (tell app keyWindow)])
              (and w
                   (let ([r (tell w firstResponder)])
                     (and r
                          (begin
                            (parameterize ([recurring-for-command #t])
-                             (tell r keyDown: evt))
+                             (let ([evt-type (tell #:type _NSInteger evt type)])
+                               (cond
+                                [(= NSKeyDown evt-type)
+                                 (tell r keyDown: evt)]
+                                [(= NSKeyUp evt-type)
+                                 (tell r keyUp: evt)])))
                            #t)))))))))
 
 (define cocoa-mb (tell (tell MyBarMenu alloc) init))
@@ -72,9 +82,6 @@
       (let ([h (tell #:type _CGFloat cocoa-mb menuBarHeight)])
         (and (<= x (NSPoint-x p) (+ x w))
              (<= (- y h) (NSPoint-y p) y)))))))
-
-(define (get-menu-bar-height)
-  (inexact->exact (floor (tell #:type _CGFloat cocoa-mb menuBarHeight))))
 
 (set-menu-bar-hooks! in-menu-bar-range)
 
@@ -192,3 +199,9 @@
                           (send top-wx on-menu-click))))))
 
   (super-new))
+
+(define initial-menubar-height 
+  (inexact->exact (floor (tell #:type _CGFloat cocoa-mb menuBarHeight))))
+
+(define (get-menu-bar-height)
+  initial-menubar-height)

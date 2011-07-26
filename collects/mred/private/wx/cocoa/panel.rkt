@@ -2,9 +2,9 @@
 (require racket/class
          ffi/unsafe
          ffi/unsafe/objc
-          "../../syntax.rkt"
-          "types.rkt"
-          "utils.rkt"
+         "../../syntax.rkt"
+         "types.rkt"
+         "utils.rkt"
          "window.rkt")
 
 (provide 
@@ -20,7 +20,7 @@
 (define (panel-mixin %)
   (class %
     (inherit register-as-child on-new-child
-             is-window-enabled?)
+             is-window-enabled? get-cocoa)
 
     (define lbl-pos 'horizontal)
     (define children null)
@@ -30,7 +30,12 @@
     (define/public (get-label-position) lbl-pos)
     (define/public (set-label-position pos) (set! lbl-pos pos))
 
+    (define/public (adopt-child p)
+      ;; in atomic mode
+      (send p set-parent this))
+
     (define/override (fix-dc)
+      (super fix-dc)
       (for ([child (in-list children)])
         (send child fix-dc)))
 
@@ -55,6 +60,7 @@
         (send child child-accept-drag on?)))
 
     (define/override (enable-window on?)
+      (super enable-window on?)
       (let ([on? (and on? (is-window-enabled?))])
         (for ([child (in-list children)])
           (send child enable-window on?))))

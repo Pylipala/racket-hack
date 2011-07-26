@@ -1,70 +1,87 @@
 #lang scribble/doc
-@(require "common.ss")
+@(require "common.rkt" scribble/eval)
 
+@(define class-eval (make-base-eval))
+@(interaction-eval #:eval class-eval (require racket/class racket/draw))
 @defclass/title[brush% object% ()]{
 
 A brush is a drawing tool with a color and a style that is used for
  filling in areas, such as the interior of a rectangle or ellipse.  In
  a monochrome destination, all non-white brushes are drawn as black.
 
-In addition to its color and style, a brush can have a stipple bitmap.
+In addition to its color and style, a brush can have a @deftech{brush stipple} bitmap.
  Painting with a
  stipple brush is similar to calling @method[dc<%> draw-bitmap] with
  the stipple bitmap in the filled region.
 
-A brush's style is one of the following:
+As an alternative to a color, style, and stipple, a brush can have a
+ @deftech{gradient} that is a @racket[linear-gradient%] or
+ @racket[radial-gradient%]. When a brush has a gradient and the target
+ for drawing is not monochrome, then other brush settings are
+ ignored. With a gradient, for each point in a drawing destination,
+ the gradient associates a color to the point based on starting and
+ ending colors and starting and ending lines (for a linear gradient)
+ or circles (for a radial gradient); a gradient-assigned color is
+ applied for each point that is touched when drawing with the brush.
+ By default, coordinates in the gradient are transformed by the
+ drawing context's transformation when the brush is used, but a brush
+ can have its own @deftech{gradient transformation} that is used, instead.
+ A gradient transformation has the same representation and meaning as for
+ @xmethod[dc<%> get-transformation].
+
+A @deftech{brush style} is one of the following (but is ignored if the brush
+ has a @tech{gradient} and the target is not monochrome):
 
 @itemize[
 
- @item{@indexed-scheme['transparent] --- Draws with no effect (on the
+ @item{@indexed-racket['transparent] --- Draws with no effect (on the
        interior of the drawn shape).}
 
- @item{@indexed-scheme['solid] --- Draws using the brush's color. If a
-        monochrome stipple is installed into the brush, black pixels
+ @item{@indexed-racket['solid] --- Draws using the brush's color. If a
+        monochrome @tech{brush stipple} is installed into the brush, black pixels
         from the stipple are transferred to the destination using the
         brush's color, and white pixels from the stipple are not
         transferred.}
 
- @item{@indexed-scheme['opaque] --- The same as @scheme['solid] for a color
-        stipple. For a monochrome stipple, white pixels from 
+ @item{@indexed-racket['opaque] --- The same as @racket['solid] for a color
+        @tech{brush stipple}. For a monochrome stipple, white pixels from 
         the stipple are
         transferred to the destination using the destination's
         background color.}
 
- @item{@indexed-scheme['xor] --- The same as @racket['solid], accepted 
+ @item{@indexed-racket['xor] --- The same as @racket['solid], accepted 
         only for partial backward compatibility.}
 
- @item{@indexed-scheme['hilite] --- Draws with black and a @racket[0.3] alpha.}
+ @item{@indexed-racket['hilite] --- Draws with black and a @racket[0.3] alpha.}
 
- @item{@indexed-scheme['panel] --- The same as @scheme['solid], accepted 
+ @item{@indexed-racket['panel] --- The same as @racket['solid], accepted 
         only for partial backward compatibility.}
 
- @item{The following modes correspond to built-in stipples drawn in
-       @scheme['solid] mode:
+ @item{The following modes correspond to built-in @tech{brush stipples} drawn in
+       @racket['solid] mode:
 
   @itemize[
-  @item{@indexed-scheme['bdiagonal-hatch] --- diagonal lines, top-left to bottom-right}
-  @item{@indexed-scheme['crossdiag-hatch] --- crossed diagonal lines}
-  @item{@indexed-scheme['fdiagonal-hatch] --- diagonal lines, top-right to bottom-left}
-  @item{@indexed-scheme['cross-hatch] --- crossed horizontal and vertical lines}
-  @item{@indexed-scheme['horizontal-hatch] --- horizontal lines}
-  @item{@indexed-scheme['vertical-hatch] --- vertical lines}
+  @item{@indexed-racket['bdiagonal-hatch] --- diagonal lines, top-left to bottom-right}
+  @item{@indexed-racket['crossdiag-hatch] --- crossed diagonal lines}
+  @item{@indexed-racket['fdiagonal-hatch] --- diagonal lines, top-right to bottom-left}
+  @item{@indexed-racket['cross-hatch] --- crossed horizontal and vertical lines}
+  @item{@indexed-racket['horizontal-hatch] --- horizontal lines}
+  @item{@indexed-racket['vertical-hatch] --- vertical lines}
   ]
 
-        However, when a specific stipple is installed into the brush,
-        the above modes are ignored and @scheme['solid] is
+        However, when a specific @tech{brush stipple} is installed into the brush,
+        the above modes are ignored and @racket['solid] is
         used, instead.}
 
 ]
 
 @index['("drawing" "outlines")]{To} draw outline shapes (such as
- unfilled boxes and ellipses), use the @scheme['transparent] brush
- style. See @method[brush% set-style] for more information about
- styles.
+ unfilled boxes and ellipses), use the @racket['transparent] brush
+ style.
 
 To avoid creating multiple brushes with the same characteristics, use
- the global @scheme[brush-list%] object
- @indexed-scheme[the-brush-list], or provide a color and style to
+ the global @racket[brush-list%] object
+ @indexed-racket[the-brush-list], or provide a color and style to
  @xmethod[dc<%> set-brush].
 
 
@@ -76,14 +93,20 @@ To avoid creating multiple brushes with the same characteristics, use
                                   'horizontal-hatch 'vertical-hatch)
                          'solid]
                  [stipple (or/c #f (is-a?/c bitmap%))
-                          #f])]{
+                          #f]
+                 [gradient (or/c #f 
+                                 (is-a?/c linear-gradient%)
+                                 (is-a?/c radial-gradient%))
+                           #f]
+                 [transformation (or/c #f (vector/c (vector/c real? real? real? 
+                                                              real? real? real?)
+                                                     real? real? real? real? real?))])]{
 
-Creates a brush with the given color, style, and stipple. For
- the case that the color is specified using a name, see
- @scheme[color-database<%>] for information about color names; if the
- name is not known, the brush's color is black.
+Creates a brush with the given color, @tech{brush style}, @tech{brush stipple}, @tech{gradient}, and
+ @tech{gradient transformation}. For the case that the color is specified
+ using a name, see @racket[color-database<%>] for information about
+ color names; if the name is not known, the brush's color is black.}
 
-}
 
 @defmethod[(get-color)
            (is-a?/c color%)]{
@@ -93,11 +116,18 @@ Returns the brush's color.
 }
 
 @defmethod[(get-stipple)
-           (or/c (is-a?/c bitmap%) false/c)]{
+           (or/c (is-a?/c bitmap%) #f)]{
 
-Gets the stipple bitmap, or @scheme[#f] if the brush has no stipple.
+Gets the @tech{brush stipple} bitmap, or @racket[#f] if the brush has no stipple.}
 
-}
+
+@defmethod[(get-gradient)
+           (or/c (is-a?/c linear-gradient%)
+                 (is-a?/c radial-gradient%)
+                 #f)]{
+
+Gets the @tech{gradient}, or @racket[#f] if the brush has no gradient.}
+
 
 @defmethod[(get-style)
            (one-of/c 'transparent 'solid 'opaque 
@@ -106,10 +136,20 @@ Gets the stipple bitmap, or @scheme[#f] if the brush has no stipple.
                      'fdiagonal-hatch 'cross-hatch 
                      'horizontal-hatch 'vertical-hatch)]{
 
-Returns the brush's style. See @scheme[brush%] for information about
-brush styles.
+Returns the @tech{brush style}. See @racket[brush%] for information about
+brush styles.}
 
-}
+
+@defmethod[(get-transformation) (or/c #f (vector/c (vector/c real? real? real? real? real? real?)
+                                                   real? real? real? real? real?))]{
+
+Returns the brush's @tech{gradient transformation}, if any.
+
+If a brush with a gradient also has a transformation, then the
+transformation applies to the gradient's coordinates instead of the
+target drawing context's transformation; otherwise, the target drawing
+context's transformation applies to gradient coordinates.}
+
 
 @defmethod*[([(set-color [color (is-a?/c color%)])
               void?]
@@ -121,26 +161,25 @@ brush styles.
               void?])]{
 
 Sets the brush's color.  A brush cannot be modified if it was obtained
- from a @scheme[brush-list%] or while it is selected into a drawing
+ from a @racket[brush-list%] or while it is selected into a drawing
  context.
 
 For the case that the color is specified using a string, see
- @scheme[color-database<%>] for information about color names.
+ @racket[color-database<%>] for information about color names.
 
 }
 
 @defmethod[(set-stipple [bitmap (or/c (is-a?/c bitmap%) #f)])
            void?]{
 
-Sets or removes the stipple bitmap, where @scheme[#f] removes the
- stipple. See @scheme[brush%] for information about drawing with
+Sets or removes the @tech{brush stipple} bitmap, where @racket[#f] removes the
+ stipple. See @racket[brush%] for information about drawing with
  stipples.
 
-A bitmap cannot be used as a stipple if it is selected into a
- @scheme[bitmap-dc%] object; if the given bitmap is selected into a
- @scheme[bitmap-dc%] object, @|MismatchExn|. A brush cannot be
- modified if it was obtained from a @scheme[brush-list%] or while it
- is selected into a drawing context.
+If @racket[bitmap] is modified while is associated with a brush, the
+ effect on the brush is unspecified. A brush cannot be modified if it
+ was obtained from a @racket[brush-list%] or while it is selected into
+ a drawing context.
 
 }
 
@@ -151,12 +190,13 @@ A bitmap cannot be used as a stipple if it is selected into a
                                        'horizontal-hatch 'vertical-hatch)])
            void?]{
 
-Sets the brush's style. See
-@scheme[brush%] for information about the possible styles.
+Sets the @tech{brush style}. See
+@racket[brush%] for information about the possible styles.
 
 A brush cannot be modified if it was obtained from a
- @scheme[brush-list%] or while it is selected into a drawing
+ @racket[brush-list%] or while it is selected into a drawing
  context.
 
 }}
 
+@(close-eval class-eval)

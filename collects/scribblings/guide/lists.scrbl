@@ -1,10 +1,7 @@
 #lang scribble/doc
-@(require scribble/manual
-          scribble/eval
-          scribble/bnf
-          racket/list
-          (for-label racket/list)
-          "guide-utils.ss")
+@(require scribble/manual scribble/eval scribble/bnf racket/list
+          "guide-utils.rkt"
+          (for-label racket/list))
 
 @(define step @elem{=})
 
@@ -117,12 +114,12 @@ list loops.
 Racket provides a general @defterm{list comprehension} form
 @racket[for/list], which builds a list by iterating through
 @defterm{sequences}. List comprehensions and related iteration forms
-are described in see @secref["for"].
+are described in @secref["for"].
 
 @;------------------------------------------------------------------------
 @section{List Iteration from Scratch}
 
-Although @racket[map] and other iteration functions predefined, they
+Although @racket[map] and other iteration functions are predefined, they
 are not primitive in any interesting sense. You can write equivalent
 iterations using a handful of list primitives.
 
@@ -218,7 +215,7 @@ list is exhausted.
 
 You can avoid piling up additions by adding along the way. To
 accumulate a length this way, we need a function that takes both a
-list and the length of the list seem so far; the code below uses a
+list and the length of the list seen so far; the code below uses a
 local function @racket[iter] that accumulates the length in an
 argument @racket[len]:
 
@@ -286,7 +283,7 @@ It turns out that if you write
     (f i)))
 ]
 
-then the @racket[for/list] form in the function both is expanded to
+then the @racket[for/list] form in the function is expanded to
 essentially the same code as the @racket[iter] local definition and
 use. The difference is merely syntactic convenience.
 

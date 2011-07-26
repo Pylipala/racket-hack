@@ -1,14 +1,14 @@
 #lang scheme/base
 
-(require "loc-wrapper.ss"
-         "matcher.ss"
-         "reduction-semantics.ss"
+(require "loc-wrapper.rkt"
+         "matcher.rkt"
+         "reduction-semantics.rkt"
          
          texpict/utils
          texpict/mrpict
         
          scheme/match
-         scheme/gui/base
+         racket/draw
          scheme/class)
 
 (require (for-syntax scheme/base))
@@ -90,10 +90,6 @@
                      (list (blank)
                            (list-ref args 2)
                            (blank))))
-       (hole ,(λ (args)
-                (let ([name (lw-e (list-ref args 2))])
-                  (list (basic-text "[]" (default-style)) 
-                        (basic-text (format "~a" name) (non-terminal-subscript-style))))))
        (name ,(λ (args)
                 (let ([open-paren (list-ref args 0)]
                       [the-name (list-ref args 2)]
@@ -124,7 +120,7 @@
   (define-struct token (column span) #:inspector (make-inspector))
   
   ;; string : string
-  ;; style : valid third argument to mrpict.ss's `text' function
+  ;; style : valid third argument to mrpict.rkt's `text' function
   (define-struct (string-token token) (string style) #:inspector (make-inspector))
   
   ;; width : number

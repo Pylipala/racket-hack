@@ -1,7 +1,7 @@
 /*
   SenoraGC, a relatively portable conservative GC for a slightly
     cooperative environment
-  Copyright (c) 2004-2010 PLT Scheme Inc.
+  Copyright (c) 2004-2011 PLT Scheme Inc.
   Copyright (c) 1996-98 Matthew Flatt
   All rights reserved.
 
@@ -315,7 +315,7 @@
    malloc() to avoid waste when obtaining the proper alignment. */
 #define SECTOR_SEGMENT_GROUP_SIZE 32
 
-/* Number of bits used in 32-bit level table for checking existance of
+/* Number of bits used in 32-bit level table for checking existence of
    a sector. Creates a table of (1 << SECTOR_LOOKUP_SHIFT) pointers
    to individual page tables of size SECTOR_LOOKUP_PAGESIZE. */
 #define SECTOR_LOOKUP_PAGESETBITS 12
@@ -717,6 +717,8 @@ static MemoryChunk *sys_malloc_others;
 int GC_dl_entries;
 int GC_fo_entries;
 
+int GC_dont_gc;
+
 void (*GC_push_last_roots)(void);
 void (*GC_push_last_roots_again)(void);
 
@@ -943,7 +945,7 @@ static void *platform_plain_sector(int count)
 {
   /* Since 64k blocks are used up by each call to VirtualAlloc,
      use roughly the same trick as in the malloc-based alloc to
-     avoid wasting ther address space. */
+     avoid wasting the address space. */
 
   static int prealloced;
   static void *preallocptr;
@@ -1169,9 +1171,9 @@ static void free_sector(void *p)
   /* Determine the size: */
   t = s;
   while(1) {
-    DECL_SECTOR_PAGETABLES;
     intptr_t pagetableindex = SECTOR_LOOKUP_PAGETABLE(t);
     intptr_t pageindex = SECTOR_LOOKUP_PAGEPOS(t);
+    DECL_SECTOR_PAGETABLES;
     GET_SECTOR_PAGETABLES(t);
     if (sector_pagetables[pagetableindex]
 	&& (sector_pagetables[pagetableindex][pageindex].start == s)) {
@@ -1228,10 +1230,10 @@ static void free_sector(void *p)
 #ifdef WIN32
 static int is_sector_segment(void *p)
 {
-  DECL_SECTOR_PAGETABLES;
   uintptr_t s = PTR_TO_INT(p);
   intptr_t pagetableindex = SECTOR_LOOKUP_PAGETABLE(s);
   intptr_t pageindex = SECTOR_LOOKUP_PAGEPOS(s);
+  DECL_SECTOR_PAGETABLES;
 
   FIND_SECTOR_PAGETABLES(p);
   if (!sector_pagetables) return 0;
@@ -1884,7 +1886,7 @@ static void dump_sector_map(char *prefix)
 	    if ((was_kind != kind) || (was_sec != pagetable[j].start))
 	      same_sec = diff_sec;
 
-	    FPRINTF(STDERR, same_sec);
+	    FPRINTF(STDERR, "%s", same_sec);
 	    
 	    was_kind = kind;
 	    was_sec = pagetable[j].start;
@@ -2113,7 +2115,7 @@ intptr_t GC_get_memory_use()
 
 void GC_end_stubborn_change(void *p)
 {
-  /* stubborness is not exploited */
+  /* stubbornness is not exploited */
 }
 
 static void *zero_ptr;
@@ -2440,7 +2442,7 @@ static void *do_malloc(SET_NO_BACKINFO
 
   block = (BlockOfMemory *)malloc_sector(c, sector_kind_block, 1);
   if (!block) {
-    if (mem_use >= mem_limit) {
+    if ((mem_use >= mem_limit) && !GC_dont_gc) {
       GC_gcollect();
       return do_malloc(KEEP_SET_INFO_ARG(set_no)
 		       size, common, othersptr, flags);
@@ -4292,12 +4294,16 @@ static void run_finalizers(void)
 static int traced_from_roots, traced_from_stack, traced_from_uncollectable, traced_from_finals;
 #endif
 
-#if 0
-extern intptr_t scheme_get_milliseconds(void);
-# define GETTIME() scheme_get_milliseconds()
+#ifdef WIN32
+# define GETTIME() 0
 #else
+# if 0
+extern intptr_t scheme_get_milliseconds(void);
+#  define GETTIME() scheme_get_milliseconds()
+# else
 extern intptr_t scheme_get_process_milliseconds(void);
-# define GETTIME() scheme_get_process_milliseconds()
+#  define GETTIME() scheme_get_process_milliseconds()
+# endif
 #endif
 
 #if TIME
@@ -4741,6 +4747,9 @@ void GC_gcollect(void)
   if (!sector_mem_use)
     return;
 
+  if (GC_dont_gc)
+    return;
+
   FLUSH_REGISTER_WINDOWS;
   if (!setjmp(buf))
     do_GC_gcollect((void *)&dummy);
@@ -4920,7 +4929,7 @@ void GC_prim_stringout(char *s, int len)
 	SetConsoleScreenBufferSize(console, size);
   }
 
-  WriteConsole(console, s, len, &wrote, NULL);
+  WriteConsoleA(console, s, len, &wrote, NULL);
 }
 # else
 extern void GC_prim_stringout(char *s, int len);

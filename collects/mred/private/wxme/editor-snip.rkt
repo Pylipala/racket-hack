@@ -1,22 +1,23 @@
 #lang scheme/base
 (require scheme/class
-         "../syntax.ss"
-         "private.ss"
-         "const.ss"
-         "snip.ss"
-         "snip-flags.ss"
-         "editor.ss"
-         "editor-admin.ss"
-         "snip-admin.ss"
-         "text.ss"
-         "pasteboard.ss"
-         "wx.ss"
-         (except-in "cycle.ss" 
+         "../syntax.rkt"
+         "private.rkt"
+         racket/snip/private/private
+         "const.rkt"
+         racket/snip
+         racket/snip/private/snip-flags
+         "standard-snip-admin.rkt"
+         "editor.rkt"
+         "editor-admin.rkt"
+         "editor-snip-class.rkt"
+         "text.rkt"
+         "pasteboard.rkt"
+         "wx.rkt"
+         (except-in "cycle.rkt"
                     text%
                     pasteboard%
                     editor-snip%
-                    editor-snip-editor-admin%
-                    snip-admin%))
+                    editor-snip-editor-admin%))
 
 (provide editor-snip%
          editor-snip-editor-admin<%>)
@@ -31,7 +32,7 @@
     (init [(init-tmp id) v])
     (define id init-tmp)))
 
-;; see also "private.ss"
+;; see also "private.rkt"
 (define-local-member-name
   with-dc
   do-get-left-margin do-get-right-margin do-get-bottom-margin do-get-top-margin
@@ -110,7 +111,7 @@
 
     (when (and s-admin
                (has-flag? s-flags USES-BUFFER-PATH))
-      ;; propogate a filename change:
+      ;; propagate a filename change:
       (if (and editor
                (no-permanent-filename? editor))
           (let ([b (send s-admin get-editor)])
@@ -360,8 +361,8 @@
                   (when with-border?
                     (let ([pen (send dc get-pen)])
                       (when (and (pair? caret)
-                                 selected-text-color)
-                        (send dc set-pen selected-text-color 1 'solid))
+                                 (send s-admin get-selected-text-color))
+                        (send dc set-pen (send s-admin get-selected-text-color) 1 'solid))
                       (let* ([l (+ orig-x left-inset)]
                              [t (+ orig-y top-inset)]
                              [r (+ l w left-margin right-margin 

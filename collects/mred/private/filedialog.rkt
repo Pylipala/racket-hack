@@ -1,21 +1,22 @@
 (module filedialog mzscheme
   (require mzlib/class
-	   mzlib/etc
-	   mzlib/list
-	   (prefix wx: "kernel.ss")
-	   (prefix wx: "wxme/style.ss")
-	   (prefix wx: "wxme/cycle.ss")
-	   "lock.ss"
-	   "wx.ss"
-	   "cycle.ss"
-	   "check.ss"
-	   "mrtop.ss"
-	   "path-dialog.ss")
+           mzlib/etc
+           mzlib/list
+           (prefix wx: "kernel.rkt")
+           (prefix wx: racket/snip)
+           (rename "wxme/cycle.rkt" wx:set-editor-get-file! set-editor-get-file!)
+           (rename "wxme/cycle.rkt" wx:set-editor-put-file! set-editor-put-file!)
+           "lock.rkt"
+           "wx.rkt"
+           "cycle.rkt"
+           "check.rkt"
+           "mrtop.rkt"
+           "path-dialog.rkt")
 
   (provide get-file
-	   get-file-list
-	   put-file
-	   get-directory)
+           get-file-list
+           put-file
+           get-directory)
 
   (define (mk-file-selector who put? multi? dir?)
     (lambda (message parent directory filename extension style filters)
@@ -59,10 +60,6 @@
            message directory filename extension
            ;; file types:
            filters
-           #;
-           (apply string-append
-           (map (lambda (s) (format "~a|~a|" (car s) (cadr s)))
-           filters))
            ;; style:
            (cons (cond [dir?   'dir]
                        [put?   'put]

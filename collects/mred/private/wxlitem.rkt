@@ -1,17 +1,18 @@
 (module wxlitem mzscheme
   (require mzlib/class
-	   mzlib/class100
+           mzlib/class100
            mzlib/file
            (only racket/base remq)
-	   (prefix wx: "kernel.ss")
-	   "lock.ss"
-	   "helper.ss"
-	   "const.ss"
-	   "wx.ss"
-	   "check.ss"
-	   "wxwindow.ss"
-	   "wxitem.ss"
-           "wxpanel.ss")
+           racket/snip/private/prefs
+           (prefix wx: "kernel.rkt")
+           "lock.rkt"
+           "helper.rkt"
+           "const.rkt"
+           "wx.rkt"
+           "check.rkt"
+           "wxwindow.rkt"
+           "wxitem.rkt"
+           "wxpanel.rkt")
 
   (provide (protect wx-choice%
                     wx-list-box%
@@ -47,9 +48,9 @@
   (define (filter-style style)
     (remq 'deleted style))
 
-  (define-syntax-rule (bounce c (m arg ...) ...)
+  (define-syntax-rule (bounce c (m . args) ...)
     (begin
-      (define/public m (lambda (arg ...) (send c m arg ...)))
+      (define/public m (lambda args (send c m . args)))
       ...))
 
   ;; ----------------------------------------
@@ -120,13 +121,14 @@
 
   (define wx-internal-list-box%
     (make-window-glue% 
-     (class100 (make-control% wx:list-box% 0 0 #t #t) (parent cb label kind x y w h choices style font label-font)
+     (class100 (make-control% wx:list-box% 0 0 #t #t) (parent cb label kind x y w h choices style font 
+                                                              label-font columns column-order)
        (inherit get-first-item
 		set-first-visible-item)
        (private
 	 [scroll (lambda (dir)
 		   (unless list-box-wheel-step
-		     (set! list-box-wheel-step (get-preference '|MrEd:wheelStep| (lambda () 3)))
+		     (set! list-box-wheel-step (get-preference* '|GRacket:wheelStep| (lambda () 3)))
 		     (unless (and (number? list-box-wheel-step)
 				  (exact? list-box-wheel-step)
 				  (integer? list-box-wheel-step)
@@ -146,23 +148,24 @@
 			      [(wheel-up) (scroll -1) #t]
 			      [(wheel-down) (scroll 1) #t]
 			      [else #f])))])
-       (sequence (super-init style parent cb label kind x y w h choices (cons 'deleted style) font label-font)))))
+       (sequence (super-init style parent cb label kind x y w h choices (cons 'deleted style) font 
+                             label-font columns column-order)))))
 
   (define wx-list-box%
     (class wx-label-panel% 
-      (init mred proxy parent cb label kind x y w h choices style font label-font)
+      (init mred proxy parent cb label kind x y w h choices style font label-font columns column-order)
       (inherit get-p set-c)
 
       (super-init proxy parent label style font 'left 'top)
 
       (define c (make-object wx-internal-list-box% mred proxy (get-p) cb label kind x y w h choices 
-                             (filter-style style) font label-font))
+                             (filter-style style) font label-font columns column-order))
       (set-c c #t #t)
 
       (bounce
        c
        (get-label-font)
-       (set-string i s)
+       (set-string i s col)
        (set-selection i)
        (get-selection)
        (get-selections)
@@ -177,8 +180,15 @@
        (selected? i)
        (delete i)
        (clear)
-       (set choices)
-       (reset))
+       (set choices . more)
+       (reset)
+       (get-column-order)
+       (set-column-order l)
+       (set-column-label i l)
+       (set-column-size i w mn mx)
+       (get-column-size i)
+       (delete-column i)
+       (append-column l))
       (define/public select 
         (case-lambda
          [(i) (send c select i)]

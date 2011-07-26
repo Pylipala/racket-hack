@@ -2,9 +2,9 @@
 (require racket/contract/base
          (for-template racket/base
                        racket/contract/base
-                       unstable/location)
-         unstable/srcloc
-         unstable/syntax)
+                       syntax/location)
+         syntax/srcloc
+         racket/syntax)
 
 (provide/contract
  [wrap-expr/c
@@ -12,7 +12,7 @@
        (#:positive (or/c syntax? string? module-path-index?
                          'from-macro 'use-site 'unknown)
         #:negative (or/c syntax? string? module-path-index?
-                         'from-macro 'same-as-use-site 'unknown)
+                         'from-macro 'use-site 'unknown)
         #:name (or/c identifier? symbol? string? #f)
         #:macro (or/c identifier? symbol? string? #f)
         #:context (or/c syntax? #f))
@@ -40,7 +40,7 @@
                    [_ #f])]
                 [else #f])])
     (base-wrap-expr/c expr ctc-expr
-                      #:positive #'(quote-module-path)
+                      #:positive #'(quote-module-name)
                       #:negative neg-source-expr
                       #:expr-name (cond [(and expr-name macro-name)
                                           (format "~a of ~a" expr-name macro-name)]
@@ -64,7 +64,7 @@
 
 (define (get-source-expr source ctx)
   (cond [(eq? source 'use-site)
-         #'(quote-module-path)]
+         #'(quote-module-name)]
         [(eq? source 'unknown)
          #'(quote "unknown")]
         [(eq? source 'from-macro)
@@ -76,7 +76,7 @@
                 (cond [(string? source) source]
                       [(syntax? source) (source-location->string source)]
                       [(module-path-index? source)
-                       ;; FIXME: share with unstable/location ??
+                       ;; FIXME: share with syntax/location ??
                        (let ([name (resolved-module-path-name
                                     (module-path-index-resolve source))])
                          (cond [(path? name) (format "(file ~s)" (path->string name))]

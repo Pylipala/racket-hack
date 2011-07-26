@@ -7,21 +7,24 @@
          "../private/utils.rkt")
 
 (define-runtime-lib cairo-lib
-  [(unix) (ffi-lib "libcairo" '("2"))]
+  [(unix) (ffi-lib "libcairo" '("2" ""))]
   [(macosx) 
    (ffi-lib "libpixman-1.0.dylib")
    (ffi-lib "libpng14.14.dylib")
    (ffi-lib "libcairo.2.dylib")]
-  [(windows) 
+  [(win32) 
    (ffi-lib "zlib1.dll")
-   (ffi-lib ,(if win64?
-		 "libintl-8.dll"
-		 "zlib1.dll"))
    (ffi-lib "libpng14-14.dll")
    (ffi-lib "libexpat-1.dll")
-   (ffi-lib ,(if win64?
-		 "libfreetype-6.dll"
-		 "freetype6.dll"))
+   (ffi-lib "freetype6.dll")
+   (ffi-lib "libfontconfig-1.dll")
+   (ffi-lib "libcairo-2.dll")]
+  [(win64) 
+   (ffi-lib "zlib1.dll")
+   (ffi-lib "libintl-8.dll")
+   (ffi-lib "libpng14-14.dll")
+   (ffi-lib "libexpat-1.dll")
+   (ffi-lib "libfreetype-6.dll")
    (ffi-lib "libfontconfig-1.dll")
    (ffi-lib "libcairo-2.dll")])
 
@@ -68,6 +71,10 @@
   #:make-fail make-not-available)
 
 (define-cairo cairo_win32_surface_create
+  (_fun _pointer -> _cairo_surface_t)
+  #:make-fail make-not-available
+  #:wrap (allocator cairo_surface_destroy))
+(define-cairo cairo_win32_printing_surface_create
   (_fun _pointer -> _cairo_surface_t)
   #:make-fail make-not-available
   #:wrap (allocator cairo_surface_destroy))
@@ -120,7 +127,15 @@
                                        (x2 : (_ptr o _double)) 
                                        (y2 : (_ptr o _double)) 
                                        -> _void
-                                       -> (values x1 y1 x2 y2)))
+                                       -> (values x1 y1 x2 y2))
+  ;; cairo_clip_extents is in version 1.4 and later
+  #:fail (lambda ()
+           (let ([warned? #f])
+             (lambda (cr) 
+               (unless warned?
+                 (log-warning "cairo_clip_extents is unavailable; returning the empty rectangle")
+                 (set! warned? #t))
+               (values 0 0 0 0)))))
 
 ;; Transforms
 (define-cairo cairo_translate (_fun _cairo_t _double* _double* -> _void))
@@ -161,6 +176,7 @@
 (define-cairo cairo_get_font_options (_fun _cairo_t _cairo_font_options_t -> _void))
 (define-cairo cairo_set_font_options (_fun _cairo_t _cairo_font_options_t -> _void))
 (define-cairo cairo_font_options_set_antialias (_fun _cairo_font_options_t _int -> _void))
+(define-cairo cairo_font_options_set_hint_metrics (_fun _cairo_font_options_t _int -> _void))
 
 (define-cairo cairo_show_glyphs (_fun _cairo_t _cairo_glyph_t-pointer _int -> _void))
 
@@ -178,6 +194,7 @@
 
 (define-cairo cairo_show_page (_fun _cairo_t -> _void))
 
+;; Patterns
 (define-cairo cairo_set_source (_fun _cairo_t _cairo_pattern_t -> _void))
 (define-cairo cairo_get_source (_fun _cairo_t -> _cairo_pattern_t)) ;; not an allocator
 (define-cairo cairo_set_source_surface (_fun _cairo_t _cairo_surface_t _double* _double* -> _void))
@@ -192,6 +209,48 @@
 (define-cairo cairo_pattern_set_matrix (_fun _cairo_pattern_t _cairo_matrix_t-pointer -> _void))
 (define-cairo cairo_pattern_set_extend (_fun _cairo_pattern_t _int -> _void))
 
+;; Gradients
+(define-cairo cairo_pattern_add_color_stop_rgb (_fun _cairo_pattern_t _double* _double* _double* _double* -> _void))
+(define-cairo cairo_pattern_add_color_stop_rgba (_fun _cairo_pattern_t _double* _double* _double* _double* _double* -> _void))
+#; ; 1.4 and later:
+(define-cairo cairo_pattern_get_color_stop_count (_fun _cairo_pattern_t (_ptr o _int)  -> _int)
+  #:make-fail make-not-available)
+#; ; 1.4 and later:
+(define-cairo cairo_pattern_get_color_stop_rgba (_fun _cairo_pattern_t _int (_ptr o _double*) (_ptr o _double*) (_ptr o _double*) (_ptr o _double*) (_ptr o _double*) -> _int)
+  #:make-fail make-not-available)
+
+#; ; 1.4 and later:
+(define-cairo cairo_pattern_create_rgb (_fun _double* _double* _double* -> _cairo_pattern_t)
+  #:wrap (allocator cairo_pattern_destroy))
+#; ; 1.4 and later:
+(define-cairo cairo_pattern_create_rgba (_fun _double* _double* _double* _double* -> _cairo_pattern_t)
+  #:wrap (allocator cairo_pattern_destroy))
+#; ; 1.4 and later:
+(define-cairo cairo_pattern_get_rgba (_fun _cairo_pattern_t (_ptr o _double*) (_ptr o _double*) (_ptr o _double*) (_ptr o _double*) -> _int)
+  #:make-fail make-not-available) ;; not an allocator
+#; ; 1.4 and later:
+(define-cairo cairo_pattern_get_surface (_fun _cairo_pattern_t (_ptr o _cairo_surface_t) -> _int)
+  #:make-fail make-not-available) ;; not an allocator
+
+(define-cairo cairo_pattern_create_linear (_fun _double* _double* _double* _double* -> _cairo_pattern_t)
+  #:wrap (allocator cairo_pattern_destroy))
+#; ; 1.4 and later:
+(define-cairo cairo_pattern_get_linear_points (_fun _cairo_pattern_t (_ptr o _double*) (_ptr o _double*) (_ptr o _double*) (_ptr o _double*) -> _int)
+  #:make-fail make-not-available)
+(define-cairo cairo_pattern_create_radial (_fun _double* _double* _double* _double* _double* _double* -> _cairo_pattern_t)
+  #:wrap (allocator cairo_pattern_destroy))
+#; ; 1.4 and later:
+(define-cairo cairo_pattern_get_radial_circles (_fun _cairo_pattern_t (_ptr o _double*) (_ptr o _double*) (_ptr o _double*) (_ptr o _double*) (_ptr o _double*) (_ptr o _double*) -> _int)
+  #:make-fail make-not-available)
+(define-cairo cairo_pattern_status (_fun _cairo_pattern_t -> _int))
+
+(define-cairo cairo_pattern_get_extend (_fun _cairo_pattern_t -> _int))
+(define-cairo cairo_pattern_set_filter (_fun _cairo_pattern_t _int -> _void))
+(define-cairo cairo_pattern_get_filter (_fun _cairo_pattern_t -> _int))
+(define-cairo cairo_pattern_get_matrix (_fun _cairo_pattern_t _cairo_matrix_t-pointer -> _void))
+(define-cairo cairo_pattern_get_type (_fun _cairo_pattern_t -> _int))
+
+
 ;; Surfaces
 (define-cairo cairo_surface_finish (_fun _cairo_surface_t -> _void))
 (define-cairo cairo_surface_flush (_fun _cairo_surface_t -> _void))
@@ -200,17 +259,49 @@
   #:wrap (allocator cairo_surface_destroy))
 (define-cairo cairo_ps_surface_create (_fun _path _double* _double* -> _cairo_surface_t)
   #:wrap (allocator cairo_surface_destroy))
-(define-cairo cairo_ps_surface_create_for_stream 
-  ;; The _fpointer argument is _cairo_write_func_t
-  ;; but it's saved as a callback, so care is needed with
-  ;; allocation.
-  (_fun  _fpointer _pointer _double* _double* -> _cairo_surface_t)
-  #:wrap (allocator cairo_surface_destroy))
+
+;; Stream surfaces
+
+;;  The first argument to a stream-surface creation
+;;  function is a procedure, and we need the procedure to
+;;  live just as long as the surface. Implement that by
+;;  saving the closure via user data on the surface.
+;;  Externally, a stream-creation function takes
+;;  just a closure --- not a function and data.
+(define _cairo_write_func_t 
+  (_fun #:atomic? #t _pointer _pointer _uint -> _int))
+(define _stream-surface-proc 
+  (_fun _cairo_write_func_t _pointer _double* _double* -> _cairo_surface_t))
+(define cell-key (malloc 1 'raw))
+(define stream-surface-allocator 
+  (lambda (p)
+    ((allocator cairo_surface_destroy)
+     (lambda (proc w h)
+       (let* ([new-proc (lambda (null bytes len)
+                          (proc bytes len))]
+              [free-cell-box (box #f)]
+              [s (p new-proc #f w h)]
+              [b (malloc-immobile-cell (cons new-proc free-cell-box))])
+         (parameterize ([current-sud-box free-cell-box])
+           (cairo_surface_set_user_data s cell-key b free-immobile-cell))
+         s)))))
+(define-cairo cairo_ps_surface_create_for_stream
+  _stream-surface-proc
+  #:wrap stream-surface-allocator)
 (define-cairo cairo_pdf_surface_create_for_stream 
-  ;; As above:
-  (_fun  _fpointer _pointer _double* _double* -> _cairo_surface_t)
-  #:wrap (allocator cairo_surface_destroy))
-(define/provide _cairo_write_func_t (_fun _pointer _pointer _uint -> _int))
+  _stream-surface-proc
+  #:wrap stream-surface-allocator)
+(define-cairo cairo_svg_surface_create_for_stream 
+  _stream-surface-proc
+  #:wrap stream-surface-allocator)
+
+(define current-sud-box (make-parameter #f))
+(define-cairo cairo_surface_set_user_data 
+  (_fun _cairo_surface_t _pointer _pointer 
+        (_fun #:atomic? #t #:keep (lambda (v) (set-box! (current-sud-box) v))
+              _pointer -> _void)
+        -> _int))
+
 (define-cairo cairo_ps_surface_set_eps (_fun _cairo_surface_t _bool -> _void)
   #:fail (lambda ()
 	   ;; cairo_ps_surface_set_eps is in version 1.6 and later;
@@ -305,5 +396,27 @@
   CAIRO_EXTEND_REPEAT
   CAIRO_EXTEND_REFLECT
   CAIRO_EXTEND_PAD)
+
+(define-enum
+  0
+  CAIRO_HINT_METRICS_DEFAULT
+  CAIRO_HINT_METRICS_OFF
+  CAIRO_HINT_METRICS_ON)
+
+(define-enum
+  0
+  CAIRO_PATTERN_TYPE_SOLID
+  CAIRO_PATTERN_TYPE_SURFACE
+  CAIRO_PATTERN_TYPE_LINEAR
+  CAIRO_PATTERN_TYPE_RADIAL)
+
+(define-enum
+  0
+  CAIRO_FILTER_FAST
+  CAIRO_FILTER_GOOD
+  CAIRO_FILTER_BEST
+  CAIRO_FILTER_NEAREST
+  CAIRO_FILTER_BILINEAR
+  CAIRO_FILTER_GAUSSIAN)
 
 (define/provide CAIRO_CONTENT_COLOR_ALPHA #x3000)

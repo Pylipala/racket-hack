@@ -1,5 +1,5 @@
 #lang scribble/doc
-@(require "utils.ss")
+@(require "utils.rkt")
 
 @title[#:style 'toc]{Derived Utilities}
 
@@ -13,3 +13,5 @@
 @include-section["atomic.scrbl"]
 @include-section["try-atomic.scrbl"]
 @include-section["objc.scrbl"]
+@include-section["file.scrbl"]
+@include-section["winapi.scrbl"]

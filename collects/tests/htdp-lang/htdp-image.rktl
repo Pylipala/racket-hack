@@ -1383,10 +1383,10 @@
 (parameterize ((current-namespace (make-base-namespace)))
   (err/rt-test
     (eval '(module m lang/htdp-beginner
-             (require (lib "image.ss" "teachpack/htdp"))
+             (require (lib "image.rkt" "teachpack/htdp"))
              overlay))
     (lambda (exn)
-      (regexp-match #rx"must be applied to arguments" 
+      (regexp-match #rx"no open parenthesis" 
 	(exn-message exn)))))
 
 (report-errs)

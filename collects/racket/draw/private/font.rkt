@@ -2,15 +2,17 @@
 (require scheme/class
          ffi/unsafe
          ffi/unsafe/atomic
-         "syntax.ss"
-         "../unsafe/pango.ss"
-         "../unsafe/cairo.ss"
-         "font-syms.ss"
-         "font-dir.ss"
-         "local.ss")
+         "syntax.rkt"
+         "../unsafe/pango.rkt"
+         "../unsafe/cairo.rkt"
+         "font-syms.rkt"
+         "font-dir.rkt"
+         "local.rkt"
+         "xp.rkt")
 
 (provide font%
          font-list% the-font-list
+         make-font
          family-symbol? style-symbol? weight-symbol? smoothing-symbol?
          get-pango-attrs
          get-face-list
@@ -24,9 +26,10 @@
                            (pango_attr_list_insert l (pango_attr_underline_new
                                                       PANGO_UNDERLINE_SINGLE))
                            l))
-
-(define (smoothing-symbol? s)
-  (memq s '(default smoothed unsmoothed partly-smoothed)))
+(define fallback-attrs (and xp? 
+			    (let ([l (pango_attr_list_new)])
+			      (pango_attr_list_insert l (pango_attr_fallback_new #f))
+			      l)))
 
 (define (size? v) (and (exact-positive-integer? v)
                        (byte? v)))
@@ -40,7 +43,7 @@
 (define-syntax-rule (atomically e)
   (begin (start-atomic) (begin0 e (end-atomic))))
 
-(define substitute-fonts? (memq (system-type) '(macosx)))
+(define substitute-fonts? (memq (system-type) '(macosx windows)))
 (define substitute-mapping (make-hasheq))
 
 (define (install-alternate-face ch layout font desc attrs context)
@@ -85,13 +88,19 @@
   (let* ([s (cairo_image_surface_create CAIRO_FORMAT_ARGB32 1 1)]
          [cr (cairo_create s)]
          [context (pango_cairo_create_context cr)]
-         [layout (pango_layout_new context)])
+         [layout (pango_layout_new context)]
+	 ;; Under Windows XP, there's no font 
+	 ;; fallback/substitution in control labels:
+	 [no-subs? (and xp? for-label?)])
     (pango_layout_set_font_description layout desc)
     (pango_layout_set_text layout (string c))
+    (when no-subs?
+      (pango_layout_set_attributes layout fallback-attrs))
     (pango_cairo_update_layout cr layout)
     (begin0
      (or (zero? (pango_layout_get_unknown_glyphs_count layout))
          (and substitute-fonts?
+	      (not no-subs?)
               (install-alternate-face c layout font desc #f context)
               (zero? (pango_layout_get_unknown_glyphs_count layout))))
      (g_object_unref layout)
@@ -267,22 +276,40 @@
              (vector size (and face (string->immutable-string face)) family
                      style weight underlined? smoothing size-in-pixels?)]
             (method-name 'find-or-create-font font-list%))])
-      (let ([e (hash-ref fonts key #f)])
-        (or (and e
-                 (ephemeron-value e))
-            (let* ([f (apply make-object font% (vector->list key))]
-                   [e (make-ephemeron key f)])
-              (send f s-set-table-key key)
-              (hash-set! fonts key e)
-              f))))))
+      (atomically
+       (let ([e (hash-ref fonts key #f)])
+         (or (and e
+                  (ephemeron-value e))
+             (let* ([f (apply make-object font% (vector->list key))]
+                    [e (make-ephemeron key f)])
+               (send f s-set-table-key key)
+               (hash-set! fonts key e)
+               f)))))))
 
 (define the-font-list (new font-list%))
 
 (define (get-face-list [mode 'all])
-  (map pango_font_family_get_name
-       (let ([fams (pango_font_map_list_families
-                    (pango_cairo_font_map_get_default))])
-         (if (eq? mode 'mono)
-             (filter pango_font_family_is_monospace fams)
-             fams))))
+  (sort
+   (map pango_font_family_get_name
+	(let ([fams (pango_font_map_list_families
+		     (pango_cairo_font_map_get_default))])
+	  (if (eq? mode 'mono)
+	      (filter pango_font_family_is_monospace fams)
+	      fams)))
+   string<?))
 
+(define (make-font #:size [size 12]
+                   #:face [face #f]
+                   #:family [family 'default]
+                   #:style [style 'normal]
+                   #:weight [weight 'normal]
+                   #:underlined? [underlined? #f]
+                   #:smoothing [smoothing 'default]
+                   #:size-in-pixels? [size-in-pixels? #f])
+  (unless (size? size) (raise-type-error 'make-font "exact integer in [1, 255]" size))
+  (unless (or (not face) (string? face)) (raise-type-error 'make-font "string or #f" face))
+  (unless (family-symbol? family) (raise-type-error 'make-font "family-symbol" family))
+  (unless (style-symbol? style) (raise-type-error 'make-font "style-symbol" style))
+  (unless (weight-symbol? weight) (raise-type-error 'make-font "weight-symbol" weight))
+  (unless (smoothing-symbol? smoothing) (raise-type-error 'make-font "smoothing-symbol" smoothing))
+  (make-object font% size face family style weight underlined? smoothing size-in-pixels?))

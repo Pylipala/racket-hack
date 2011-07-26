@@ -604,7 +604,10 @@ enable_option_checking=no
 ac_subst_vars='LTLIBOBJS
 LIBOBJS
 subdirs
-IPHONE
+CGC_IF_NEEDED_FOR_MMM
+RUN_RACKET_MAIN_VARIANT
+RUN_RACKET_MMM
+RUN_RACKET_CGC
 INSTALL_SETUP_FLAGS
 MAIN_VARIANT
 CGC_CAP_INSTALLED
@@ -641,8 +644,7 @@ ICP
 WXVARIANT
 WXLIBS
 LIBSFX
-LIBATOM
-MZRT_CGC_FLAGS
+OWN_LIBFFI
 SO_SUFFIX
 EXE_SUFFIX
 INSTALL_ORIG_TREE
@@ -662,6 +664,10 @@ GC2OPTIONS
 CGCOPTIONS
 MZOPTIONS
 OPTIONS
+X_EXTRA_LIBS
+X_PRE_LIBS
+X_LIBS
+X_CFLAGS
 x_libraries
 x_includes
 DYN_CFLAGS
@@ -680,12 +686,6 @@ COMPFLAGS
 PREFLAGS
 EGREP
 GREP
-X_EXTRA_LIBS
-X_LIBS
-X_PRE_LIBS
-X_CFLAGS
-XMKMF
-PERL
 RANLIB
 CPP
 OBJEXT
@@ -695,6 +695,18 @@ CPPFLAGS
 LDFLAGS
 CFLAGS
 CC
+target_os
+target_vendor
+target_cpu
+target
+host_os
+host_vendor
+host_cpu
+host
+build_os
+build_vendor
+build_cpu
+build
 target_alias
 host_alias
 build_alias
@@ -737,42 +749,40 @@ ac_subst_files=''
 ac_user_opts='
 enable_option_checking
 enable_gracket
-enable_plot
-enable_docs
-enable_shared
-enable_dynlib
-enable_lt
-enable_origtree
 enable_jit
 enable_foreign
 enable_places
 enable_futures
-enable_cgcdefault
-enable_sgc
-enable_sgcdebug
-enable_account
-enable_compact
-enable_backtrace
+enable_plot
 enable_float
 enable_floatinstead
-enable_pthread
-enable_stackup
-enable_bigendian
-enable_oskit
-enable_smalloskit
-enable_perl
-enable_gprof
-enable_gcov
-enable_noopt
-enable_enable_sdk
+enable_racket
+enable_origtree
+enable_docs
+enable_usersetup
+enable_shared
+enable_dynlib
+enable_lt
+enable_libffi
+enable_sdk
 enable_xonx
+enable_libfw
 enable_libfw
 enable_macprefix
 enable_mac64
-enable_gc2_places_testing
-enable_iphoneos
-enable_iphonesim
-with_x
+enable_cgcdefault
+enable_sgc
+enable_sgcdebug
+enable_backtrace
+enable_pthread
+enable_stackup
+enable_bigendian
+enable_gprof
+enable_gcov
+enable_noopt
+enable_ios
+enable_ios_sim
+enable_libffi_ios
 '
       ac_precious_vars='build_alias
 host_alias
@@ -783,11 +793,9 @@ LDFLAGS
 LIBS
 CPPFLAGS
 CPP
-CPPFLAGS
-XMKMF'
-ac_subdirs_all='racket/gc/libatomic_ops
-foreign/libffi
-foreign/libffi-ios '
+CPPFLAGS'
+ac_subdirs_all='foreign/libffi-ios
+foreign/libffi '
 
 # Initialize some variables set by options.
 ac_init_help=
@@ -1386,9 +1394,10 @@ _ACEOF
 
   cat <<\_ACEOF
 
-X features:
-  --x-includes=DIR    X include files are in DIR
-  --x-libraries=DIR   X library files are in DIR
+System types:
+  --build=BUILD     configure for building on BUILD [guessed]
+  --host=HOST       cross-compile to build programs to run on HOST [BUILD]
+  --target=TARGET   configure for building compilers for TARGET [HOST]
 _ACEOF
 fi
 
@@ -1400,48 +1409,41 @@ Optional Features:
   --disable-option-checking  ignore unrecognized --enable/--with options
   --disable-FEATURE       do not include FEATURE (same as --enable-FEATURE=no)
   --enable-FEATURE[=ARG]  include FEATURE [ARG=yes]
-  --enable-gracket        compile GRacket as well as Racket (enabled by default)
-  --enable-plot           compile plot libraries (enabled by default)
+  --enable-gracket        build GRacket as well as Racket (enabled by default)
+  --enable-jit            support JIT compiler (enabled by default)
+  --enable-foreign        support foreign calls (enabled by default)
+  --enable-places         support places (3m only; usually enabled by default)
+  --enable-futures        support futures (usually enabled by default)
+  --enable-plot           support plot libraries (enabled by default)
+  --enable-float          support single-precision floats (enabled by default)
+  --enable-floatinstead   use single-precision by default
+  --enable-racket=<path>  use <path> as Racket executable to build Racket
+  --enable-origtree       install with original directory structure
   --enable-docs           build docs on install (enabled by default)
+  --enable-usersetup      setup user-specific files on install
   --enable-shared         create shared libraries
   --enable-dynlib         same as --enable-shared
   --enable-lt=<prog>      use <prog> instead of bundled libtool
-  --enable-origtree       install with original directory structure
-  --enable-jit            compile JIT support (enabled by default)
-  --enable-foreign        compile foreign support (enabled by default)
-  --enable-places         compile places support
-  --enable-futures        compile futures support (usually enabled by default)
-  --enable-cgcdefault     use CGC (Boehm or Senora) as default build
-  --enable-sgc            use Senora GC instead of the Boehm GC
-  --enable-sgcdebug       use Senora GC for debugging
-  --enable-account        3m: use memory-accounting GC (enabled by default)
-  --enable-compact        3m: use compact GC (no accounting)
-  --enable-backtrace      3m: support GC backtrace dumps
-  --enable-float          include support for single-precision floats
-  --enable-floatinstead   compile to use single-precision by default
-  --enable-pthread        link with pthreads
-  --enable-stackup        assume "up" if stack direction cannot be determined
-  --enable-bigendian      assume "big" if endianness cannot be determined
-  --enable-oskit          compile OSKit-based Racket kernel
-  --enable-smalloskit     compile small OSKit-based Racket kernel
-  --enable-perl           use perl to regenerate certain sources
-  --enable-gprof          compile for profiling with gprof (gcc only)
-  --enable-gcov           compile to gather gcov statistics (gcc3 only)
-  --enable-noopt          drop -O C flags
+  --enable-libffi         use installed libffi (enabled by default)
   --enable-sdk=<path>     use Mac OS X 10.4 SDK directory
-  --enable-xonx           compile Unix style (e.g., use Gtk) for Mac OS X
+  --enable-xonx           use Unix style (e.g., use Gtk) for Mac OS X
   --enable-libfw          install Mac OS X frameworks to /Library/Frameworks
   --enable-userfw         install Mac OS X frameworks to ~/Library/Frameworks
   --enable-macprefix      allow --prefix with a Mac OS X install
   --enable-mac64          do not force 32-bit build
-  --enable-gcplacestest   compile GC places testing support
-  --enable-iphoneos   compile racket for iPhoneOS
-  --enable-iphonesim   compile racket for iPhoneSimulator
-
-Optional Packages:
-  --with-PACKAGE[=ARG]    use PACKAGE [ARG=yes]
-  --without-PACKAGE       do not use PACKAGE (same as --with-PACKAGE=no)
-  --with-x                use the X Window System
+  --enable-cgcdefault     use CGC (Boehm or Senora) as default build
+  --enable-sgc            use Senora GC instead of the Boehm GC
+  --enable-sgcdebug       use Senora GC for debugging
+  --enable-backtrace      3m: support GC backtrace dumps
+  --enable-pthread        link with pthreads
+  --enable-stackup        assume "up" if stack direction cannot be determined
+  --enable-bigendian      assume "big" if endianness cannot be determined
+  --enable-gprof          compile for profiling with gprof (gcc only)
+  --enable-gcov           compile to gather gcov statistics (gcc3 only)
+  --enable-noopt          drop -O C flags
+  --enable-ios            compile racket for iOS
+  --enable-ios-sim        compile racket for iOS Simulator
+  --enable-libffi-ios     compile libffi for iOS/Simulator
 
 Some influential environment variables:
   CC          C compiler command
@@ -1452,7 +1454,6 @@ Some influential environment variables:
   CPPFLAGS    (Objective) C/C++ preprocessor flags, e.g. -I<include dir> if
               you have headers in a nonstandard directory <include dir>
   CPP         C preprocessor
-  XMKMF       Path to xmkmf, Makefile generator for X Window System
 
 Use these variables to override the choices made by `configure' or to help
 it to find libraries and programs with nonstandard names/locations.
@@ -1654,73 +1655,6 @@ fi
   as_fn_set_status $ac_retval
 
 } # ac_fn_c_try_link
-
-# ac_fn_c_check_func LINENO FUNC VAR
-# ----------------------------------
-# Tests whether FUNC exists, setting the cache variable VAR accordingly
-ac_fn_c_check_func ()
-{
-  as_lineno=${as_lineno-"$1"} as_lineno_stack=as_lineno_stack=$as_lineno_stack
-  { $as_echo "$as_me:${as_lineno-$LINENO}: checking for $2" >&5
-$as_echo_n "checking for $2... " >&6; }
-if eval \${$3+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-/* Define $2 to an innocuous variant, in case <limits.h> declares $2.
-   For example, HP-UX 11i <limits.h> declares gettimeofday.  */
-#define $2 innocuous_$2
-
-/* System header to define __stub macros and hopefully few prototypes,
-    which can conflict with char $2 (); below.
-    Prefer <limits.h> to <assert.h> if __STDC__ is defined, since
-    <limits.h> exists even on freestanding compilers.  */
-
-#ifdef __STDC__
-# include <limits.h>
-#else
-# include <assert.h>
-#endif
-
-#undef $2
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char $2 ();
-/* The GNU C library defines this for functions which it implements
-    to always fail with ENOSYS.  Some functions are actually named
-    something starting with __ and the normal name is an alias.  */
-#if defined __stub_$2 || defined __stub___$2
-choke me
-#endif
-
-int
-main ()
-{
-return $2 ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"; then :
-  eval "$3=yes"
-else
-  eval "$3=no"
-fi
-rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext conftest.$ac_ext
-fi
-eval ac_res=\$$3
-	       { $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_res" >&5
-$as_echo "$ac_res" >&6; }
-  eval $as_lineno_stack; ${as_lineno_stack:+:} unset as_lineno
-
-} # ac_fn_c_check_func
 
 # ac_fn_c_try_run LINENO
 # ----------------------
@@ -2469,11 +2403,176 @@ ac_compiler_gnu=$ac_cv_c_compiler_gnu
 ac_config_headers="$ac_config_headers racket/mzconfig.h"
 
 
+ac_aux_dir=
+for ac_dir in lt "$srcdir"/lt; do
+  if test -f "$ac_dir/install-sh"; then
+    ac_aux_dir=$ac_dir
+    ac_install_sh="$ac_aux_dir/install-sh -c"
+    break
+  elif test -f "$ac_dir/install.sh"; then
+    ac_aux_dir=$ac_dir
+    ac_install_sh="$ac_aux_dir/install.sh -c"
+    break
+  elif test -f "$ac_dir/shtool"; then
+    ac_aux_dir=$ac_dir
+    ac_install_sh="$ac_aux_dir/shtool install -c"
+    break
+  fi
+done
+if test -z "$ac_aux_dir"; then
+  as_fn_error $? "cannot find install-sh, install.sh, or shtool in lt \"$srcdir\"/lt" "$LINENO" 5
+fi
+
+# These three variables are undocumented and unsupported,
+# and are intended to be withdrawn in a future Autoconf release.
+# They can cause serious problems if a builder's source tree is in a directory
+# whose full name contains unusual characters.
+ac_config_guess="$SHELL $ac_aux_dir/config.guess"  # Please don't use this var.
+ac_config_sub="$SHELL $ac_aux_dir/config.sub"  # Please don't use this var.
+ac_configure="$SHELL $ac_aux_dir/configure"  # Please don't use this var.
+
+
+# Make sure we can run config.sub.
+$SHELL "$ac_aux_dir/config.sub" sun4 >/dev/null 2>&1 ||
+  as_fn_error $? "cannot run $SHELL $ac_aux_dir/config.sub" "$LINENO" 5
+
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking build system type" >&5
+$as_echo_n "checking build system type... " >&6; }
+if ${ac_cv_build+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_build_alias=$build_alias
+test "x$ac_build_alias" = x &&
+  ac_build_alias=`$SHELL "$ac_aux_dir/config.guess"`
+test "x$ac_build_alias" = x &&
+  as_fn_error $? "cannot guess build type; you must specify one" "$LINENO" 5
+ac_cv_build=`$SHELL "$ac_aux_dir/config.sub" $ac_build_alias` ||
+  as_fn_error $? "$SHELL $ac_aux_dir/config.sub $ac_build_alias failed" "$LINENO" 5
+
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_build" >&5
+$as_echo "$ac_cv_build" >&6; }
+case $ac_cv_build in
+*-*-*) ;;
+*) as_fn_error $? "invalid value of canonical build" "$LINENO" 5;;
+esac
+build=$ac_cv_build
+ac_save_IFS=$IFS; IFS='-'
+set x $ac_cv_build
+shift
+build_cpu=$1
+build_vendor=$2
+shift; shift
+# Remember, the first character of IFS is used to create $*,
+# except with old shells:
+build_os=$*
+IFS=$ac_save_IFS
+case $build_os in *\ *) build_os=`echo "$build_os" | sed 's/ /-/g'`;; esac
+
+
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking host system type" >&5
+$as_echo_n "checking host system type... " >&6; }
+if ${ac_cv_host+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  if test "x$host_alias" = x; then
+  ac_cv_host=$ac_cv_build
+else
+  ac_cv_host=`$SHELL "$ac_aux_dir/config.sub" $host_alias` ||
+    as_fn_error $? "$SHELL $ac_aux_dir/config.sub $host_alias failed" "$LINENO" 5
+fi
+
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_host" >&5
+$as_echo "$ac_cv_host" >&6; }
+case $ac_cv_host in
+*-*-*) ;;
+*) as_fn_error $? "invalid value of canonical host" "$LINENO" 5;;
+esac
+host=$ac_cv_host
+ac_save_IFS=$IFS; IFS='-'
+set x $ac_cv_host
+shift
+host_cpu=$1
+host_vendor=$2
+shift; shift
+# Remember, the first character of IFS is used to create $*,
+# except with old shells:
+host_os=$*
+IFS=$ac_save_IFS
+case $host_os in *\ *) host_os=`echo "$host_os" | sed 's/ /-/g'`;; esac
+
+
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking target system type" >&5
+$as_echo_n "checking target system type... " >&6; }
+if ${ac_cv_target+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  if test "x$target_alias" = x; then
+  ac_cv_target=$ac_cv_host
+else
+  ac_cv_target=`$SHELL "$ac_aux_dir/config.sub" $target_alias` ||
+    as_fn_error $? "$SHELL $ac_aux_dir/config.sub $target_alias failed" "$LINENO" 5
+fi
+
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_target" >&5
+$as_echo "$ac_cv_target" >&6; }
+case $ac_cv_target in
+*-*-*) ;;
+*) as_fn_error $? "invalid value of canonical target" "$LINENO" 5;;
+esac
+target=$ac_cv_target
+ac_save_IFS=$IFS; IFS='-'
+set x $ac_cv_target
+shift
+target_cpu=$1
+target_vendor=$2
+shift; shift
+# Remember, the first character of IFS is used to create $*,
+# except with old shells:
+target_os=$*
+IFS=$ac_save_IFS
+case $target_os in *\ *) target_os=`echo "$target_os" | sed 's/ /-/g'`;; esac
+
+
+# The aliases save the names the user supplied, while $host etc.
+# will get canonicalized.
+test -n "$target_alias" &&
+  test "$program_prefix$program_suffix$program_transform_name" = \
+    NONENONEs,x,x, &&
+  program_prefix=${target_alias}-
+
+
 # Check whether --enable-gracket was given.
 if test "${enable_gracket+set}" = set; then :
   enableval=$enable_gracket;
 else
   enable_gracket=yes
+fi
+
+# Check whether --enable-jit was given.
+if test "${enable_jit+set}" = set; then :
+  enableval=$enable_jit;
+else
+  enable_jit=yes
+fi
+
+# Check whether --enable-foreign was given.
+if test "${enable_foreign+set}" = set; then :
+  enableval=$enable_foreign;
+else
+  enable_foreign=yes
+fi
+
+# Check whether --enable-places was given.
+if test "${enable_places+set}" = set; then :
+  enableval=$enable_places;
+fi
+
+# Check whether --enable-futures was given.
+if test "${enable_futures+set}" = set; then :
+  enableval=$enable_futures;
 fi
 
 # Check whether --enable-plot was given.
@@ -2483,11 +2582,41 @@ else
   enable_plot=yes
 fi
 
+# Check whether --enable-float was given.
+if test "${enable_float+set}" = set; then :
+  enableval=$enable_float;
+else
+  enable_float=yes
+fi
+
+# Check whether --enable-floatinstead was given.
+if test "${enable_floatinstead+set}" = set; then :
+  enableval=$enable_floatinstead;
+fi
+
+
+# Check whether --enable-racket was given.
+if test "${enable_racket+set}" = set; then :
+  enableval=$enable_racket;
+fi
+
+
+# Check whether --enable-origtree was given.
+if test "${enable_origtree+set}" = set; then :
+  enableval=$enable_origtree;
+fi
+
+
 # Check whether --enable-docs was given.
 if test "${enable_docs+set}" = set; then :
   enableval=$enable_docs;
 else
   enable_docs=yes
+fi
+
+# Check whether --enable-usersetup was given.
+if test "${enable_usersetup+set}" = set; then :
+  enableval=$enable_usersetup;
 fi
 
 # Check whether --enable-shared was given.
@@ -2508,138 +2637,18 @@ else
 fi
 
 
-# Check whether --enable-origtree was given.
-if test "${enable_origtree+set}" = set; then :
-  enableval=$enable_origtree;
-fi
-
-
-# Check whether --enable-jit was given.
-if test "${enable_jit+set}" = set; then :
-  enableval=$enable_jit;
+# Check whether --enable-libffi was given.
+if test "${enable_libffi+set}" = set; then :
+  enableval=$enable_libffi;
 else
-  enable_jit=yes
+  enable_libffi=yes
 fi
 
 
-# Check whether --enable-foreign was given.
-if test "${enable_foreign+set}" = set; then :
-  enableval=$enable_foreign;
-else
-  enable_foreign=yes
+# Check whether --enable-sdk was given.
+if test "${enable_sdk+set}" = set; then :
+  enableval=$enable_sdk;
 fi
-
-
-# Check whether --enable-places was given.
-if test "${enable_places+set}" = set; then :
-  enableval=$enable_places;
-fi
-
-# Check whether --enable-futures was given.
-if test "${enable_futures+set}" = set; then :
-  enableval=$enable_futures;
-fi
-
-
-# Check whether --enable-cgcdefault was given.
-if test "${enable_cgcdefault+set}" = set; then :
-  enableval=$enable_cgcdefault;
-fi
-
-# Check whether --enable-sgc was given.
-if test "${enable_sgc+set}" = set; then :
-  enableval=$enable_sgc;
-fi
-
-# Check whether --enable-sgcdebug was given.
-if test "${enable_sgcdebug+set}" = set; then :
-  enableval=$enable_sgcdebug;
-fi
-
-# Check whether --enable-account was given.
-if test "${enable_account+set}" = set; then :
-  enableval=$enable_account;
-else
-  enable_account=yes
-fi
-
-# Check whether --enable-compact was given.
-if test "${enable_compact+set}" = set; then :
-  enableval=$enable_compact;
-fi
-
-# Check whether --enable-backtrace was given.
-if test "${enable_backtrace+set}" = set; then :
-  enableval=$enable_backtrace;
-fi
-
-
-# Check whether --enable-float was given.
-if test "${enable_float+set}" = set; then :
-  enableval=$enable_float;
-fi
-
-# Check whether --enable-floatinstead was given.
-if test "${enable_floatinstead+set}" = set; then :
-  enableval=$enable_floatinstead;
-fi
-
-
-# Check whether --enable-pthread was given.
-if test "${enable_pthread+set}" = set; then :
-  enableval=$enable_pthread;
-fi
-
-# Check whether --enable-stackup was given.
-if test "${enable_stackup+set}" = set; then :
-  enableval=$enable_stackup;
-fi
-
-# Check whether --enable-bigendian was given.
-if test "${enable_bigendian+set}" = set; then :
-  enableval=$enable_bigendian;
-fi
-
-
-# Check whether --enable-oskit was given.
-if test "${enable_oskit+set}" = set; then :
-  enableval=$enable_oskit;
-fi
-
-# Check whether --enable-smalloskit was given.
-if test "${enable_smalloskit+set}" = set; then :
-  enableval=$enable_smalloskit;
-fi
-
-
-# Check whether --enable-perl was given.
-if test "${enable_perl+set}" = set; then :
-  enableval=$enable_perl;
-fi
-
-
-# Check whether --enable-gprof was given.
-if test "${enable_gprof+set}" = set; then :
-  enableval=$enable_gprof;
-fi
-
-# Check whether --enable-gcov was given.
-if test "${enable_gcov+set}" = set; then :
-  enableval=$enable_gcov;
-fi
-
-
-# Check whether --enable-noopt was given.
-if test "${enable_noopt+set}" = set; then :
-  enableval=$enable_noopt;
-fi
-
-
-# Check whether --enable-enable_sdk was given.
-if test "${enable_enable_sdk+set}" = set; then :
-  enableval=$enable_enable_sdk;
-fi
-
 
 # Check whether --enable-xonx was given.
 if test "${enable_xonx+set}" = set; then :
@@ -2667,38 +2676,78 @@ if test "${enable_mac64+set}" = set; then :
 fi
 
 
-# Check whether --enable-gc2_places_testing was given.
-if test "${enable_gc2_places_testing+set}" = set; then :
-  enableval=$enable_gc2_places_testing;
+# Check whether --enable-cgcdefault was given.
+if test "${enable_cgcdefault+set}" = set; then :
+  enableval=$enable_cgcdefault;
+fi
+
+# Check whether --enable-sgc was given.
+if test "${enable_sgc+set}" = set; then :
+  enableval=$enable_sgc;
+fi
+
+# Check whether --enable-sgcdebug was given.
+if test "${enable_sgcdebug+set}" = set; then :
+  enableval=$enable_sgcdebug;
+fi
+
+# Check whether --enable-backtrace was given.
+if test "${enable_backtrace+set}" = set; then :
+  enableval=$enable_backtrace;
 fi
 
 
-# Check whether --enable-iphoneos was given.
-if test "${enable_iphoneos+set}" = set; then :
-  enableval=$enable_iphoneos;
+# Check whether --enable-pthread was given.
+if test "${enable_pthread+set}" = set; then :
+  enableval=$enable_pthread;
+fi
+
+# Check whether --enable-stackup was given.
+if test "${enable_stackup+set}" = set; then :
+  enableval=$enable_stackup;
+fi
+
+# Check whether --enable-bigendian was given.
+if test "${enable_bigendian+set}" = set; then :
+  enableval=$enable_bigendian;
 fi
 
 
-# Check whether --enable-iphonesim was given.
-if test "${enable_iphonesim+set}" = set; then :
-  enableval=$enable_iphonesim;
+# AC_ARG_ENABLE(oskit,   [  --enable-oskit          compile OSKit-based Racket kernel])
+# AC_ARG_ENABLE(smalloskit, [  --enable-smalloskit     compile small OSKit-based Racket kernel])
+
+# Check whether --enable-gprof was given.
+if test "${enable_gprof+set}" = set; then :
+  enableval=$enable_gprof;
+fi
+
+# Check whether --enable-gcov was given.
+if test "${enable_gcov+set}" = set; then :
+  enableval=$enable_gcov;
 fi
 
 
-###### Get OS Type #######
-
-if test -x "/bin/uname" ; then
-  UNAME=/bin/uname
-elif test -x "/usr/bin/uname" ; then
-  UNAME=/usr/bin/uname
-elif test -x "/usr/local/bin/uname" ; then
-  UNAME=/usr/local/bin/uname
-else
-  echo configure: cannot find uname
-  exit 1
+# Check whether --enable-noopt was given.
+if test "${enable_noopt+set}" = set; then :
+  enableval=$enable_noopt;
 fi
 
-OS=`$UNAME -s`
+
+# Check whether --enable-ios was given.
+if test "${enable_ios+set}" = set; then :
+  enableval=$enable_ios;
+fi
+
+# Check whether --enable-ios-sim was given.
+if test "${enable_ios_sim+set}" = set; then :
+  enableval=$enable_ios_sim;
+fi
+
+# Check whether --enable-libffi-ios was given.
+if test "${enable_libffi_ios+set}" = set; then :
+  enableval=$enable_libffi_ios;
+fi
+
 
 ###### Some flags imply other flags #######
 
@@ -2727,20 +2776,23 @@ if test "${enable_lt}" = "yes" ; then
 fi
 
 if test "${enable_shared}" = "yes" ; then
-  if test "$OS" = "Darwin" ; then
+  case "$host_os" in
+  darwin*)
     if test "${enable_xonx}" != "yes" ; then
        echo "ERROR: don't use --enable-shared or --enable-dynlib under Mac OS X,"
        echo "       unless you also use --enable-xonx"
        exit 1
     fi
-  fi
+  ;;
+  esac
 fi
 
 enable_quartz=no
 if test "${enable_xonx}" = "yes" ; then
   enable_quartz=no
 else
-  if test "$OS" = "Darwin" ; then
+  case "$host_os" in
+  darwin*)
     enable_quartz=yes
     enable_origtree=yes
     if test "${prefix}" != "NONE" ; then
@@ -2754,23 +2806,8 @@ else
         exit 1
       fi
     fi
-  fi
-fi
-
-if test "${enable_gc2_places_testing}" = "yes" ; then
-  enable_shared=yes
-  enable_places=yes
-fi
-
-
-# Hack for the implementor:
-if test "${enable_perl}" = "" ; then
-  if test "$USER" = "mflatt" ; then
-    enable_perl=yes
-  fi
-  if test "$USER" = "matthewf" ; then
-    enable_perl=yes
-  fi
+  ;;
+  esac
 fi
 
 if test "${enable_iconv}" = "" ; then
@@ -2874,6 +2911,7 @@ show_explicitly_enabled()
 show_explicitly_enabled "${enable_cgcdefault}" "CGC as default"
 
 show_explicitly_disabled "${enable_docs}" "Documentation build"
+show_explicitly_enabled "${enable_usersetup}" "User-specific setup on install"
 
 show_explicitly_enabled "${enable_xonx}" "Unix style"
 show_explicitly_enabled "${enable_shared}" "Shared libraries"
@@ -2889,25 +2927,23 @@ show_explicitly_enabled "${enable_orig}" "Original install tree"
 show_explicitly_disabled "${enable_jit}" JIT
 
 show_explicitly_disabled "${enable_foreign}" Foreign
+show_explicitly_disabled "${enable_libffi}" "Installed libffi"
 
 show_explicitly_enabled "${enable_places}" Places
-show_explicitly_enabled "${enable_gc2_places_testing}" "GC2 Places Testing"
+show_explicitly_disabled "${enable_places}" Places
 show_explicitly_enabled "${enable_futures}" Futures
 show_explicitly_disabled "${enable_futures}" Futures
 
 show_explicitly_enabled "${enable_sgc}" SGC
 show_explicitly_enabled "${enable_sgcdebug}" "SGC debug mode"
-show_explicitly_enabled "${enable_compact}" "Compact 3m GC"
 show_explicitly_enabled "${enable_backtrace}" "3m GC backtraces"
 
-show_explicitly_enabled "${enable_float}" "Single-precision floats"
+show_explicitly_disabled "${enable_float}" "Single-precision floats"
 show_explicitly_enabled "${enable_floatinstead}" "Single-precision default floats"
 
 show_explicitly_enabled "${enable_pthread}" "pthreads"
 show_explicitly_enabled "${enable_oskit}" "OSKit"
 show_explicitly_enabled "${enable_smalloskit}" "OSKit small mode"
-
-show_explicitly_enabled "${enable_perl}" "Perl"
 
 show_explicitly_enabled "${enable_gprof}" "gprof"
 show_explicitly_enabled "${enable_gcov}" "gcov"
@@ -2919,8 +2955,17 @@ show_explicitly_enabled "${enable_mac64}" "64-bit Mac OS X"
 show_explicitly_enabled "${enable_libfw}" "Frameworks-to-system"
 show_explicitly_enabled "${enable_userfw}" "Frameworks-to-user"
 
-show_explicitly_enabled "${enable_iphoneos}" "Racket build for iPhoneOS"
-show_explicitly_enabled "${enable_iphonesim}" "Racket build for iPhoneSimulator"
+show_explicitly_enabled "${enable_ios}" "Racket build for iOS"
+show_explicitly_enabled "${enable_ios_sim}" "Racket build for iOS Simulator"
+show_explicitly_enabled "${enable_libffi_ios} "Libffi build for iOS/Simulator"
+
+if test "${enable_sdk}" != "" ; then
+   echo "=== Using Mac OS X SDK directory ${enable_sdk}"
+fi
+
+if test "${enable_racket}" != "" ; then
+   echo "=== Using Racket executable ${enable_racket}"
+fi
 
 ###### Some defaults #######
 
@@ -2937,8 +2982,6 @@ CGCOPTIONS=
 GC2OPTIONS=
 DYN_CFLAGS=
 
-LIBS=
-
 WXVARIANT="wx_xt"
 
 MROPTIONS=
@@ -2946,8 +2989,8 @@ INCLUDEDEP="#"
 WX_MMD_FLAG=
 
 PREFLAGS="$CPPFLAGS"
-MZRT_CGC_FLAGS=""
-LIBATOM="LIBATOM_NONE"
+
+OWN_LIBFFI="ON"
 
 ar_libtool_no_undefined=""
 LIBRACKET_DEP=""
@@ -2966,6 +3009,19 @@ MAIN_VARIANT=3m
 INSTALL_SETUP_FLAGS=
 
 STRIP_DEBUG=":"
+
+###### iOS stuff   #######
+if test "${enable_ios}" = "yes" -o "${enable_ios_sim}" = "yes" ; then
+  if test "${enable_libffi_ios}" != "yes" ; then
+    as_fn_error $? "libffi-ios is not enabled. you must enable libffi-ios" "$LINENO" 5
+  fi
+fi
+
+if test "${enable_libffi_ios}" != "" ; then
+  if test "${enable_libffi}" != "yes" ; then
+    as_fn_error $? "libffi is not enabled. you must enable libffi" "$LINENO" 5
+  fi
+fi
 
 ###### OSKit stuff #######
 
@@ -3003,11 +3059,15 @@ fi
 
 if test "${enable_floatinstead}" = "yes" ; then
   enable_float=yes
-  OPTIONS="${OPTIONS} -DUSE_SINGLE_FLOATS_AS_DEFAULT"
+
+$as_echo "#define USE_SINGLE_FLOATS_AS_DEFAULT 1" >>confdefs.h
+
 fi
 
 if test "${enable_float}" = "yes" ; then
-  OPTIONS="${OPTIONS} -DUSE_SINGLE_FLOATS"
+
+$as_echo "#define USE_SINGLE_FLOATS 1" >>confdefs.h
+
 fi
 
 ###### Autoconfigure #######
@@ -4069,750 +4129,16 @@ if test "$CC" = "gcc" ; then
   DYN_CFLAGS="-fPIC"
 fi
 
-if test "${enable_perl}" = "yes" ; then
-  # Extract the first word of "perl", so it can be a program name with args.
-set dummy perl; ac_word=$2
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
-$as_echo_n "checking for $ac_word... " >&6; }
-if ${ac_cv_path_PERL+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  case $PERL in
-  [\\/]* | ?:[\\/]*)
-  ac_cv_path_PERL="$PERL" # Let the user override the test with a path.
-  ;;
-  *)
-  as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
-for as_dir in $PATH
-do
-  IFS=$as_save_IFS
-  test -z "$as_dir" && as_dir=.
-    for ac_exec_ext in '' $ac_executable_extensions; do
-  if { test -f "$as_dir/$ac_word$ac_exec_ext" && $as_test_x "$as_dir/$ac_word$ac_exec_ext"; }; then
-    ac_cv_path_PERL="$as_dir/$ac_word$ac_exec_ext"
-    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
-    break 2
-  fi
-done
-  done
-IFS=$as_save_IFS
-
-  ;;
-esac
-fi
-PERL=$ac_cv_path_PERL
-if test -n "$PERL"; then
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $PERL" >&5
-$as_echo "$PERL" >&6; }
-else
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
-$as_echo "no" >&6; }
-fi
-
-
-else
-  PERL=""
-fi
-
 if test "$REZ" = '' ; then
  REZ=/Developer/Tools/Rez
 fi
 
 if test "${enable_gracket}" = "yes" ; then
-  if test "${enable_quartz}" = "yes" ; then
-   :
-  else
-
-
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for X" >&5
-$as_echo_n "checking for X... " >&6; }
-
-
-# Check whether --with-x was given.
-if test "${with_x+set}" = set; then :
-  withval=$with_x;
-fi
-
-# $have_x is `yes', `no', `disabled', or empty when we do not yet know.
-if test "x$with_x" = xno; then
-  # The user explicitly disabled X.
-  have_x=disabled
-else
-  case $x_includes,$x_libraries in #(
-    *\'*) as_fn_error $? "cannot use X directory names containing '" "$LINENO" 5;; #(
-    *,NONE | NONE,*) if ${ac_cv_have_x+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  # One or both of the vars are not set, and there is no cached value.
-ac_x_includes=no ac_x_libraries=no
-rm -f -r conftest.dir
-if mkdir conftest.dir; then
-  cd conftest.dir
-  cat >Imakefile <<'_ACEOF'
-incroot:
-	@echo incroot='${INCROOT}'
-usrlibdir:
-	@echo usrlibdir='${USRLIBDIR}'
-libdir:
-	@echo libdir='${LIBDIR}'
-_ACEOF
-  if (export CC; ${XMKMF-xmkmf}) >/dev/null 2>/dev/null && test -f Makefile; then
-    # GNU make sometimes prints "make[1]: Entering ...", which would confuse us.
-    for ac_var in incroot usrlibdir libdir; do
-      eval "ac_im_$ac_var=\`\${MAKE-make} $ac_var 2>/dev/null | sed -n 's/^$ac_var=//p'\`"
-    done
-    # Open Windows xmkmf reportedly sets LIBDIR instead of USRLIBDIR.
-    for ac_extension in a so sl dylib la dll; do
-      if test ! -f "$ac_im_usrlibdir/libX11.$ac_extension" &&
-	 test -f "$ac_im_libdir/libX11.$ac_extension"; then
-	ac_im_usrlibdir=$ac_im_libdir; break
-      fi
-    done
-    # Screen out bogus values from the imake configuration.  They are
-    # bogus both because they are the default anyway, and because
-    # using them would break gcc on systems where it needs fixed includes.
-    case $ac_im_incroot in
-	/usr/include) ac_x_includes= ;;
-	*) test -f "$ac_im_incroot/X11/Xos.h" && ac_x_includes=$ac_im_incroot;;
-    esac
-    case $ac_im_usrlibdir in
-	/usr/lib | /usr/lib64 | /lib | /lib64) ;;
-	*) test -d "$ac_im_usrlibdir" && ac_x_libraries=$ac_im_usrlibdir ;;
-    esac
-  fi
-  cd ..
-  rm -f -r conftest.dir
-fi
-
-# Standard set of common directories for X headers.
-# Check X11 before X11Rn because it is often a symlink to the current release.
-ac_x_header_dirs='
-/usr/X11/include
-/usr/X11R7/include
-/usr/X11R6/include
-/usr/X11R5/include
-/usr/X11R4/include
-
-/usr/include/X11
-/usr/include/X11R7
-/usr/include/X11R6
-/usr/include/X11R5
-/usr/include/X11R4
-
-/usr/local/X11/include
-/usr/local/X11R7/include
-/usr/local/X11R6/include
-/usr/local/X11R5/include
-/usr/local/X11R4/include
-
-/usr/local/include/X11
-/usr/local/include/X11R7
-/usr/local/include/X11R6
-/usr/local/include/X11R5
-/usr/local/include/X11R4
-
-/usr/X386/include
-/usr/x386/include
-/usr/XFree86/include/X11
-
-/usr/include
-/usr/local/include
-/usr/unsupported/include
-/usr/athena/include
-/usr/local/x11r5/include
-/usr/lpp/Xamples/include
-
-/usr/openwin/include
-/usr/openwin/share/include'
-
-if test "$ac_x_includes" = no; then
-  # Guess where to find include files, by looking for Xlib.h.
-  # First, try using that file with no special directory specified.
-  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-#include <X11/Xlib.h>
-_ACEOF
-if ac_fn_c_try_cpp "$LINENO"; then :
-  # We can compile using X headers with no special include directory.
-ac_x_includes=
-else
-  for ac_dir in $ac_x_header_dirs; do
-  if test -r "$ac_dir/X11/Xlib.h"; then
-    ac_x_includes=$ac_dir
-    break
-  fi
-done
-fi
-rm -f conftest.err conftest.i conftest.$ac_ext
-fi # $ac_x_includes = no
-
-if test "$ac_x_libraries" = no; then
-  # Check for the libraries.
-  # See if we find them without any special options.
-  # Don't add to $LIBS permanently.
-  ac_save_LIBS=$LIBS
-  LIBS="-lX11 $LIBS"
-  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-#include <X11/Xlib.h>
-int
-main ()
-{
-XrmInitialize ()
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"; then :
-  LIBS=$ac_save_LIBS
-# We can link X programs with no special library path.
-ac_x_libraries=
-else
-  LIBS=$ac_save_LIBS
-for ac_dir in `$as_echo "$ac_x_includes $ac_x_header_dirs" | sed s/include/lib/g`
-do
-  # Don't even attempt the hair of trying to link an X program!
-  for ac_extension in a so sl dylib la dll; do
-    if test -r "$ac_dir/libX11.$ac_extension"; then
-      ac_x_libraries=$ac_dir
-      break 2
-    fi
-  done
-done
-fi
-rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext conftest.$ac_ext
-fi # $ac_x_libraries = no
-
-case $ac_x_includes,$ac_x_libraries in #(
-  no,* | *,no | *\'*)
-    # Didn't find X, or a directory has "'" in its name.
-    ac_cv_have_x="have_x=no";; #(
-  *)
-    # Record where we found X for the cache.
-    ac_cv_have_x="have_x=yes\
-	ac_x_includes='$ac_x_includes'\
-	ac_x_libraries='$ac_x_libraries'"
-esac
-fi
-;; #(
-    *) have_x=yes;;
-  esac
-  eval "$ac_cv_have_x"
-fi # $with_x != no
-
-if test "$have_x" != yes; then
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $have_x" >&5
-$as_echo "$have_x" >&6; }
-  no_x=yes
-else
-  # If each of the values was on the command line, it overrides each guess.
-  test "x$x_includes" = xNONE && x_includes=$ac_x_includes
-  test "x$x_libraries" = xNONE && x_libraries=$ac_x_libraries
-  # Update the cache value to reflect the command line values.
-  ac_cv_have_x="have_x=yes\
-	ac_x_includes='$x_includes'\
-	ac_x_libraries='$x_libraries'"
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: libraries $x_libraries, headers $x_includes" >&5
-$as_echo "libraries $x_libraries, headers $x_includes" >&6; }
-fi
-
-if test "$no_x" = yes; then
-  # Not all programs may use this symbol, but it does not hurt to define it.
-
-$as_echo "#define X_DISPLAY_MISSING 1" >>confdefs.h
-
-  X_CFLAGS= X_PRE_LIBS= X_LIBS= X_EXTRA_LIBS=
-else
-  if test -n "$x_includes"; then
-    X_CFLAGS="$X_CFLAGS -I$x_includes"
-  fi
-
-  # It would also be nice to do this for all -L options, not just this one.
-  if test -n "$x_libraries"; then
-    X_LIBS="$X_LIBS -L$x_libraries"
-    # For Solaris; some versions of Sun CC require a space after -R and
-    # others require no space.  Words are not sufficient . . . .
-    { $as_echo "$as_me:${as_lineno-$LINENO}: checking whether -R must be followed by a space" >&5
-$as_echo_n "checking whether -R must be followed by a space... " >&6; }
-    ac_xsave_LIBS=$LIBS; LIBS="$LIBS -R$x_libraries"
-    ac_xsave_c_werror_flag=$ac_c_werror_flag
-    ac_c_werror_flag=yes
-    cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-int
-main ()
-{
-
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"; then :
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
-$as_echo "no" >&6; }
-       X_LIBS="$X_LIBS -R$x_libraries"
-else
-  LIBS="$ac_xsave_LIBS -R $x_libraries"
-       cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-int
-main ()
-{
-
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"; then :
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
-$as_echo "yes" >&6; }
-	  X_LIBS="$X_LIBS -R $x_libraries"
-else
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: neither works" >&5
-$as_echo "neither works" >&6; }
-fi
-rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext conftest.$ac_ext
-fi
-rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext conftest.$ac_ext
-    ac_c_werror_flag=$ac_xsave_c_werror_flag
-    LIBS=$ac_xsave_LIBS
-  fi
-
-  # Check for system-dependent libraries X programs must link with.
-  # Do this before checking for the system-independent R6 libraries
-  # (-lICE), since we may need -lsocket or whatever for X linking.
-
-  if test "$ISC" = yes; then
-    X_EXTRA_LIBS="$X_EXTRA_LIBS -lnsl_s -linet"
-  else
-    # Martyn Johnson says this is needed for Ultrix, if the X
-    # libraries were built with DECnet support.  And Karl Berry says
-    # the Alpha needs dnet_stub (dnet does not exist).
-    ac_xsave_LIBS="$LIBS"; LIBS="$LIBS $X_LIBS -lX11"
-    cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char XOpenDisplay ();
-int
-main ()
-{
-return XOpenDisplay ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"; then :
-
-else
-  { $as_echo "$as_me:${as_lineno-$LINENO}: checking for dnet_ntoa in -ldnet" >&5
-$as_echo_n "checking for dnet_ntoa in -ldnet... " >&6; }
-if ${ac_cv_lib_dnet_dnet_ntoa+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  ac_check_lib_save_LIBS=$LIBS
-LIBS="-ldnet  $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char dnet_ntoa ();
-int
-main ()
-{
-return dnet_ntoa ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"; then :
-  ac_cv_lib_dnet_dnet_ntoa=yes
-else
-  ac_cv_lib_dnet_dnet_ntoa=no
-fi
-rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_dnet_dnet_ntoa" >&5
-$as_echo "$ac_cv_lib_dnet_dnet_ntoa" >&6; }
-if test "x$ac_cv_lib_dnet_dnet_ntoa" = xyes; then :
-  X_EXTRA_LIBS="$X_EXTRA_LIBS -ldnet"
-fi
-
-    if test $ac_cv_lib_dnet_dnet_ntoa = no; then
-      { $as_echo "$as_me:${as_lineno-$LINENO}: checking for dnet_ntoa in -ldnet_stub" >&5
-$as_echo_n "checking for dnet_ntoa in -ldnet_stub... " >&6; }
-if ${ac_cv_lib_dnet_stub_dnet_ntoa+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  ac_check_lib_save_LIBS=$LIBS
-LIBS="-ldnet_stub  $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char dnet_ntoa ();
-int
-main ()
-{
-return dnet_ntoa ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"; then :
-  ac_cv_lib_dnet_stub_dnet_ntoa=yes
-else
-  ac_cv_lib_dnet_stub_dnet_ntoa=no
-fi
-rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_dnet_stub_dnet_ntoa" >&5
-$as_echo "$ac_cv_lib_dnet_stub_dnet_ntoa" >&6; }
-if test "x$ac_cv_lib_dnet_stub_dnet_ntoa" = xyes; then :
-  X_EXTRA_LIBS="$X_EXTRA_LIBS -ldnet_stub"
-fi
-
-    fi
-fi
-rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext conftest.$ac_ext
-    LIBS="$ac_xsave_LIBS"
-
-    # msh@cis.ufl.edu says -lnsl (and -lsocket) are needed for his 386/AT,
-    # to get the SysV transport functions.
-    # Chad R. Larson says the Pyramis MIS-ES running DC/OSx (SVR4)
-    # needs -lnsl.
-    # The nsl library prevents programs from opening the X display
-    # on Irix 5.2, according to T.E. Dickey.
-    # The functions gethostbyname, getservbyname, and inet_addr are
-    # in -lbsd on LynxOS 3.0.1/i386, according to Lars Hecking.
-    ac_fn_c_check_func "$LINENO" "gethostbyname" "ac_cv_func_gethostbyname"
-if test "x$ac_cv_func_gethostbyname" = xyes; then :
-
-fi
-
-    if test $ac_cv_func_gethostbyname = no; then
-      { $as_echo "$as_me:${as_lineno-$LINENO}: checking for gethostbyname in -lnsl" >&5
-$as_echo_n "checking for gethostbyname in -lnsl... " >&6; }
-if ${ac_cv_lib_nsl_gethostbyname+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  ac_check_lib_save_LIBS=$LIBS
-LIBS="-lnsl  $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char gethostbyname ();
-int
-main ()
-{
-return gethostbyname ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"; then :
-  ac_cv_lib_nsl_gethostbyname=yes
-else
-  ac_cv_lib_nsl_gethostbyname=no
-fi
-rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_nsl_gethostbyname" >&5
-$as_echo "$ac_cv_lib_nsl_gethostbyname" >&6; }
-if test "x$ac_cv_lib_nsl_gethostbyname" = xyes; then :
-  X_EXTRA_LIBS="$X_EXTRA_LIBS -lnsl"
-fi
-
-      if test $ac_cv_lib_nsl_gethostbyname = no; then
-	{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for gethostbyname in -lbsd" >&5
-$as_echo_n "checking for gethostbyname in -lbsd... " >&6; }
-if ${ac_cv_lib_bsd_gethostbyname+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  ac_check_lib_save_LIBS=$LIBS
-LIBS="-lbsd  $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char gethostbyname ();
-int
-main ()
-{
-return gethostbyname ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"; then :
-  ac_cv_lib_bsd_gethostbyname=yes
-else
-  ac_cv_lib_bsd_gethostbyname=no
-fi
-rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_bsd_gethostbyname" >&5
-$as_echo "$ac_cv_lib_bsd_gethostbyname" >&6; }
-if test "x$ac_cv_lib_bsd_gethostbyname" = xyes; then :
-  X_EXTRA_LIBS="$X_EXTRA_LIBS -lbsd"
-fi
-
-      fi
-    fi
-
-    # lieder@skyler.mavd.honeywell.com says without -lsocket,
-    # socket/setsockopt and other routines are undefined under SCO ODT
-    # 2.0.  But -lsocket is broken on IRIX 5.2 (and is not necessary
-    # on later versions), says Simon Leinen: it contains gethostby*
-    # variants that don't use the name server (or something).  -lsocket
-    # must be given before -lnsl if both are needed.  We assume that
-    # if connect needs -lnsl, so does gethostbyname.
-    ac_fn_c_check_func "$LINENO" "connect" "ac_cv_func_connect"
-if test "x$ac_cv_func_connect" = xyes; then :
-
-fi
-
-    if test $ac_cv_func_connect = no; then
-      { $as_echo "$as_me:${as_lineno-$LINENO}: checking for connect in -lsocket" >&5
-$as_echo_n "checking for connect in -lsocket... " >&6; }
-if ${ac_cv_lib_socket_connect+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  ac_check_lib_save_LIBS=$LIBS
-LIBS="-lsocket $X_EXTRA_LIBS $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char connect ();
-int
-main ()
-{
-return connect ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"; then :
-  ac_cv_lib_socket_connect=yes
-else
-  ac_cv_lib_socket_connect=no
-fi
-rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_socket_connect" >&5
-$as_echo "$ac_cv_lib_socket_connect" >&6; }
-if test "x$ac_cv_lib_socket_connect" = xyes; then :
-  X_EXTRA_LIBS="-lsocket $X_EXTRA_LIBS"
-fi
-
-    fi
-
-    # Guillermo Gomez says -lposix is necessary on A/UX.
-    ac_fn_c_check_func "$LINENO" "remove" "ac_cv_func_remove"
-if test "x$ac_cv_func_remove" = xyes; then :
-
-fi
-
-    if test $ac_cv_func_remove = no; then
-      { $as_echo "$as_me:${as_lineno-$LINENO}: checking for remove in -lposix" >&5
-$as_echo_n "checking for remove in -lposix... " >&6; }
-if ${ac_cv_lib_posix_remove+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  ac_check_lib_save_LIBS=$LIBS
-LIBS="-lposix  $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char remove ();
-int
-main ()
-{
-return remove ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"; then :
-  ac_cv_lib_posix_remove=yes
-else
-  ac_cv_lib_posix_remove=no
-fi
-rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_posix_remove" >&5
-$as_echo "$ac_cv_lib_posix_remove" >&6; }
-if test "x$ac_cv_lib_posix_remove" = xyes; then :
-  X_EXTRA_LIBS="$X_EXTRA_LIBS -lposix"
-fi
-
-    fi
-
-    # BSDI BSD/OS 2.1 needs -lipc for XOpenDisplay.
-    ac_fn_c_check_func "$LINENO" "shmat" "ac_cv_func_shmat"
-if test "x$ac_cv_func_shmat" = xyes; then :
-
-fi
-
-    if test $ac_cv_func_shmat = no; then
-      { $as_echo "$as_me:${as_lineno-$LINENO}: checking for shmat in -lipc" >&5
-$as_echo_n "checking for shmat in -lipc... " >&6; }
-if ${ac_cv_lib_ipc_shmat+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  ac_check_lib_save_LIBS=$LIBS
-LIBS="-lipc  $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char shmat ();
-int
-main ()
-{
-return shmat ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"; then :
-  ac_cv_lib_ipc_shmat=yes
-else
-  ac_cv_lib_ipc_shmat=no
-fi
-rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_ipc_shmat" >&5
-$as_echo "$ac_cv_lib_ipc_shmat" >&6; }
-if test "x$ac_cv_lib_ipc_shmat" = xyes; then :
-  X_EXTRA_LIBS="$X_EXTRA_LIBS -lipc"
-fi
-
-    fi
-  fi
-
-  # Check for libraries that X11R6 Xt/Xaw programs need.
-  ac_save_LDFLAGS=$LDFLAGS
-  test -n "$x_libraries" && LDFLAGS="$LDFLAGS -L$x_libraries"
-  # SM needs ICE to (dynamically) link under SunOS 4.x (so we have to
-  # check for ICE first), but we must link in the order -lSM -lICE or
-  # we get undefined symbols.  So assume we have SM if we have ICE.
-  # These have to be linked with before -lX11, unlike the other
-  # libraries we check for below, so use a different variable.
-  # John Interrante, Karl Berry
-  { $as_echo "$as_me:${as_lineno-$LINENO}: checking for IceConnectionNumber in -lICE" >&5
-$as_echo_n "checking for IceConnectionNumber in -lICE... " >&6; }
-if ${ac_cv_lib_ICE_IceConnectionNumber+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  ac_check_lib_save_LIBS=$LIBS
-LIBS="-lICE $X_EXTRA_LIBS $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char IceConnectionNumber ();
-int
-main ()
-{
-return IceConnectionNumber ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"; then :
-  ac_cv_lib_ICE_IceConnectionNumber=yes
-else
-  ac_cv_lib_ICE_IceConnectionNumber=no
-fi
-rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_ICE_IceConnectionNumber" >&5
-$as_echo "$ac_cv_lib_ICE_IceConnectionNumber" >&6; }
-if test "x$ac_cv_lib_ICE_IceConnectionNumber" = xyes; then :
-  X_PRE_LIBS="$X_PRE_LIBS -lSM -lICE"
-fi
-
-  LDFLAGS=$ac_save_LDFLAGS
-
-fi
-
-  fi
-
   MAKE_GRACKET=gracket
 else
   MAKE_GRACKET=no
 fi
+
 
 { $as_echo "$as_me:${as_lineno-$LINENO}: checking for cos in -lm" >&5
 $as_echo_n "checking for cos in -lm... " >&6; }
@@ -4936,36 +4262,30 @@ OSX=".osx"
 NOT_OSX=""
 CGC_X86_64=""
 
-case $OS in
-  SunOS)
-    case `$UNAME -r` in
-      5.*)
-       STATICLINK="-Wl,-Bstatic" # after -ldl
-       LIBS="$LIBS -lsocket -lnsl -lintl"
-       need_gcc_static_libgcc="yes"
-       check_gcc_dash_e="yes"
-       ;;
-      *)
-       ;;
-    esac
+case "$host_os" in
+  solaris2*)
+    STATICLINK="-Wl,-Bstatic" # after -ldl
+    LIBS="$LIBS -lsocket -lnsl -lintl"
+    need_gcc_static_libgcc="yes"
+    check_gcc_dash_e="yes"
     ;;
-  AIX)
+  aix*)
     enable_cgcdefault="yes"
     EXTRALIBS="-Wl,-brtl,-bE:\$(srcdir)/../racket/include/racket.exp"
     ;;
-  FreeBSD)
+  *freebsd*)
     LIBS="$LIBS -rdynamic"
     DYN_CFLAGS="-fPIC"
-    GC_THREADS_FLAG="-DGC_FREEBSD_THREADS"
     enable_pthread=yes
     ;;
-  OpenBSD)
+  openbsd*)
     LIBS="$LIBS -rdynamic -Wl,--export-dynamic"
+    enable_pthread=yes
     ;;
-  NetBSD)
+  netbsd*)
     LIBS="$LIBS -rdynamic"
     ;;
-  IRIX)
+  irix*)
     enable_cgcdefault="yes"
     STATICLINK="/usr/lib/libC.a /usr/lib/libmalloc.a"
     if test "$X_PRE_LIBS" = " -lSM -lICE" ; then
@@ -4973,31 +4293,30 @@ case $OS in
       X_PRE_LIBS=""
     fi
     ;;
-  Linux)
+  linux*)
     LIBS="$LIBS -ldl -lm -rdynamic"
     DYN_CFLAGS="-fPIC"
-    GC_THREADS_FLAG="-DGC_LINUX_THREADS"
     STRIP_DEBUG="strip -S"
-    case `$UNAME -m` in
+    case "$host_cpu" in
       #Required for CentOS 4.6
       x86_64)
-       enable_futures_by_default=yes
+       enable_parallel_by_default=yes
        CGC_X86_64="1"
        ;;
-      ppc)
+      ppc|powerpc)
        ;;
       alpha)
        EXTRA_GMP_OBJ="gmp_alpha_gcc.o"
        EXTRA_GMP_DEP='$(EXTRA_GMP_DEP_FILE)'
        ;;
       i386|i486|i586|i686)
-       enable_futures_by_default=yes
+       enable_parallel_by_default=yes
        ;;
       *)
        ;;
     esac
     ;;
-  OSF1)
+  osf1*)
     enable_cgcdefault="yes"
     if test "$CC" = "cc" ; then
       COMPFLAGS="$COMPFLAGS -ieee_with_inexact -assume noaligned_objects"
@@ -5006,7 +4325,7 @@ case $OS in
       EXTRA_GMP_DEP='$(EXTRA_GMP_DEP_FILE)'
     fi
     ;;
-  HP-UX)
+  hpux*)
     enable_cgcdefault="yes"
     if test "$CC" = "gcc"; then
       COMPFLAGS="$COMPFLAGS -fPIC"
@@ -5019,7 +4338,7 @@ case $OS in
     fi
     LIBS="$LIBS -Wl,-E"
     ;;
-  CYGWIN*)
+  cygwin*)
     enable_cgcdefault="yes"
     MZINSTALLTARGET=unix-cygwin-install
     if test "${enable_shared}" = "yes" ; then
@@ -5029,24 +4348,17 @@ case $OS in
     fi
     EXE_SUFFIX=".exe"
     ;;
-  BeOS)
+  beos*)
     enable_cgcdefault="yes"
-    if test "${enable_sgcdebug}" = "yes" ; then
-      dummyvar=""
-    else
-      enable_sgc=yes
-    fi
+    enable_sgc=yes
     ;;
-  Darwin)
-
-    IPHONE=""
+  darwin*)
     PLATFORMPREFIX="/usr/bin"
     MACH_FLAGS="-mmacosx-version-min=10.4"
-    if test "${enable_iphoneos}" == "yes" ; then
+    if test "${enable_ios}" == "yes" ; then
       PLATFORMPREFIX="/Developer/Platforms/iPhoneOS.platform/Developer/usr/bin"
       ARCH_FLAGS="-arch armv7"
-      MACH_FLAGS="-miphoneos-version-min=3.2 -gdwarf-2 -marm -DIPHONE"
-      IPHONE="iPhoneOS"
+      MACH_FLAGS="-miphoneos-version-min=4.2 -gdwarf-2 -marm"
 
       enable_sdk="/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS4.3.sdk"
       cross_compiling="yes"
@@ -5055,11 +4367,10 @@ case $OS in
       SUB_CONFIGURE_EXTRAS="${SUB_CONFIGURE_EXTRAS} --host=arm-apple-darwin10"
     fi
 
-    if test "${enable_iphonesim}" == "yes" ; then
+    if test "${enable_ios_sim}" == "yes" ; then
       PLATFORMPREFIX="/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/bin"
       ARCH_FLAGS="-arch i386"
-      MACH_FLAGS="-D__IPHONE_OS_VERSION_MIN_REQUIRED=30200 -mmacosx-version-min=10.6 -DIPHONE"
-      IPHONE="iPhoneSimulator"
+      MACH_FLAGS="-D__IPHONE_OS_VERSION_MIN_REQUIRED=40200 -mmacosx-version-min=10.6"
 
       enable_sdk="/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator4.3.sdk"
 
@@ -5084,7 +4395,7 @@ case $OS in
       if test "${LD}" = "gcc" ; then
        LD="${PLATFORMPREFIX}/gcc-4.2"
       fi
-      if test "${IPHONE}" != "" ; then
+      if test "${enable_ios}" != "" -o "${enable_ios_sim}" != "" ; then
         SUB_CONFIGURE_EXTRAS="${SUB_CONFIGURE_EXTRAS} CC="'"'"${CC}"'"'
         SUB_CONFIGURE_EXTRAS="${SUB_CONFIGURE_EXTRAS} CXX="'"'"${CXX}"'"'
         SUB_CONFIGURE_EXTRAS="${SUB_CONFIGURE_EXTRAS} CPP="'"'"${CPP}"'"'
@@ -5092,12 +4403,13 @@ case $OS in
         SUB_CONFIGURE_EXTRAS="${SUB_CONFIGURE_EXTRAS} LD="'"'"${LD}"'"'
       fi
       SUB_CONFIGURE_EXTRAS="${SUB_CONFIGURE_EXTRAS} CFLAGS="'"'"${CFLAGS} ${PREFLAGS}"'"'
+      need_cc_in_extras=yes
     fi
 
-    case `$UNAME -m` in
-      i386)
-        if test "${enable_iphoneos}" != "yes" && test "${enable_iphonesim}" != "yes" ; then
-	  enable_futures_by_default=yes
+    case "$host_cpu" in
+      i386|x86_64)
+        if test "${enable_ios}" != "yes" && test "${enable_ios_sim}" != "yes" ; then
+       	  enable_parallel_by_default=yes
 	fi
        ;;
       *)
@@ -5110,50 +4422,29 @@ case $OS in
 
     SO_SUFFIX=.dylib
 
-    GC_THREADS_FLAG="-DGC_DARWIN_THREADS"
-
-   gcc_vers_three=`${CC} -v 2>&1 | grep "version [3-9][.]"`
-    if test "$gcc_vers_three" = "" ; then
-      # gcc 2.95.2
-      if test "${enable_quartz}" = "yes" ; then
-        MROPTIONS="$MROPTIONS -cpp-precomp"
-      fi
-    else
-      # gcc 3.x
-      if test "${enable_quartz}" = "yes" ; then
-       gcc_vers_three_one=`${CC} -v 2>&1 | grep "version 3[.]1"`
-        if test "$gcc_vers_three_one" = "" ; then
-          # gcc 3.3 and up
-          GCC_VERSION_THREE_THREE="yes"
-        else
-          # gcc 3.1
-          WXPRECOMP='$(WXPRECOMPDIR)/precomp.o'
-          USE_WXPRECOMP='--load-pch $(WXPRECOMPDIR)'
-        fi
-      else
-        MROPTIONS="$MROPTIONS -no-cpp-precomp"
-      fi
-    fi
-
     # Force 32-bit build unless mac64 is enabled:
     if test "${enable_mac64}" != "yes" ; then
-      if test `${UNAME} -m` = "i386" ; then
+      if test "$host_cpu" != "powerpc" ; then
         if test "${ORIG_CC}" = "" ; then
-	  if test "${IPHONE}" = "" ; then
+	  if test "${enable_ios}" = "" -a "${enable_ios_sim}" = "" ; then
             PREFLAGS="${PREFLAGS} -m32"
             CPPFLAGS="${CPPFLAGS} -m32"
             LDFLAGS="${LDFLAGS} -m32"
             # To make the libffi build work, we have to fold -m32 into CC
             # instead of CFLAGS:
             SUB_CONFIGURE_EXTRAS="${SUB_CONFIGURE_EXTRAS} CC="'"'"${CC}"' -m32"'
+            need_cc_in_extras=no
 	  fi
         fi
       fi
     fi
 
+    if test "${need_cc_in_extras}" = "yes" ; then
+      SUB_CONFIGURE_EXTRAS="${SUB_CONFIGURE_EXTRAS} CC="'"'"${CC}"'"'
+    fi
+
     if test "${enable_quartz}" = "yes" ; then
       WXVARIANT="wx_mac"
-      MROPTIONS="$MROPTIONS -fpascal-strings"
       INCLUDEDEP="-include"
       OPTIONS="$OPTIONS -fno-common"
       OSX=""
@@ -5182,8 +4473,7 @@ case $OS in
     ;;
 esac
 
-MACH=`$UNAME -p`
-case "$MACH" in
+case "$host_cpu" in
   alpha | sparc | powerpc)
     if test "$CC" = "gcc" ; then
       if test "$as_was_set" = "no" ; then
@@ -5207,14 +4497,14 @@ fi
 
 ############## SGC ################
 
+if test "${enable_sgcdebug}" = "yes" ; then
+  enable_sgc=yes
+  OPTIONS="$OPTIONS -DSGC_STD_DEBUGGING=1"
+fi
+
 if test "${enable_sgc}" = "yes" ; then
   GCDIR=sgc
   OPTIONS="$OPTIONS -DUSE_SENORA_GC"
-fi
-
-if test "${enable_sgcdebug}" = "yes" ; then
-  GCDIR=sgc
-  OPTIONS="$OPTIONS -DSGC_STD_DEBUGGING=1"
 fi
 
 ############## C flags ################
@@ -5349,11 +4639,10 @@ cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
-#include <stddef.h>
 int
 main ()
 {
-getaddrinfo(NULL, NULL, NULL, NULL);
+getaddrinfo(0, 0, 0, 0);
   ;
   return 0;
 }
@@ -5373,7 +4662,8 @@ $as_echo "$have_getaddrinfo" >&6; }
 
 iconv_lib_flag=""
 if test "${enable_iconv}" = "yes" ; then
-  { $as_echo "$as_me:${as_lineno-$LINENO}: checking for grep that handles long lines and -e" >&5
+
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for grep that handles long lines and -e" >&5
 $as_echo_n "checking for grep that handles long lines and -e... " >&6; }
 if ${ac_cv_path_GREP+:} false; then :
   $as_echo_n "(cached) " >&6
@@ -5738,22 +5028,75 @@ fi
 { $as_echo "$as_me:${as_lineno-$LINENO}: result: $mbsrtowcs" >&5
 $as_echo "$mbsrtowcs" >&6; }
 
+if test "${enable_libffi}" = "yes" ; then
+ if test "${enable_foreign}" = "yes" -a "${enable_libffi_ios}" != "yes" ; then
+  { $as_echo "$as_me:${as_lineno-$LINENO}: checking for libffi" >&5
+$as_echo_n "checking for libffi... " >&6; }
+
+  # Try to get flags form pkg-config:
+  libffi_config_prog="pkg-config libffi"
+  libffi_config_preflags=`$libffi_config_prog --cflags-only-I  2> /dev/null`
+  if test "$?" = 0 ; then
+    libffi_config_cflags=`$libffi_config_prog --cflags-only-other  2> /dev/null`
+    if test "$?" = 0 ; then
+      libffi_config_libs=`$libffi_config_prog --libs  2> /dev/null`
+      if test "$?" != 0 ; then
+        libffi_config_preflags=""
+        libffi_config_cflags=""
+        libffi_config_libs="-lffi"
+      fi
+    else
+      libffi_config_preflags=""
+      libffi_config_cflags=""
+      libffi_config_libs="-lffi"
+    fi
+  else
+    libffi_config_preflags=""
+    libffi_config_cflags=""
+    libffi_config_libs="-lffi"
+  fi
+
+  OLD_CFLAGS="${CFLAGS}"
+  OLD_LIBS="${LIBS}"
+  CFLAGS="${CFLAGS} ${libffi_config_preflags} ${libffi_config_cflags}"
+  LIBS="${LIBS} ${libffi_config_libs}"
+  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+#include <ffi.h>
+int
+main ()
+{
+ffi_cif cif;
+              ffi_prep_cif(&cif, FFI_DEFAULT_ABI, 0, &ffi_type_void, NULL);
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"; then :
+  have_libffi=yes
+else
+  have_libffi=no
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext conftest.$ac_ext
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $have_libffi" >&5
+$as_echo "$have_libffi" >&6; }
+  if test "${have_libffi}" = "no" ; then
+    CFLAGS="${OLD_CFLAGS}"
+    LIBS="${OLD_LIBS}"
+    echo "Building own libffi"
+  else
+    CFLAGS="${OLD_CFLAGS}"
+    PREFLAGS="${PREFLAGS} ${libffi_config_preflags}"
+    COMPFLAGS="${COMPFLAGS} ${libffi_config_cflags}"
+    echo "Using installed libffi"
+    OWN_LIBFFI="OFF"
+  fi
+ fi
+fi
+
 if test "${enable_backtrace}" = "yes" ; then
   GC2OPTIONS="$GC2OPTIONS -DMZ_GC_BACKTRACE"
-fi
-
-if test "${enable_compact}" = "yes" ; then
-  GC2OPTIONS="$GC2OPTIONS -DUSE_COMPACT_3M_GC"
-  enable_account=no
-  enable_memtrace=no
-fi
-
-if test "${enable_account}" = "yes" ; then
-  GC2OPTIONS="$GC2OPTIONS -DNEWGC_BTC_ACCOUNT"
-fi
-
-if test "${enable_memtrace}" = "yes" ; then
-  GC2OPTIONS="$GC2OPTIONS -DNEWGC_MEMORY_TRACE"
 fi
 
 LFS_CFLAGS=`getconf LFS_CFLAGS 2> /dev/null`
@@ -6337,15 +5680,13 @@ $as_echo "#define SCHEME_BIG_ENDIAN 1" >>confdefs.h
 
 fi
 
-############### GC2_PLACES_TESTING ###################
-
-if test "${enable_gc2_places_testing}" = "yes" ; then
-
-$as_echo "#define GC2_PLACES_TESTING 1" >>confdefs.h
-
-fi
-
 ############### places ###################
+
+if test "${enable_parallel_by_default}" = "yes" ; then
+  if test "${enable_places}" = "" ; then
+    enable_places=yes
+  fi
+fi
 
 if test "${enable_places}" = "yes" ; then
 
@@ -6356,7 +5697,7 @@ fi
 
 ############### futures ###################
 
-if test "${enable_futures_by_default}" = "yes" ; then
+if test "${enable_parallel_by_default}" = "yes" ; then
   if test "${enable_futures}" = "" ; then
     enable_futures=yes
   fi
@@ -6372,8 +5713,6 @@ fi
 ############### OS threads ###################
 
 if test "${enable_mzrt}" = "yes" ; then
-  MZRT_CGC_FLAGS="$GC_THREADS_FLAG -DTHREAD_LOCAL_ALLOC"
-  LIBATOM="LIBATOM_USE"
   enable_pthread=yes
 fi
 
@@ -6473,10 +5812,30 @@ if test "${enable_jit}" = "no" ; then
    PREFLAGS="${PREFLAGS} -DMZ_DONT_USE_JIT"
 fi
 
+############## usersetup ################
+
+if test "${enable_usersetup}" != "yes" ; then
+  INSTALL_SETUP_FLAGS="${INSTALL_SETUP_FLAGS} --no-user"
+fi
+
 ############## docs ################
 
 if test "${enable_docs}" = "no" ; then
-  INSTALL_SETUP_FLAGS="${INSTALL_SETUP_FLAGS} -D"
+  INSTALL_SETUP_FLAGS="${INSTALL_SETUP_FLAGS} --no-docs"
+fi
+
+############## Racket for Racket ################
+
+if test "${enable_racket}" = "" ; then
+  RUN_RACKET_CGC='$(RUN_THIS_RACKET_CGC)'
+  RUN_RACKET_MMM='$(RUN_THIS_RACKET_MMM)'
+  RUN_RACKET_MAIN_VARIANT='$(RUN_THIS_RACKET_MAIN_VARIANT)'
+  CGC_IF_NEEDED_FOR_MMM="cgc"
+else
+  RUN_RACKET_CGC="${enable_racket}"
+  RUN_RACKET_MMM="${enable_racket}"
+  RUN_RACKET_MAIN_VARIANT="${enable_racket}"
+  CGC_IF_NEEDED_FOR_MMM="no-cgc-needed"
 fi
 
 ############## libtool ################
@@ -6657,6 +6016,7 @@ LIBS="$LIBS $EXTRALIBS"
 
 
 
+
 mk_needed_dir()
 {
   if test ! -d "$1" ; then
@@ -6675,9 +6035,13 @@ if test "${enable_shared}" = "yes" ; then
   ac_configure_args="$ac_configure_args --enable-shared"
 fi
 
-if test "${LIBATOM}" = "LIBATOM_USE" ; then
-  ac_aux_dir=
-for ac_dir in racket/gc/libatomic_ops  "$srcdir"/racket/gc/libatomic_ops ; do
+FOREIGNTARGET=
+FOREIGN_IF_USED="FOREIGN_NOT_USED"
+if test -d "${srcdir}/foreign" && test "${enable_foreign}" = "yes" ; then
+  if test "${have_libffi}" != "yes" ; then
+    if test "${enable_libffi_ios}" = "yes" ; then
+      ac_aux_dir=
+for ac_dir in foreign/libffi-ios  "$srcdir"/foreign/libffi-ios ; do
   if test -f "$ac_dir/install-sh"; then
     ac_aux_dir=$ac_dir
     ac_install_sh="$ac_aux_dir/install-sh -c"
@@ -6693,7 +6057,7 @@ for ac_dir in racket/gc/libatomic_ops  "$srcdir"/racket/gc/libatomic_ops ; do
   fi
 done
 if test -z "$ac_aux_dir"; then
-  as_fn_error $? "cannot find install-sh, install.sh, or shtool in racket/gc/libatomic_ops  \"$srcdir\"/racket/gc/libatomic_ops " "$LINENO" 5
+  as_fn_error $? "cannot find install-sh, install.sh, or shtool in foreign/libffi-ios  \"$srcdir\"/foreign/libffi-ios " "$LINENO" 5
 fi
 
 # These three variables are undocumented and unsupported,
@@ -6707,19 +6071,41 @@ ac_configure="$SHELL $ac_aux_dir/configure"  # Please don't use this var.
 
 
 
-subdirs="$subdirs racket/gc/libatomic_ops"
+subdirs="$subdirs foreign/libffi-ios"
 
+    else
+      ac_aux_dir=
+for ac_dir in foreign/libffi  "$srcdir"/foreign/libffi ; do
+  if test -f "$ac_dir/install-sh"; then
+    ac_aux_dir=$ac_dir
+    ac_install_sh="$ac_aux_dir/install-sh -c"
+    break
+  elif test -f "$ac_dir/install.sh"; then
+    ac_aux_dir=$ac_dir
+    ac_install_sh="$ac_aux_dir/install.sh -c"
+    break
+  elif test -f "$ac_dir/shtool"; then
+    ac_aux_dir=$ac_dir
+    ac_install_sh="$ac_aux_dir/shtool install -c"
+    break
+  fi
+done
+if test -z "$ac_aux_dir"; then
+  as_fn_error $? "cannot find install-sh, install.sh, or shtool in foreign/libffi  \"$srcdir\"/foreign/libffi " "$LINENO" 5
 fi
 
-FOREIGNTARGET=
-FOREIGN_IF_USED="FOREIGN_NOT_USED"
-if test -d "${srcdir}/foreign" && test "${enable_foreign}" = "yes" ; then
-  if test "${IPHONE}" = "" ; then
-    subdirs="$subdirs foreign/libffi"
+# These three variables are undocumented and unsupported,
+# and are intended to be withdrawn in a future Autoconf release.
+# They can cause serious problems if a builder's source tree is in a directory
+# whose full name contains unusual characters.
+ac_config_guess="$SHELL $ac_aux_dir/config.guess"  # Please don't use this var.
+ac_config_sub="$SHELL $ac_aux_dir/config.sub"  # Please don't use this var.
+ac_configure="$SHELL $ac_aux_dir/configure"  # Please don't use this var.
 
-  else
-    subdirs="$subdirs foreign/libffi-ios"
 
+      subdirs="$subdirs foreign/libffi"
+
+    fi
   fi
   FOREIGNTARGET="foreign-stuff"
   FOREIGN_IF_USED="FOREIGN_USED"
@@ -6730,7 +6116,7 @@ fi
 makefiles="$makefiles foreign/Makefile"
 ac_configure_args="$ac_configure_args$SUB_CONFIGURE_EXTRAS"
 
-if test "${enable_plot}" = "yes" ; then
+if test -d "${srcdir}/plot" && test "${enable_plot}" = "yes" ; then
   makefiles="$makefiles
              plot/Makefile"
   MAKE_PLOT=plot

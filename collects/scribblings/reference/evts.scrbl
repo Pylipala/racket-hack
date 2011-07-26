@@ -1,6 +1,5 @@
 #lang scribble/doc
-@(require scribble/struct
-          "mz.ss")
+@(require scribble/struct "mz.rkt")
 
 @(define-syntax-rule (ResultItself x)
    (make-element #f (list "The "
@@ -18,7 +17,7 @@ among threads. Certain kinds of objects double as events, including
 ports and threads. Other kinds of objects exist only for their use as
 events.
 
-At an point in time, an event is either @defterm{ready} for
+At any point in time, an event is either @defterm{ready} for
 synchronization, or it is not; depending on the kind of event and how
 it is used by other threads, an event can switch from not ready to
 ready (or back), at any time.  If a thread synchronizes on an event
@@ -184,6 +183,14 @@ generate events (see @racket[prop:evt]).
    or blocked on events with timeouts that have not yet expired. The
    event's result is @|void-const|.}
 
+ @item{@racket[_place-channel] --- a @tech{place channel} is ready when
+ @racket[place-channel-get] would not block. The channel's result as an
+ event is the same as the @racket[place-channel-get] result.}
+
+ @item{@racket[_place-dead] --- an event returned by
+ @racket[(place-dead-evt _p)] is ready when @racket[_p] has
+ terminated.  @ResultItself[_place-dead].}
+
  ]
 
 @;------------------------------------------------------------------------
@@ -207,17 +214,20 @@ pseudo-randomly for the result; the
 random-number generator that controls this choice.}
 
 
-@defproc[(sync/timeout [timeout-secs (or/c nonnegative-number? #f)]
+@defproc[(sync/timeout [timeout (or/c #f (and/c real? (not/c negative?)) (-> any))]
                        [evt evt?] ...+) 
           any]{
 
-Like @racket[sync], but returns @racket[#f] if @racket[timeout-secs]
-is not @racket[#f] and if @racket[timeout-secs] seconds pass without a
-successful synchronization.
+Like @racket[sync] if @racket[timeout] is @racket[#f]. If
+@racket[timeout] is a real number, then the result is @racket[#f]
+if @racket[timeout] seconds pass without a
+successful synchronization. If @racket[timeout] is a procedure, then
+it is called in tail position if polling the @racket[evt]s discovers
+no ready events.
 
-If @racket[timeout-secs] is @racket[0], each @racket[evt] is checked
-at least once, so a @racket[timeout-secs] value of @racket[0] can be
-used for polling.
+A zero value for @racket[timeout] is equivalent to @racket[(lambda ()
+#f)]. In either case, each @racket[evt] is checked at least once
+before returning @racket[#f] or calling @racket[timeout].
 
 See also @racket[alarm-evt] for an alternative timeout mechanism.}
 
@@ -231,12 +241,11 @@ either all @racket[evt]s remain unchosen or the @racket[exn:break]
 exception is raised, but not both.}
 
 
-@defproc[(sync/timeout/enable-break [timeout-secs (or/c nonnegative-number? #f)]
+@defproc[(sync/timeout/enable-break [timeout (or/c #f (and/c real? (not/c negative?)) (-> any))]
                                     [evt evt?] ...+) 
          any]{
 
-Like @racket[sync/enable-break], but with a timeout in seconds (or
-@racket[#f]), as for @racket[sync/timeout].}
+Like @racket[sync/enable-break], but with a timeout as for @racket[sync/timeout].}
 
 
 @defproc[(choice-evt [evt evt?] ...) evt?]{

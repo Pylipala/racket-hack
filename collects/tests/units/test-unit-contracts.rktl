@@ -1,4 +1,4 @@
-(require "test-harness.ss"
+(require "test-harness.rkt"
          scheme/unit
          scheme/contract)
 
@@ -6,16 +6,21 @@
 (define top-level "top-level")
 
 (define (match-blame re msg)
-  (regexp-match? (string-append "(^| )" re " broke") msg))
+  (or (regexp-match? (format "blaming ~a" re) msg)
+      (regexp-match? (format "self-contract violation:.*blaming ~a" re) msg)))
 
 (define (match-obj re msg)
-  (regexp-match? (string-append "(^| )on " re ";") msg))
+  (or (regexp-match? (format "~a: contract violation" re) msg)
+      (regexp-match? (format "~a: self-contract violation" re) msg)))
 
 (define (get-ctc-err msg)
   (cond
-    [(regexp-match #rx";[ ]*(.*)" msg)
+    [(regexp-match  #rx"contract violation, ([^\n]*)\n" msg)
      =>
      (λ (x) (cadr x))]
+    [(regexp-match #rx"self-contract violation, ([^\n]*)\n" msg)
+     =>
+     (lambda (x) (cadr x))]
     [else (error 'test-contract-error
                  (format "no specific error in message: \"~a\"" msg))]))
 
@@ -621,8 +626,8 @@
 (require (prefix-in m2: 'm2))
 
 (m2:z)
-(test-contract-error "'m2" "U@" "not a symbol" (m2:w))
-(test-contract-error "'m1" "U@" "not a string" (m2:v))
+(test-contract-error "m2" "U@" "not a symbol" (m2:w))
+(test-contract-error "m1" "U@" "not a string" (m2:v))
 
 (test-syntax-error "no y in sig1"
   (unit/c (import (sig1 [y number?]))
@@ -695,7 +700,7 @@
 
 (require (prefix-in m4: 'm4))
 
-(test-contract-error "'m4" "f" "not an x"
+(test-contract-error "m4" "f" "not an x"
   (m4:f 3))
 
 (require (prefix-in m3: 'm3))

@@ -10,7 +10,8 @@
          "drsig.rkt"
          racket/unit
          racket/async-channel
-         setup/private/lib-roots)
+         setup/private/lib-roots
+         racket/port)
 
 (define-struct req (filename key))
 ;; type req = (make-req string[filename] (union symbol #f))
@@ -21,6 +22,11 @@
 
 (define adding-file (string-constant module-browser-adding-file))
 (define unknown-module-name "? unknown module name")
+
+;; probably, at some point, the module browser should get its
+;; own output ports or something instead of wrapping these ones
+(define original-output-port (current-output-port))
+(define original-error-port (current-error-port))
 
 (define-unit module-overview@
   (import [prefix drracket:frame: drracket:frame^]
@@ -62,7 +68,8 @@
       get-word
       get-lines
       is-special-key-child?
-      add-special-key-child))
+      add-special-key-child
+      set-found!))
   
   ;; make-module-overview-pasteboard : boolean
   ;;                                   ((union #f snip) -> void)
@@ -76,7 +83,10 @@
     ;; snip-table : hash-table[sym -o> snip]
     (define snip-table (make-hash))
     (define label-font (find-label-font (preferences:get 'drracket:module-overview:label-font-size)))
-    (define text-color (make-object color% "blue"))
+    (define text-color "blue")
+    
+    (define search-result-text-color "white")
+    (define search-result-background "forestgreen")
     
     (define dark-syntax-pen (send the-pen-list find-or-create-pen "darkorchid" 1 'solid))
     (define dark-syntax-brush (send the-brush-list find-or-create-brush "darkorchid" 'solid))
@@ -512,6 +522,8 @@
                     lines
                     pb)
         
+        (inherit get-admin)
+        
         (define require-phases '())
         (define/public (add-require-phase d)
           (unless (member d require-phases)
@@ -541,8 +553,8 @@
                                       "salmon"
                                       'solid))))
         
-        (field (snip-width 0)
-               (snip-height 0))
+        (define snip-width 0)
+        (define snip-height 0)
         
         (define/override (get-extent dc x y wb hb descent space lspace rspace)
           (cond
@@ -551,8 +563,8 @@
              (set! snip-height 15)]
             [else
              (let-values ([(w h a d) (send dc get-text-extent (name->label) label-font)])
-               (set! snip-width (+ w 4))
-               (set! snip-height (+ h 4)))])
+               (set! snip-width (+ w 5))
+               (set! snip-height (+ h 5)))])
           (set-box/f wb snip-width)
           (set-box/f hb snip-height)
           (set-box/f descent 0)
@@ -560,20 +572,36 @@
           (set-box/f lspace 0)
           (set-box/f rspace 0))
         
+        (define/public (set-found! fh?) 
+          (unless (eq? (and fh? #t) found-highlight?)
+            (set! found-highlight? (and fh? #t))
+            (let ([admin (get-admin)])
+              (when admin
+                (send admin needs-update this 0 0 snip-width snip-height)))))
+        (define found-highlight? #f)
+        
         (define/override (draw dc x y left top right bottom dx dy draw-caret)
           (let ([old-font (send dc get-font)]
                 [old-text-foreground (send dc get-text-foreground)]
-                [old-brush (send dc get-brush)])
+                [old-brush (send dc get-brush)]
+                [old-pen (send dc get-pen)])
             (send dc set-font label-font)
-            (when lines-brush
-              (send dc set-brush lines-brush))
+            (cond
+              [found-highlight?
+               (send dc set-brush search-result-background 'solid)]
+              [lines-brush
+               (send dc set-brush lines-brush)])
             (when (and (or (<= left x right)
                            (<= left (+ x snip-width) right))
                        (or (<= top y bottom)
                            (<= top (+ y snip-height) bottom)))
               (send dc draw-rectangle x y snip-width snip-height)
-              (send dc set-text-foreground text-color)
+              (send dc set-text-foreground (send the-color-database find-color 
+                                                 (if found-highlight?
+                                                     search-result-text-color
+                                                     text-color)))
               (send dc draw-text (name->label) (+ x 2) (+ y 2)))
+            (send dc set-pen old-pen)
             (send dc set-brush old-brush)
             (send dc set-text-foreground old-text-foreground)
             (send dc set-font old-font)))
@@ -626,7 +654,7 @@
     (define draw-lines-pasteboard% (module-overview-pasteboard-mixin
                                     (graph-pasteboard-mixin
                                      pasteboard:basic%)))
-    (make-object draw-lines-pasteboard%))
+    (new draw-lines-pasteboard% [cache-arrow-drawing? #t]))
   
   
   ;                                                                
@@ -648,7 +676,8 @@
   
   
   (define (module-overview/file filename parent)
-    (define progress-frame (parameterize ([current-eventspace (make-eventspace)])
+    (define progress-eventspace (make-eventspace))
+    (define progress-frame (parameterize ([current-eventspace progress-eventspace])
                              (instantiate frame% ()
                                (parent parent)
                                (label progress-label)
@@ -661,8 +690,11 @@
     (define thd 
       (thread
        (λ ()
-         (sleep 3)
-         (send progress-frame show #t))))
+         (sleep 2)
+         (parameterize ([current-eventspace progress-eventspace])
+           (queue-callback
+            (λ ()
+              (send progress-frame show #t)))))))
     
     (define text/pos 
       (let ([t (make-object text:basic%)])
@@ -675,7 +707,10 @@
     (define update-label void)
     
     (define (show-status str)
-      (send progress-message set-label str))
+      (parameterize ([current-eventspace progress-eventspace])
+        (queue-callback
+         (λ ()
+           (send progress-message set-label str)))))
     
     (define pasteboard (make-module-overview-pasteboard 
                         #f
@@ -683,7 +718,10 @@
     
     (let ([success? (fill-pasteboard pasteboard text/pos show-status void)])
       (kill-thread thd)
-      (send progress-frame show #f)
+      (parameterize ([current-eventspace progress-eventspace])
+        (queue-callback
+         (λ ()
+           (send progress-frame show #f))))
       (when success?
         (let ()
           (define frame (instantiate overview-frame% ()
@@ -750,6 +788,23 @@
                      (send pasteboard remove-visible-paths 'lib))))))
           
           (define ec (make-object canvas:basic% vp pasteboard))
+          
+          (define search-tf
+            (new text-field%
+                 [label (string-constant module-browser-highlight)]
+                 [parent vp]
+                 [callback
+                  (λ (tf evt)
+                    (send pasteboard begin-edit-sequence)
+                    (define val (send tf get-value))
+                    (define reg (and (not (string=? val ""))
+                                     (regexp (regexp-quote (send tf get-value)))))
+                    (let loop ([snip (send pasteboard find-first-snip)])
+                      (when snip
+                        (when (is-a? snip boxed-word-snip<%>)
+                          (send snip set-found! (and reg (regexp-match reg (path->string (send snip get-filename))))))
+                        (loop (send snip next))))
+                    (send pasteboard end-edit-sequence))]))
           
           (send lib-paths-checkbox set-value (not (memq 'lib (preferences:get 'drracket:module-browser:hide-paths))))
           (set! update-label
@@ -821,6 +876,8 @@
                    (port-count-lines! prt)
                    prt))
                p))))
+      (current-output-port (swallow-specials original-output-port))
+      (current-error-port (swallow-specials original-error-port))
       (current-load-relative-directory init-dir)
       (current-directory init-dir)
       (error-display-handler (λ (str exn) (set! error-str str)))
@@ -835,6 +892,24 @@
          (error-escape-handler
           (λ () (custodian-shutdown-all user-custodian)))
          (semaphore-post init-complete))))
+    
+    (define (swallow-specials port)
+      (define-values (in out) (make-pipe-with-specials))
+      (thread
+       (λ ()
+         (let loop ()
+           (define c (read-char-or-special in))
+           (cond
+             [(char? c)
+              (display c out)
+              (loop)]
+             [(eof-object? c)
+              (close-output-port out)
+              (close-input-port in)]
+             [else
+              (loop)]))))
+      out)
+    
     (define (kill-termination) (void))
     (define complete-program? #t)
 

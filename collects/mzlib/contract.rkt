@@ -2,11 +2,13 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-;;  provide arrow contracts from our local copy
+;;  provide arrow contracts from our local copy (mostly)
 ;;
 
 (require "private/contract-arrow.rkt")
 (provide (all-from-out "private/contract-arrow.rkt"))
+(require (only-in racket/contract unconstrained-domain->))
+(provide unconstrained-domain->)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -14,6 +16,18 @@
 ;;
 (require "private/contract-object.rkt")
 (provide (all-from-out "private/contract-object.rkt"))
+
+(require (only-in racket/class
+                  is-a?/c
+                  implementation?/c
+                  subclass?/c
+                  mixin-contract
+                  make-mixin-contract))
+(provide is-a?/c
+         implementation?/c
+         subclass?/c
+         mixin-contract
+         make-mixin-contract)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -47,18 +61,23 @@
          racket/contract/private/misc
          racket/contract/private/provide
          racket/contract/private/guts
+         racket/contract/private/prop
+         racket/contract/private/blame
          racket/contract/private/ds
          racket/contract/private/opt
-         racket/contract/private/basic-opters)
+         racket/contract/private/basic-opters
+         racket/contract/combinator)
+
+
+(define (build-flat-contract name pred) (make-predicate-contract name pred))
 
 (provide 
  opt/c define-opt/c ;(all-from "private/contract-opt.rkt")
  (except-out (all-from-out racket/contract/private/ds)
-             lazy-depth-to-look
              contract-struct)
  
- (all-from-out racket/contract/private/base)
- (all-from-out racket/contract/private/provide)
+ (all-from-out racket/contract/private/base
+               racket/contract/private/provide)
  (except-out (all-from-out racket/contract/private/misc)
              check-between/c
              string-len/c
@@ -67,11 +86,17 @@
  (rename-out [string-len/c string/len])
  (except-out (all-from-out racket/contract/private/guts)
              check-flat-contract
-             check-flat-named-contract))
-
-
-;; copied here because not provided by racket/contract anymore
-(define (flat-contract/predicate? pred)
-  (or (flat-contract? pred)
-      (and (procedure? pred)
-           (procedure-arity-includes? pred 1))))
+             check-flat-named-contract
+             make-predicate-contract)
+ (except-out (all-from-out racket/contract/private/blame)
+             make-blame)
+ (except-out (all-from-out racket/contract/private/prop)
+             chaperone-contract-struct?
+             contract-struct-first-order
+             contract-struct-name
+             contract-struct-projection
+             contract-struct-stronger?
+             contract-struct?
+             flat-contract-struct?)
+ (all-from-out racket/contract/combinator)
+ build-flat-contract)

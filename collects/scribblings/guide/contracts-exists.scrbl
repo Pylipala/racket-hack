@@ -1,8 +1,5 @@
 #lang scribble/doc
-@(require scribble/manual
-          scribble/eval
-          "guide-utils.ss"
-          "contracts-utils.ss"
+@(require scribble/manual scribble/eval "guide-utils.rkt" "contracts-utils.rkt"
           (for-label racket/contract))
 
 @title[#:tag "contracts-exists"]{Abstract Contracts using @racket[#:exists] and @racket[#:∃]}
@@ -44,7 +41,7 @@ data structure (perhaps accidentally) and thus any change in the representation
 (say to a more efficient representation that supports amortized constant time
 enqueue and dequeue operations) might break client code.
 
-To ensure that the stack representation is abstact, we can use @racket[#:∃] in the
+To ensure that the stack representation is abstract, we can use @racket[#:∃] in the
 @racket[provide/contract] expression, like this:
 @racketblock[(provide/contract
               #:∃ stack

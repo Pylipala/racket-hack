@@ -1,4 +1,3 @@
-
 ;; This module implements the mail-reading window as a unit. The
 ;; unit is instantiated once for each window.
 
@@ -7,7 +6,7 @@
 ;;   * Always use `as-background' when communicating with the
 ;;     server. That way, the user can kill the window if necessary.
 ;;     use `enable-main-frame' for the first argument to `as-background'.
-;;     The `as-background' function is defined in "utilr.ss".
+;;     The `as-background' function is defined in "utilr.rkt".
 ;;
 
 (module readr mzscheme
@@ -20,12 +19,12 @@
 
   (require mzlib/string
            mzlib/list
-	   mzlib/thread
-           "spell.ss")
+           mzlib/thread
+           "spell.rkt")
 
-  (require "sirmails.ss")
+  (require "sirmails.rkt")
 
-  (require "pref.ss")
+  (require "pref.rkt")
 
   (require net/imap-sig
 	   net/smtp-sig
@@ -202,7 +201,12 @@
 	(status "Saving mailbox information...")
 	(with-output-to-file (build-path mailbox-dir "mailbox")
 	  (lambda ()
-	    (write (cons uid-validity (map vector->list mailbox))))
+            (printf "(\n")
+	    (for-each (lambda (l)
+                        (write l) 
+                        (newline))
+                      (cons uid-validity (map vector->list mailbox)))
+            (printf ")\n"))
 	  'truncate))
       
       ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -2010,7 +2014,7 @@
                  (sleep 10)
                  (loop)))))))
 
-      ;; copied from framerok/private/frame.sss -- be sure to propogate fixes....
+      ;; copied from framerok/private/frame.rkt -- be sure to propagate fixes....
       ;; or establish single point of control.
       (define (format-number n)
 	(if n
@@ -2763,7 +2767,7 @@
       ;;  Mail Sending                                           ;;
       ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-      ;; Mail-sending window is implemented in sendr.ss. This is
+      ;; Mail-sending window is implemented in sendr.rkt. This is
       ;;  the set-up for opening such a window.
       
       (define my-address 

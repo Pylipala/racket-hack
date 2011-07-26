@@ -1,7 +1,7 @@
 #lang scribble/doc
-@(require "common.ss")
+@(require "common.rkt")
 
-@title{@bold{MrLib}: Extra GUI Libraries}
+@title{MrLib: Extra GUI Libraries}
 
 @table-of-contents[]
 
@@ -19,6 +19,7 @@
 @include-section["plot.scrbl"]
 @include-section["switchable-button.scrbl"]
 @include-section["image-core.scrbl"]
+@include-section["matrix-snip.scrbl"]
 @include-section["tex-table.scrbl"]
 
 @section{Acknowledgments}

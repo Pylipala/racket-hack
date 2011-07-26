@@ -666,6 +666,9 @@
   (close-input-port p)
   (close-input-port q))
 
+;; We should be able to install the current permissions:
+(test (void) file-or-directory-permissions "tmp1" (file-or-directory-permissions "tmp1" 'bits))
+
 (define test-file 
   (open-output-file "tmp2" #:exists 'truncate))
 (write-char #\; test-file)
@@ -675,6 +678,21 @@
 (test #t output-port? test-file)
 (close-output-port test-file)
 (check-test-file "tmp2")
+
+(let ([p (open-input-file "tmp2")])
+  (test #t port-try-file-lock? p 'shared)
+  (let ([p2 (open-input-file "tmp2")])
+    (test #t port-try-file-lock? p2 'shared)
+    (test (void) port-file-unlock p2)
+    (close-input-port p2))
+  (let ([p3 (open-input-file "tmp2")])
+    (test #f port-try-file-lock? p3 'exclusive)
+    (test (void) port-file-unlock p)
+    (test #t port-try-file-lock? p3 'exclusive)
+    (test #f port-try-file-lock? p 'shared)
+    (close-input-port p3))
+  (test #t port-try-file-lock? p 'exclusive)
+  (close-input-port p))
 
 (define ui (make-input-port 'name (lambda (s) (bytes-set! s 0 (char->integer #\")) 1) #f void))
 (test "" read ui)
@@ -1275,14 +1293,38 @@
   (tcp-close l))
 
 ;;----------------------------------------------------------------------
+;; File Locks
+(define tempfile (make-temporary-file))
+(err/rt-test (call-with-file-lock/timeout 10 'shared (lambda () #t) (lambda () #f)))
+(err/rt-test (call-with-file-lock/timeout tempfile 'bogus (lambda () #t) (lambda () #f)))
+(err/rt-test (call-with-file-lock/timeout tempfile 'shared (lambda (x) #t) (lambda () #f)))
+(err/rt-test (call-with-file-lock/timeout tempfile 'exclusive (lambda () #t) (lambda (x) #f)))
+
+(test #t call-with-file-lock/timeout tempfile 'shared (lambda () #t) (lambda () #f))
+(test #t call-with-file-lock/timeout tempfile 'exclusive (lambda () #t) (lambda () #f))
+
+(err/rt-test (call-with-file-lock/timeout tempfile 'exclusive (lambda ()
+    (call-with-file-lock/timeout tempfile 'exclusive (lambda () #f) (lambda () (error))))
+  (lambda () 'uhoh)))
+(err/rt-test (call-with-file-lock/timeout tempfile 'exclusive (lambda ()
+    (call-with-file-lock/timeout tempfile 'shared (lambda () #f) (lambda () (error))))
+  (lambda () 'uhon)))
+(err/rt-test (call-with-file-lock/timeout tempfile 'shared (lambda ()
+    (call-with-file-lock/timeout tempfile 'exclusive (lambda () #f) (lambda () (error))))
+  (lambda () 'uhoh)))
+(test #t call-with-file-lock/timeout tempfile 'shared (lambda ()
+    (call-with-file-lock/timeout tempfile 'shared (lambda () #t) (lambda () #f)))
+  (lambda () 'uhoh))
+
+;;----------------------------------------------------------------------
 ;; TCP
 
 (let ([do-once
-       (lambda (evt?)
+       (lambda (evt? localhost)
 	 (let* (
 	  [l (tcp-listen 0 5 #t)]
     [pn (listen-port l)])
-	   (let-values ([(r1 w1) (tcp-connect "localhost" pn)]
+	   (let-values ([(r1 w1) (tcp-connect localhost pn)]
 			[(r2 w2) (if evt?
 				     (apply values (sync (tcp-accept-evt l)))
 				     (tcp-accept l))])
@@ -1300,8 +1342,10 @@
 	   (when evt?
 	     (test #f sync/timeout 0 (tcp-accept-evt l)))
 	   (tcp-close l)))])
-  (do-once #f)
-  (do-once #t))
+  (do-once #f "localhost")
+  (do-once #t "localhost")
+  (do-once #f "::1")
+  (do-once #t "::1"))
 
 (test #f tcp-port? (current-input-port))
 (test #f tcp-port? (current-output-port))
@@ -1418,6 +1462,9 @@
   (err/rt-test (rename-file-or-directory "tmp1" "tmp11") (fs-reject? 'rename-file-or-directory))
   (err/rt-test (copy-file "tmp1" "tmp11") (fs-reject? 'copy-file))
   (err/rt-test (make-file-or-directory-link "tmp1" "tmp11") (fs-reject? 'make-file-or-directory-link))
+  (err/rt-test (file-or-directory-permissions "tmp1" 7) (fs-reject? 'file-or-directory-permissions))
+  (err/rt-test (file-or-directory-permissions "tmp1" 0) (fs-reject? 'file-or-directory-permissions))
+  (test #t exact-integer? (file-or-directory-permissions "tmp1" 'bits))
   (let ([p (open-input-file "tmp1")])
     (test #t input-port? p)
     (close-input-port p))

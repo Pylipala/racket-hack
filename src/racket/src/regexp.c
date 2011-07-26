@@ -1,24 +1,24 @@
 /*
- * @(#)regexp.c	1.3 of 18 April 87
+ * @(#)regexp.c 1.3 of 18 April 87
  * Revised for PLT Racket, 1995-2001
- * Copyright (c) 2004-2010 PLT Scheme Inc.
+ * Copyright (c) 2004-2011 PLT Scheme Inc.
  *
- *	Copyright (c) 1986 by University of Toronto.
- *	Written by Henry Spencer.  Not derived from licensed software.
+ * Copyright (c) 1986 by University of Toronto.
+ * Written by Henry Spencer.  Not derived from licensed software.
  *
- *	Permission is granted to anyone to use this software for any
- *	purpose on any computer system, and to redistribute it freely,
- *	subject to the following restrictions:
+ * Permission is granted to anyone to use this software for any
+ * purpose on any computer system, and to redistribute it freely,
+ * subject to the following restrictions:
  *
- *	1. The author is not responsible for the consequences of use of
- *		this software, no matter how awful, even if they arise
- *		from defects in it.
+ * 1. The author is not responsible for the consequences of use of
+ *    this software, no matter how awful, even if they arise
+ *    from defects in it.
  *
- *	2. The origin of this software must not be misrepresented, either
- *		by explicit claim or by omission.
+ * 2. The origin of this software must not be misrepresented, either
+ *    by explicit claim or by omission.
  *
- *	3. Altered versions must be plainly marked as such, and must not
- *		be misrepresented as being the original software.
+ * 3. Altered versions must be plainly marked as such, and must not
+ *    be misrepresented as being the original software.
  *
  * Beware that some of this code is subtly aware of the way operator
  * precedence is structured in regular expressions.  Serious changes in
@@ -2075,7 +2075,7 @@ regunicode(int negate)
   regparse += len + 1;
 
   ret = regnode(UNIPROP);
-  /* This encoding accomodates up to 63 categories: */
+  /* This encoding accommodates up to 63 categories: */
   regarg((negate << 13) | (bottom << 6) | top);
 
   return ret;
@@ -5865,8 +5865,7 @@ int scheme_regexp_is_byte(Scheme_Object *re)
 
 #ifdef MZ_PRECISE_GC
 START_XFORM_SKIP;
-#define MARKS_FOR_REGEXP_C
-#include "mzmark.c"
+#include "mzmark_regexp.inc"
 END_XFORM_SKIP;
 #endif
 

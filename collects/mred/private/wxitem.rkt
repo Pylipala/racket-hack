@@ -1,14 +1,14 @@
 (module wxitem racket/base
   (require mzlib/class
-	   mzlib/class100
-	   mzlib/etc
-	   (prefix-in wx: "kernel.ss")
-	   "lock.ss"
-	   "helper.ss"
-	   "const.ss"
-	   "wx.ss"
-	   "check.ss"
-	   "wxwindow.ss")
+           mzlib/class100
+           mzlib/etc
+           (prefix-in wx: "kernel.rkt")
+           "lock.rkt"
+           "helper.rkt"
+           "const.rkt"
+           "wx.rkt"
+           "check.rkt"
+           "wxwindow.rkt")
 
   (provide (protect-out make-item%
                         make-control%
@@ -183,6 +183,9 @@
 	     (let ([w (+ (* 2 (x-margin)) (max hard-min-width (min-width)))]
 		   [h (+ (* 2 (y-margin)) (max hard-min-height (min-height)))])
 	       (list w h)))])
+
+        (public
+          [set-area-parent (lambda (p) (set! first-arg p))])
 	
 	(sequence
 	  (apply super-init (send (car args) get-window) (cdr args))

@@ -1,7 +1,7 @@
 #lang scribble/doc
-@(require "common.ss")
+@(require "common.rkt")
 
-@title{@bold{File}: Racket File Format Libraries}
+@title{File: Racket File Format Libraries}
 
 @table-of-contents[]
 
@@ -13,6 +13,7 @@
 @include-section["md5.scrbl"]
 @include-section["sha1.scrbl"]
 @include-section["gif.scrbl"]
+@include-section["resource.scrbl"]
 
 @(bibliography
   (bib-entry #:key "Gervautz1990"

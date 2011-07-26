@@ -7,7 +7,7 @@
                      racket/list
                      syntax/kerncase
                      racket/private/sc
-                     unstable/syntax
+                     racket/syntax
                      "rep-data.rkt"
                      "rep-attrs.rkt"))
 
@@ -23,6 +23,7 @@
          let-attributes
          let-attributes*
          let/unpack
+         defattrs/unpack
          attribute
          attribute-binding
          check-list^depth)
@@ -99,11 +100,12 @@
 
 (require syntax/stx)
 (define (stx-list-take stx n)
-  (let loop ([stx stx] [n n])
-    (if (zero? n)
-        null
-        (cons (stx-car stx)
-              (loop (stx-cdr stx) (sub1 n))))))
+  (datum->syntax #f
+                 (let loop ([stx stx] [n n])
+                   (if (zero? n)
+                       null
+                       (cons (stx-car stx)
+                             (loop (stx-cdr stx) (sub1 n)))))))
 
 ;; stx-list-drop/cx : stxish stx nat -> (values stxish stx)
 (define (stx-list-drop/cx x cx n)
@@ -145,10 +147,11 @@
            (for/and ([part (in-list value)])
              (check-syntax (sub1 depth) part)))))
 
+(define-for-syntax (parse-attr x)
+  (syntax-case x ()
+    [#s(attr name depth syntax?) #'(name depth syntax?)]))
+
 (define-syntax (let-attributes stx)
-  (define (parse-attr x)
-    (syntax-case x ()
-      [#s(attr name depth syntax?) #'(name depth syntax?)]))
   (syntax-case stx ()
     [(let-attributes ([a value] ...) . body)
      (with-syntax ([((name depth syntax?) ...)
@@ -183,6 +186,21 @@
      (with-syntax ([(tmp ...) (generate-temporaries #'(a ...))])
        #'(let-values ([(tmp ...) (apply values packed)])
            (let-attributes ([a tmp] ...) body)))]))
+
+(define-syntax (defattrs/unpack stx)
+  (syntax-case stx ()
+    [(defattrs (a ...) packed)
+     (with-syntax ([((name depth syntax?) ...)
+                    (map parse-attr (syntax->list #'(a ...)))])
+       (with-syntax ([(vtmp ...) (generate-temporaries #'(name ...))]
+                     [(stmp ...) (generate-temporaries #'(name ...))])
+         #'(begin (define-values (vtmp ...) (apply values packed))
+                  (define-syntax stmp
+                    (make-attribute-mapping (quote-syntax vtmp)
+                                            'name 'depth 'syntax?))
+                  ...
+                  (define-syntax name (make-syntax-mapping 'depth (quote-syntax stmp)))
+                  ...)))]))
 
 (define-syntax (attribute stx)
   (parameterize ((current-syntax-context stx))
@@ -239,13 +257,16 @@
 (provide check-literal
          free-identifier=?/phases)
 
-;; check-literal : id phase-level stx -> void
+;; check-literal : id phase-level phase-level stx -> void
 ;; FIXME: change to normal 'error', if src gets stripped away
-(define (check-literal id phase ctx)
-  (unless (identifier-binding id phase)
-    (raise-syntax-error #f
-                        (format "literal is unbound in phase ~s" phase)
-                        ctx id)))
+(define (check-literal id abs-phase mod-phase ctx)
+  (unless (identifier-binding id abs-phase)
+    (raise-syntax-error
+     #f
+     (format "literal is unbound in phase ~a (phase ~a relative to the enclosing module)"
+             abs-phase
+             (and abs-phase (- abs-phase mod-phase)))
+     ctx id)))
 
 ;; free-identifier=?/phases : id phase-level id phase-level -> boolean
 ;; Determines whether x has the same binding at phase-level phase-x
@@ -265,9 +286,10 @@
                   (eq? namex namey)
                   (equal? phasex phasey)))]
           [else
-           ;; One must be lexical (can't be #f, since one must be bound)
-           ;; lexically-bound names bound in only one phase; just compare
-           (free-identifier=? x y)])))
+           ;; Module is only way to get phase-shift; if not module-bound names,
+           ;; then only identifiers at same phase can refer to same binding.
+           (and (equal? phase-x phase-y)
+                (free-identifier=? x y phase-x))])))
 
 ;; ----
 

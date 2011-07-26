@@ -1,6 +1,6 @@
 /*
   Racket
-  Copyright (c) 2004-2010 PLT Scheme Inc.
+  Copyright (c) 2004-2011 PLT Scheme Inc.
   Copyright (c) 1995-2001 Matthew Flatt
 
     This library is free software; you can redistribute it and/or
@@ -149,8 +149,6 @@ static MZ_INLINE intptr_t SPAN(Scheme_Object *port, intptr_t pos) {
 
 /* For cases where we'd rather report the location as just the relevant prefix: */
 #define MINSPAN(port, pos, span) (span)
-
-#define SRCLOC_TMPL " in %q[%L%ld]"
 
 #define mz_shape_cons 0
 #define mz_shape_vec 1
@@ -994,6 +992,13 @@ read_inner_inner(Scheme_Object *port, Scheme_Object *stxsrc, Scheme_Hash_Table *
     dispatch_ch = ch;
 
   if (get_info && (dispatch_ch != '#') && (dispatch_ch != ';')) {
+    /* If ch is EOF, then col or pos wasn't incremented by reading ch.
+       The col and pos might be used in an error message, which expects
+       to subtract one from each --- so counteract by adding one here. */
+    if (ch == EOF) {
+      if (pos >= 0) pos++;
+      if (col >= 0) col++;
+    }
     return expected_lang("", ch, port, stxsrc, line, col, pos, get_info);
   }
 
@@ -1090,6 +1095,8 @@ read_inner_inner(Scheme_Object *port, Scheme_Object *stxsrc, Scheme_Hash_Table *
 	  if (ch == EOF) {
             if (comment_mode & RETURN_FOR_COMMENT)
               return NULL;
+            if (get_info)
+              return expected_lang("", ch, port, stxsrc, line, col, pos, get_info);
 	    return scheme_eof;
           }
 	  if (ch == SCHEME_SPECIAL)
@@ -1321,7 +1328,7 @@ read_inner_inner(Scheme_Object *port, Scheme_Object *stxsrc, Scheme_Hash_Table *
                 st = NULL;
 
               if (!st || (st->num_slots != (SCHEME_VEC_SIZE(v) - 1))) {
-                scheme_read_err(port, stxsrc, line, col, pos, SPAN(port, pos), EOF, indentation,
+                scheme_read_err(port, stxsrc, line, col, pos, SPAN(port, pos), 0, indentation,
                                 (SCHEME_VEC_SIZE(v)
                                  ? (st
                                     ? ("read: mismatch between structure description"
@@ -1332,7 +1339,7 @@ read_inner_inner(Scheme_Object *port, Scheme_Object *stxsrc, Scheme_Hash_Table *
               }
 
               if (stxsrc && !(MZ_OPT_HASH_KEY(&st->iso) & STRUCT_TYPE_ALL_IMMUTABLE)) {
-                scheme_read_err(port, stxsrc, line, col, pos, SPAN(port, pos), EOF, indentation,
+                scheme_read_err(port, stxsrc, line, col, pos, SPAN(port, pos), 0, indentation,
                                 "read: cannot read mutable `#s' form as syntax");
               }
 
@@ -1547,16 +1554,19 @@ read_inner_inner(Scheme_Object *port, Scheme_Object *stxsrc, Scheme_Hash_Table *
                     }
                     return v;
                   } else {
+                    if (ch == EOF) --fl;
                     scheme_read_err(port, stxsrc, line, col, pos, 6, ch, indentation,
-                                    "read: expected a single space after `#lang'",
-                                    found, fl);
+                                    "read%s: expected a single space after `#lang'",
+                                    (get_info ? "-language" : ""));
                     return NULL;
                   }
                 }
               }
             }
+            if (ch == EOF) --fl;
             scheme_read_err(port, stxsrc, line, col, pos, fl, ch, indentation,
-                            "read: bad input: `#%u'",
+                            "read%s: bad input: `#%u'",
+                            (get_info ? "-language" : ""),
                             found, (intptr_t)fl);
             return NULL;
           }
@@ -2780,7 +2790,7 @@ read_list(Scheme_Object *port,
 	if (indt->suspicious_line) {
 	  suggestion = scheme_malloc_atomic(100);
 	  sprintf(suggestion,
-		  "; indentation suggests a missing %s before line %ld",
+		  "; indentation suggests a missing %s before line %" PRIdPTR,
 		  closer_name(params, indt->suspicious_closer),
 		  indt->suspicious_line);
 	}
@@ -3466,7 +3476,7 @@ char *scheme_extract_indentation_suggestions(Scheme_Object *indentation)
   if (suspicious_quote) {
     suspicions = (char *)scheme_malloc_atomic(64);
     sprintf(suspicions,
-	    "; newline within %s suggests a missing %s on line %ld",
+	    "; newline within %s suggests a missing %s on line %" PRIdPTR,
 	    is_honu_char ? "character" : "string",
 	    is_honu_char ? "'" : "'\"'",
 	    suspicious_quote);
@@ -3510,7 +3520,7 @@ read_vector (Scheme_Object *port,
   len = scheme_list_length(obj);
   if (requestLength >= 0 && len > requestLength) {
     char buffer[20];
-    sprintf(buffer, "%ld", requestLength);
+    sprintf(buffer, "%" PRIdPTR, requestLength);
     scheme_read_err(port, stxsrc, line, col, pos, SPAN(port, pos), 0, indentation,
 		    "read: vector length %ld is too small, "
 		    "%d values provided",
@@ -4430,7 +4440,7 @@ static void unexpected_closer(int ch,
       sprintf(found, "unexpected");
     } else if (indt->multiline) {
       sprintf(found,
-	      "%s %s to close %s on line %ld, found instead",
+	      "%s %s to close %s on line %" PRIdPTR ", found instead",
 	      missing,
 	      closer_name(params, indt->closer),
 	      opener_name(params, opener),
@@ -4446,7 +4456,7 @@ static void unexpected_closer(int ch,
     if (indt->suspicious_line) {
       suggestion = scheme_malloc_atomic(100);
       sprintf(suggestion,
-	      "; indentation suggests a missing %s before line %ld",
+	      "; indentation suggests a missing %s before line %" PRIdPTR,
 	      closer_name(params, indt->suspicious_closer),
 	      indt->suspicious_line);
     }
@@ -4495,7 +4505,6 @@ typedef struct Scheme_Load_Delay {
   uintptr_t symtab_size;
   Scheme_Object **symtab;
   intptr_t *shared_offsets;
-  Scheme_Object *insp;
   Scheme_Object *relto;
   Scheme_Unmarshal_Tables *ut;
   struct CPort *current_rp;
@@ -4520,7 +4529,6 @@ typedef struct CPort {
   Scheme_Hash_Table **ht;
   Scheme_Unmarshal_Tables *ut;
   Scheme_Object **symtab;
-  Scheme_Object *insp; /* inspector for module-variable access */
   Scheme_Object *magic_sym, *magic_val;
   Scheme_Object *relto;
   intptr_t *shared_offsets;
@@ -5049,7 +5057,6 @@ static Scheme_Object *read_compact(CPort *port, int use_stack)
         if (SCHEME_SYMBOLP(mod))
           mod = scheme_intern_resolved_module_path(mod);
 	mv->modidx = mod;
-	mv->insp = port->insp;
 	mv->sym = var;
         if (pos == -2) {
           mv->mod_phase = 1;
@@ -5328,7 +5335,7 @@ static Scheme_Object *read_compact_quote(CPort *port, int embedded)
 static Scheme_Object *read_marshalled(int type, CPort *port)
 {
   Scheme_Object *l;
-  Scheme_Type_Reader2 reader;
+  Scheme_Type_Reader reader;
 
   l = read_compact(port, 1);
 
@@ -5342,7 +5349,7 @@ static Scheme_Object *read_marshalled(int type, CPort *port)
     scheme_ill_formed_code(port);
   }
 
-  l = reader(l, port->insp);
+  l = reader(l);
 
   if (!l)
     scheme_ill_formed_code(port);
@@ -5372,7 +5379,7 @@ static Scheme_Object *read_compiled(Scheme_Object *port,
 				    Scheme_Hash_Table **ht,
 				    ReadParams *params)
 {
-  Scheme_Object *result, *insp;
+  Scheme_Object *result;
   intptr_t size, shared_size, got, offset = 0;
   CPort *rp;
   intptr_t symtabsize;
@@ -5384,6 +5391,7 @@ static Scheme_Object *read_compiled(Scheme_Object *port,
   int perma_cache = use_perma_cache;
   Scheme_Object *dir;
   Scheme_Config *config;
+  char hash_code[20];
 	  
   /* Allow delays? */
   if (params->delay_load_info) {
@@ -5411,6 +5419,10 @@ static Scheme_Object *read_compiled(Scheme_Object *port,
                         (buf[0] ? buf : "???"), MZSCHEME_VERSION);
   }
   offset += size + 1;
+
+  /* Module hash code */
+  got = scheme_get_bytes(port, 20, hash_code, 0);
+  offset += 20;
 
   symtabsize = read_simple_number_from_port(port);
   offset += 4;
@@ -5475,7 +5487,8 @@ static Scheme_Object *read_compiled(Scheme_Object *port,
   rp->size = size;
   if ((got = scheme_get_bytes(port, size, (char *)rp->start, 0)) != size)
     scheme_read_err(port, NULL, -1, -1, -1, -1, 0, NULL,
-		    "read (compiled): ill-formed code (bad count: %ld != %ld, started at %ld)",
+		    "read (compiled): ill-formed code (bad count: %ld != %ld"
+                    ", started at %ld)",
 		    got, size, rp->base);
 
   local_ht = MALLOC_N(Scheme_Hash_Table *, 1);
@@ -5486,9 +5499,6 @@ static Scheme_Object *read_compiled(Scheme_Object *port,
   rp->symtab = symtab;
 
   config = scheme_current_config();
-
-  insp = scheme_get_param(config, MZCONFIG_CODE_INSPECTOR);
-  rp->insp = insp;
 
   dir = scheme_get_param(config, MZCONFIG_LOAD_DIRECTORY);
   rp->relto = dir;
@@ -5523,7 +5533,6 @@ static Scheme_Object *read_compiled(Scheme_Object *port,
     delay_info->symtab_size = rp->symtab_size;
     delay_info->symtab = rp->symtab;
     delay_info->shared_offsets = rp->shared_offsets;
-    delay_info->insp = rp->insp;
     delay_info->relto = rp->relto;
 
     if (perma_cache) {
@@ -5557,8 +5566,31 @@ static Scheme_Object *read_compiled(Scheme_Object *port,
 			 top->prefix->num_toplevels,
 			 top->prefix->num_stxes,
 			 top->prefix->num_lifts,
+                         NULL,
                          0);
     /* If no exception, the resulting code is ok. */
+
+    /* Install module hash code, if any. This code is used to register
+       the module in scheme_module_execute(), and it's used to
+       find a registered module in the default load handler. */
+    {
+      int i;
+      for (i = 0; i < 20; i++) {
+        if (hash_code[i]) break;
+      }
+
+      if (i < 20) {
+        Scheme_Module *m;
+        m = scheme_extract_compiled_module(result);
+        if (m) {
+          Scheme_Object *hc;
+          hc = scheme_make_sized_byte_string(hash_code, 20, 1);
+          hc = scheme_make_pair(hc, dir);
+
+          m->code_key = hc;
+        }
+      }
+    }
   } else
     scheme_ill_formed_code(rp);
 
@@ -5636,7 +5668,8 @@ Scheme_Object *scheme_load_delayed_code(int _which, Scheme_Load_Delay *_delay_in
       
       if ((got = scheme_get_bytes(port, size, (char *)st, 0)) != size)
         scheme_read_err(port, NULL, -1, -1, -1, -1, 0, NULL,
-                        "on-demand load: ill-formed code (bad count: %ld != %ld, started at %ld)",
+                        "on-demand load: ill-formed code (bad count: %ld != %ld"
+                        ", started at %ld)",
                         got, size, 0);
     }
     scheme_current_thread->error_buf = savebuf;
@@ -5678,7 +5711,6 @@ Scheme_Object *scheme_load_delayed_code(int _which, Scheme_Load_Delay *_delay_in
   rp->symtab_size = delay_info->symtab_size;
   rp->ht = ht;
   rp->symtab = delay_info->symtab;
-  rp->insp = delay_info->insp;
   rp->relto = delay_info->relto;
   rp->shared_offsets = delay_info->shared_offsets;
   rp->delay_info = delay_info;
@@ -5771,11 +5803,6 @@ void scheme_unmarshal_wrap_set(Scheme_Unmarshal_Tables *ut,
 
   ut->rp->symtab[l] = v;
   ut->decoded[l] = 1;
-}
-
-Scheme_Object *scheme_get_cport_inspector(struct CPort *rp)
-{
-  return rp->insp;
 }
 
 /*========================================================================*/
@@ -6458,8 +6485,7 @@ static Scheme_Object *expected_lang(const char *prefix, int ch,
 
 START_XFORM_SKIP;
 
-#define MARKS_FOR_READ_C
-#include "mzmark.c"
+#include "mzmark_read.inc"
 
 static void register_traversers(void)
 {

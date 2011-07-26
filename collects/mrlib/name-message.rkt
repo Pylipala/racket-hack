@@ -255,7 +255,7 @@
           (+ border-inset 
              circle-spacer
              button-label-inset
-             (if (eq? (system-type) 'windows) 1 0)  ;; becuase "(define ...)" has the wrong size under windows
+             (if (eq? (system-type) 'windows) 1 0)  ;; because "(define ...)" has the wrong size under windows
              (max 0 (inexact->exact (ceiling tw)))
              button-label-inset
              triangle-width
@@ -277,7 +277,8 @@
   
   (define w (+ border-inset circle-spacer button-label-inset label-width button-label-inset triangle-width circle-spacer border-inset))
 
-  (when bkg-color
+  (when (and bkg-color
+             (and (not (or mouse-over? grabbed?))))
     (send dc set-pen bkg-color 1 'solid)
     (send dc set-brush bkg-color 'solid)
     (send dc draw-rectangle dx dy w h))

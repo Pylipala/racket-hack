@@ -20,18 +20,25 @@
 
     (super-new)
 
+    (define/public (adopt-child child)
+      ;; in atomic mode
+      (send child set-parent this))
+
     (define children null)
     (define/override (register-child child on?)
-      (let ([now-on? (and (memq child children) #t)])
+      (let ([on? (and on? #t)]
+            [now-on? (and (memq child children) #t)])
         (unless (eq? on? now-on?)
           (unless on?
             (when (eq? child mouse-in-child)
+              (send child send-leaves #f)
               (set! mouse-in-child #f)))
           (set! children 
                 (if on?
                     (cons child children)
                     (remq child children)))
-          (send child parent-enable (is-enabled-to-root?)))))
+          (when on?
+            (send child parent-enable (is-enabled-to-root?))))))
 
     (define/override (internal-enable on?)
       (super internal-enable on?)
@@ -67,6 +74,13 @@
             #t)
           #f))
 
+    (define/override (show-children)
+      (for ([c (in-list children)])
+        (send c show-children)))
+    (define/override (paint-children)
+      (for ([c (in-list children)])
+        (send c show-children)))
+
     (define/override (wants-mouse-capture? control-hwnd)
       (ptr-equal? (get-client-hwnd) control-hwnd))
 
@@ -96,7 +110,7 @@
                                  #f
                                  (bitwise-ior WS_CHILD WS_CLIPSIBLINGS)
                                  0 0 w h
-                                 (send parent get-client-hwnd)
+                                 (send parent get-content-hwnd)
                                  #f
                                  hInstance
                                  #f)]

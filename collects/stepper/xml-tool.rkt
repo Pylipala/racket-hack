@@ -1,26 +1,26 @@
+#lang racket
 
-(module xml-tool mzscheme
-  (require "private/xml-snip-helpers.ss"
-           "xml-sig.ss"
-           mzlib/unit
-           mzlib/contract
-           mzlib/class
-           mred
-           framework
-           drscheme/tool
-           xml/xml
-           string-constants)
+(require "private/xml-snip-helpers.rkt"
+         "private/find-tag.rkt"
+         "private/xml-sig.rkt"
+         mred
+         framework
+         drracket/tool
+         xml/xml
+         string-constants)
   
   (provide xml-tool@)
   
   (define orig (current-output-port))
   (define-unit xml-tool@
-    (import drscheme:tool^)
+    (import drracket:tool^)
     (export xml^)
-      (define (phase1) (void))
-      (define (phase2) (void))
-      
-      (preferences:set-default 'drscheme:xml-eliminate-whitespace #t boolean?)
+    
+    ;; these were necessary when this was a stand-alone tool:
+    #;(define (phase1) (void))
+    #;(define (phase2) (void))
+    
+    (preferences:set-default 'drracket:xml-eliminate-whitespace #t boolean?)
       
       (define xml-box-color "forest green")
       (define scheme-splice-box-color "blue")
@@ -73,7 +73,7 @@
           (define/private (set-eliminate-whitespace-in-empty-tags? new)
             (unless (eq? eliminate-whitespace-in-empty-tags? new)
               (set! eliminate-whitespace-in-empty-tags? new)
-              (preferences:set 'drscheme:xml-eliminate-whitespace new)
+              (preferences:set 'drracket:xml-eliminate-whitespace new)
               (reset-min-sizes)
               (let ([admin (get-admin)])
                 (when admin
@@ -108,7 +108,7 @@
           (define/override (make-snip stream-in)
             (instantiate xml-snip% ()
               [eliminate-whitespace-in-empty-tags?
-               (preferences:get 'drscheme:xml-eliminate-whitespace)]))
+               (preferences:get 'drracket:xml-eliminate-whitespace)]))
           (super-instantiate ())))
       
       ;; this snipclass is for old, saved files (no snip has it set)
@@ -195,7 +195,7 @@
       (define (get-scheme-box-text%)
         (unless scheme-box-text%
           (set! scheme-box-text%
-                (class ((drscheme:unit:get-program-editor-mixin)
+                (class ((drracket:unit:get-program-editor-mixin)
                         (add-file-keymap-mixin
                          scheme:text%))
                   (inherit copy-self-to)
@@ -305,7 +305,7 @@
 	(let ([xml-text% #f])
 	  (lambda ()
 	    (unless xml-text%
-	      (set! xml-text% (class ((drscheme:unit:get-program-editor-mixin)
+	      (set! xml-text% (class ((drracket:unit:get-program-editor-mixin)
                                       (xml-text-mixin
                                        plain-text%))
                                 (inherit copy-self-to)
@@ -333,37 +333,8 @@
             (send text insert ">")
             (send text set-position start)))
         (send text end-edit-sequence))
-      
-      ;; find-tag : (is-a?/c text%) number? -> (union false? string?)
-      ;; finds the name of the XML tag just before `start' in `text'.
-      ;; returns the tag name, with no trailing space of > or anything like that.
-      (define (find-tag text start)
-        ;; loop iterates backwards, searching for #\<
-        ;; when it finds it, it gets the string starting
-        ;; there, forwards to last-space (if there was a space)
-        ;; or start-1.
-        ;; If there is a #\/ or a #\> just after the #\<, return #f
-        ;; (in that case, they are typing a close tag or closing an empty tag)
-        ;; this technique gleaned from the spec at:
-        ;;  http://www.w3.org/TR/2000/REC-xml-20001006
-        (let loop ([pos (- start 2)]
-                   [last-space #f])
-          (cond
-            [(< pos 0) #f]
-            [else
-             (let ([char (send text get-character pos)])
-               (case char
-                 [(#\>) #f]
-                 [(#\<) 
-                  (if (or (char=? (send text get-character (+ pos 1)) #\/)
-                          (char=? (send text get-character (+ pos 1)) #\>))
-                      #f
-                      (send text get-text (+ pos 1) (or last-space (- start 1))))]
-                 [(#\space #\return #\newline #\tab)
-                  (loop (- pos 1) pos)]
-                 [else (loop (- pos 1) last-space)]))])))
-      
-      (define (xml-box-frame-extension super%)
+
+    (define (xml-box-frame-extension super%)
         (class super%
           (inherit get-editor register-capability-menu-item get-insert-menu get-edit-target-object)
           
@@ -403,8 +374,8 @@
                   (lambda () 
                     (instantiate xml-snip% ()
                       [eliminate-whitespace-in-empty-tags?
-                       (preferences:get 'drscheme:xml-eliminate-whitespace)]))))))
-            (register-capability-menu-item 'drscheme:special:xml-menus (get-insert-menu))
+                       (preferences:get 'drracket:xml-eliminate-whitespace)]))))))
+            (register-capability-menu-item 'drracket:special:xml-menus (get-insert-menu))
             (instantiate menu:can-restore-menu-item% ()
               (label (string-constant xml-tool-insert-scheme-box))
               (parent menu)
@@ -413,7 +384,7 @@
                (lambda (menu evt)
                  (insert-snip 
                   (lambda () (instantiate scheme-snip% () (splice? #f)))))))
-            (register-capability-menu-item 'drscheme:special:xml-menus (get-insert-menu))
+            (register-capability-menu-item 'drracket:special:xml-menus (get-insert-menu))
             (instantiate menu:can-restore-menu-item% ()
               (label (string-constant xml-tool-insert-scheme-splice-box))
               (parent menu)
@@ -422,10 +393,10 @@
                (lambda (menu evt)
                  (insert-snip
                   (lambda () (instantiate scheme-snip% () (splice? #t)))))))
-            (register-capability-menu-item 'drscheme:special:xml-menus (get-insert-menu)))
+            (register-capability-menu-item 'drracket:special:xml-menus (get-insert-menu)))
           
           (frame:reorder-menus this)))
       
-      (drscheme:language:register-capability 'drscheme:special:xml-menus (flat-contract boolean?) #t)
+      (drracket:language:register-capability 'drracket:special:xml-menus (flat-contract boolean?) #t)
       
-      (drscheme:get/extend:extend-unit-frame xml-box-frame-extension)))
+      (drracket:get/extend:extend-unit-frame xml-box-frame-extension))

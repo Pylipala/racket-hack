@@ -11,7 +11,7 @@
   @style/inline{
     h1 {
       text-align: center;
-      background-color: #9cf;
+      background-color: #99ccff;
       padding: 0.5em;
       font-size: 150%;
       font-weight: bold;
@@ -19,7 +19,7 @@
     h2 {
       text-align: left;
       padding: 0.1em 0.5em;
-      background-color: #fda;
+      background-color: #ffddaa;
       font-size: 120%;
       font-weight: bold;
     }
@@ -28,7 +28,7 @@
     }})
 
 (define (subp . body) (apply div class: 'subp body))
-(define (graytd . body) (apply td bgcolor: "#ddd" body))
+(define (graytd . body) (apply td bgcolor: "#dddddd" body))
 
 (define listinfo
   @page[#:title @list{Mailing lists: @MM{List-Name}}
@@ -147,7 +147,7 @@
       for the @MM{List-Name} mailing list.}
     @subp{@MM{Case-Preserved-User}
           @MM{Disabled-Notice}
-          @div[style: "background-color: #faa;"]{@MM{Results}}}
+          @div[style: "background-color: #ffaaaa;"]{@MM{Results}}}
     @(define (tablesec . body)
        (apply table cellspacing: 5 cellpadding: 3 width: "100%" align: 'center
               body))

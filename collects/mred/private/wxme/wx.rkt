@@ -1,22 +1,14 @@
 #lang scheme/base
-(require "../kernel.ss")
+(require "../kernel.rkt" racket/draw/private/font-syms)
 
 (define the-clipboard (get-the-clipboard))
 (define the-x-selection-clipboard (get-the-x-selection))
 
-(define (family-symbol? s)
-  (memq s '(default decorative roman script
-             swiss modern symbol system)))
-(define (style-symbol? s)
-  (memq s '(normal italic slant)))
-(define (weight-symbol? s)
-  (memq s '(normal bold light)))
-(define (smoothing-symbol? s)
-  (memq s '(default smoothed unsmoothed partly-smoothed)))
 (define (size? v) (and (exact-positive-integer? v)
                        (byte? v)))
 
-(provide event%
+(provide (all-from-out racket/draw/private/font-syms)
+         event%
          mouse-event%
          key-event%
          timer%
@@ -35,7 +27,7 @@
          bitmap%
          dc<%>
          post-script-dc%
-         printer-dc%
+         pdf-dc%
          current-eventspace
          clipboard-client%
          clipboard<%>
@@ -45,12 +37,7 @@
          begin-busy-cursor
          end-busy-cursor
          hide-cursor
-         run-printout
          current-ps-setup
-         family-symbol?
-         style-symbol?
-         weight-symbol?
-         smoothing-symbol?
          get-highlight-background-color
          get-highlight-text-color)
 

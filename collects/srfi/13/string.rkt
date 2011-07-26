@@ -1,6 +1,6 @@
 ;;;
-;;; <string.ss> ---- SRFI 13 port to PLT Scheme
-;;; revised by Chongkai Zhu, based on the orgianl port
+;;; <string.rkt> ---- SRFI 13 port to PLT Scheme
+;;; Revised by Chongkai Zhu, based on the orgianl port
 ;;;
 ;;; Here is the copyright notice, and licence from the original source:
 
@@ -21,6 +21,9 @@
 ;;; The scsh copyright is a BSD-style open source copyright. See below for
 ;;; details.
 ;;;     -Olin Shivers
+
+;; Olin Shivers verified that he is fine with redistributing this code
+;; under the LGPL.  (Verified personally by Eli Barzilay.)
 
 ;;; MIT Scheme copyright terms
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1873,4 +1876,4 @@
 
             (else "")))))             ; Special-cased for infix grammar.
 
-;; string.ss ends here
+;; string.rkt ends here

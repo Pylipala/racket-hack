@@ -1,25 +1,61 @@
-#lang racket
+#lang racket/base
 
-(require (for-syntax racket/list
-                     racket/match
-                     syntax/kerncase
-                     unstable/syntax))
+(require
+  (for-syntax
+    racket/base
+    racket/list
+    racket/match
+    racket/block
+    syntax/parse
+    syntax/kerncase
+    racket/syntax
+    unstable/syntax
+    (for-syntax ;; phase 2!
+      racket/base)))
 
 (provide
 
- in-phase1 in-phase1/pass2
+  in-phase1 in-phase1/pass2
 
- at-end
+  at-end
 
- declare-names
- define-renamings
- define-single-definition
- define-with-parameter
+  define-syntax-block
 
- define-if-unbound
- define-values-if-unbound
- define-syntax-if-unbound
- define-syntaxes-if-unbound)
+  declare-names
+  define-renaming
+  define-renamings
+  define-single-definition
+  define-with-parameter
+
+  define-if-unbound
+  define-values-if-unbound
+  define-syntax-if-unbound
+  define-syntaxes-if-unbound)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+;;  Macro Definitions
+;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define-syntax define-syntax-block
+  (block
+
+    (define-syntax-class declaration
+      #:attributes [internal external]
+      (pattern external:id
+        #:attr internal
+        (format-id #'external #:source #'external
+          "~a/proc" #'external))
+      (pattern [external:id internal:id]))
+
+    (syntax-parser
+      [(_ (decl:declaration ...) body:expr ...)
+       #:fail-when (check-duplicate-identifier
+                     (syntax-list decl.external ...))
+       "duplicate defined name"
+       #'(define-syntaxes [decl.external ...]
+           (block body ... (values decl.internal ...)))])))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -91,6 +127,9 @@
 
 (define-syntax-rule (define-renamings [new old] ...)
   (define-syntaxes [new ...] (values (make-rename-transformer #'old) ...)))
+
+(define-syntax-rule (define-renaming new old)
+  (define-renamings [new old]))
 
 (define-syntax (in-phase1 stx)
   (syntax-case stx []

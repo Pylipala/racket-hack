@@ -1,8 +1,5 @@
 #lang scribble/doc
-@(require scribble/manual
-          scribble/eval
-          "guide-utils.ss"
-          "contracts-utils.ss"
+@(require scribble/manual scribble/eval "guide-utils.rkt" "contracts-utils.rkt"
           (for-label racket/contract))
 
 @title[#:tag "contract-func"]{Simple Contracts on Functions}
@@ -117,7 +114,7 @@ return value, it tells a potential client that the ``server'' module
 even whether it is a single value or multiple values.
 
 The @racket[any/c] contract is similar to @racket[any], in that it
-makes no demands on a value. Unlike @scheme[any], @racket[any/c]
+makes no demands on a value. Unlike @racket[any], @racket[any/c]
 indicates a single value, and it is suitable for use as an argument
 contract. Using @racket[any/c] as a range contract imposes a check
 that the function produces a single value. That is,
@@ -174,7 +171,7 @@ racket
 (define (balance) amount)
 ]
 
-This module define an @racket[amount?] function as uses it as a
+This module defines an @racket[amount?] function and uses it as a
 contract within @racket[->] contracts. When a client calls the
 @racket[deposit] function as exported with the contract @racket[(->
 amount? any)], it must supply an exact, nonnegative integer, otherwise
@@ -292,9 +289,8 @@ racket
   ....
   (code:comment "convert an  amount (natural number) of cents")
   (code:comment "into a dollar based string")
-  [format-nat (-> natural-number/c 
-                  (and/c string? 
-                         #rx"[0-9]*\\.[0-9][0-9][0-9]"))])
+  [format-nat (-> natural-number/c
+                  (and/c string? #rx"[0-9]*\\.[0-9][0-9]"))])
 ]
 
 @; ------------------------------------------------------------------------
@@ -328,7 +324,7 @@ describes functions that accept other functions as its input. If a
 server exports a function @racket[twice] with this contract and the
 @racket[twice] is applied to a value other than a function of one
 argument, then the client is to blame. If @racket[twice] is applied to
-a function of one argument and @racket[twice] calls the give function
+a function of one argument and @racket[twice] calls the given function
 on a value other than an integer, then the server is to blame.
 
 @; ----------------------------------------------------------------------

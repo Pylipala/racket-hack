@@ -1,9 +1,6 @@
 #lang scribble/doc
-@(require scribble/struct
-          scribble/racket
-          (for-syntax racket/base)
-          "mz.ss"
-          "prog-steps.ss")
+@(require scribble/struct scribble/racket "mz.rkt" "prog-steps.rkt"
+          (for-syntax racket/base))
 
 @(define reduces (make-element #f (list 'rarr)))
 @(define rspace (make-element "ghost" (list 'rarr)))
@@ -102,7 +99,7 @@ substituting @racket[_expr] in place of @hole in the @tech{continuation}
 ]
 
 In this case, the @tech{continuation} for reducing @racket[(+ 1 1)] is
-@sub[_C (+ 4 @#,hole)], not just @racket[_C].
+@sub[_C (- 4 @#,hole)], not just @racket[_C].
 
 In contrast, @racket[(+ 1 1)] is in @tech{tail position} with respect
 to @racket[(if (zero? 0) (+ 1 1) 3)], because, for any continuation
@@ -142,7 +139,7 @@ the result(s).
 
 In general, the specification of a syntactic form inidicates the
 number of @tech{values} that it produces and the number that it
-expects from each of its sub-expression. In addtion, some procedures
+expects from each of its sub-expression. In addition, some procedures
 (notably @racket[values]) produce multiple @tech{values}, and some
 procedures (notably @racket[call-with-values]) create continuations
 internally that accept a certain number of @tech{values}.
@@ -436,7 +433,7 @@ procedure body is replaced with the new @tech{location}:
 
 A @tech{location} is the same as a @tech{top-level variable}, but when
 a @tech{location} is generated, it (conceptually) uses a name that has
-not been used before and that cannot not be generated again or
+not been used before and that cannot be generated again or
 accessed directly.
 
 Generating a @tech{location} in this way means that @racket[set!]
@@ -540,7 +537,7 @@ For example, given the module declaration
   (define x 10))
 ]
 
-the evaluation of @racket[(require m)] creates the variable @racket[x]
+the evaluation of @racket[(require 'm)] creates the variable @racket[x]
 and installs @racket[10] as its value. This @racket[x] is unrelated to
 any top-level definition of @racket[x].
 
@@ -761,21 +758,21 @@ outermost frame of the continuation for any new thread.
 
 A @deftech{custodian} manages a collection of threads,
 @tech{file-stream ports}, TCP ports, @tech{TCP listeners}, @tech{UDP
-sockets}, and @tech{byte converters}.  Whenever a thread, etc. is
+sockets}, and @tech{byte converters}.  Whenever a thread, @|etc|, is
 created, it is placed under the management of the @deftech{current
 custodian} as determined by the @racket[current-custodian]
 @tech{parameter}.
 
 @margin-note{In GRacket, custodians also manage eventspaces.}
 
-Except for the root custodian, every @tech{custodian} itself it
+Except for the root custodian, every @tech{custodian} itself is
 managed by a @tech{custodian}, so that custodians form a hierarchy.
 Every object managed by a subordinate custodian is also managed by the
 custodian's owner.
 
 When a @tech{custodian} is shut down via
 @racket[custodian-shutdown-all], it forcibly and immediately closes
-the ports, TCP connections, etc. that it manages, as well as
+the ports, TCP connections, @|etc|, that it manages, as well as
 terminating (or suspending) its threads. A custodian that has been
 shut down cannot manage new objects.  If the current custodian is shut
 down before a procedure is called to create a managed resource (e.g.,

@@ -1,5 +1,6 @@
 #lang scribble/manual
-@(require (for-label scribble/struct
+@(require (for-label scribble/core
+                     scribble/decode
                      scriblib/figure
                      scheme/base
                      scheme/contract))
@@ -8,29 +9,28 @@
 
 @defmodule[scriblib/figure]
 
-@defproc[(figure-style-extras) list?]{
-
-Include the content of the result list in the style of a document part
-that includes all figures. These style extras pull in HTML and Latex
-rendering support.}
-
-
 @deftogether[(
 @defproc[(figure [tag string?] [caption content?] [pre-flow pre-flow?] ...) block?]
 @defproc[(figure* [tag string?] [caption content?] [pre-flow pre-flow?] ...) block?]
-@defproc[(figure** [tag string?] [caption content?] [pre-flow pre-flow?] ...) block?]
+@defproc[(figure** [tag string?] [caption content?] [pre-flow pre-flow?] ...)
+block?]
+@defproc[(figure-here [tag string?] [caption content?] [pre-flow pre-flow?] ...) block?]
 )]{
 
-Creates a figure. The given @scheme[tag] is for use with
-@scheme[figure-ref] or @scheme[Figure-ref]. The @scheme[caption] is an
-element. The @scheme[pre-flow] is decoded as a flow.
+Creates a figure. The given @racket[tag] is for use with
+@racket[figure-ref] or @racket[Figure-ref]. The @racket[caption] is an
+element. The @racket[pre-flow] is decoded as a flow.
 
-For HTML output, the @scheme[figure*] and @scheme[figure*] functions
-center the figure content, while @scheme[figure**] allows the content
+For HTML output, the @racket[figure] and @racket[figure*] functions
+center the figure content, while @racket[figure**] allows the content
 to be wider than the document body.
+For two-column Latex output, @racket[figure*] and @racket[figure**]
+generate a figure that spans columns.
 
-For two-column latex output, @scheme[figure*] and @scheme[figure**]
-generate a figure that spans columns.}
+For Latex output, @racket[figure-here] generates a figure to be included at
+the position in the output text where the @racket[figure-here] occurs
+in the source text. For HTML output, all @racket[figure] variants
+place the figure where the use appears in the source text.}
 
 
 @defproc[(figure-ref [tag string?]) element?]{
@@ -46,4 +46,4 @@ Generates a reference to a figure, capitalizing the word ``Figure''.}
 @defproc[(Figure-target [tag string?]) element?]{
 
 Generates a new figure label. This function is normally not used
-directly, since it is used by @scheme[figure].}
+directly, since it is used by @racket[figure].}

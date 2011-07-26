@@ -11,4 +11,4 @@
 @include-section["gui/notify.scrbl"]
 @include-section["gui/prefs.scrbl"]
 @include-section["gui/slideshow.scrbl"]
-@include-section["gui/window.scrbl"]
+@include-section["gui/pslide.scrbl"]

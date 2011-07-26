@@ -1,7 +1,5 @@
 #lang scribble/doc
-@(require scribble/bnf
-          "mz.ss"
-          (for-label racket/fixnum))
+@(require scribble/bnf "mz.rkt" (for-label racket/fixnum))
 
 @title[#:tag "exns"]{Exceptions}
 
@@ -142,7 +140,8 @@ message names the bad argument and also lists the other arguments. If
 (feed-animals 'cow 'sheep 'dog 'cat)
 ]}
 
-@defproc[(raise-mismatch-error [name symbol?] [message string?] [v any/c]) any]{
+@defproc[(raise-mismatch-error [name symbol?] [message string?] [v any/c] 
+                               ...+ ...+) any]{
 
 Creates an @racket[exn:fail:contract] value and @racket[raise]s it as
 an exception.  The @racket[name] is used as the source procedure's
@@ -150,7 +149,12 @@ name in the error message. The @racket[message] is the error
 message. The @racket[v] argument is the improper argument received by
 the procedure. The printed form of @racket[v] is appended to
 @racket[message] (using the error value conversion handler; see
-@racket[error-value->string-handler]).}
+@racket[error-value->string-handler]).
+
+Additional arguments are concatenated to the error message like
+@racket[message] and @racket[v]. Every other additional argument
+(starting with the argument after @racket[v]) must be a string, but a
+string need not have a following value argument.}
 
 @defproc[(raise-arity-error [name (or/c symbol? procedure?)]
                             [arity-v (or/c exact-nonnegative-integer?
@@ -169,7 +173,7 @@ The @racket[arity-v] value must
 be a possible result from @racket[procedure-arity], except
 that it does not have to be normalized (see @racket[procedure-arity?] for
 the details of normalized arities); @racket[raise-arity-error] 
-will normalize the arity and used the normalized form in the error message.
+will normalize the arity and use the normalized form in the error message.
 If @racket[name] is a procedure, its actual arity is
 ignored.  
 
@@ -225,7 +229,7 @@ through a combination of the @racket[name], @racket[expr], and
   identifier's symbol.}
 
  @item{When @racket[name] is @racket[#f] and when @racket[expr] is not
-  an identifier or a syntax pair containing and identifier as its
+  an identifier or a syntax pair containing an identifier as its
   first element, then the form name in the error message is
   @racket["?"].}
 
@@ -259,7 +263,7 @@ the continuation; if no previous handler is available, the
 uncaught-exception handler is used (see below). In all cases, a call
 to an exception handler is @racket[parameterize-break]ed to disable
 breaks, and it is wrapped with @racket[call-with-exception-handler] to
-install the an exception handler that reports both the original and
+install the exception handler that reports both the original and
 newly raised exceptions.}
 
 @defparam[uncaught-exception-handler f (any/c . -> . any)]{
@@ -275,17 +279,18 @@ handler that reports both the original and newly raised exception).
 
 The default uncaught-exception handler prints an error message using
 the current @tech{error display handler} (see @racket[error-display-handler])
-and then escapes by calling the current error escape handler (see
+and then escapes by calling the current @tech{error escape handler} (see
 @racket[error-escape-handler]). The call to each handler is
 @racket[parameterize]d to set @racket[error-display-handler] to the
 default @tech{error display handler}, and it is @racket[parameterize-break]ed
-to disable breaks. The call to the error escape handler is further
+to disable breaks. The call to the @tech{error escape handler} is further
 parameterized to set @racket[error-escape-handler] to the default
-error escape handler.
+@tech{error escape handler}; if the @tech{error escape handler} returns, then
+the default @tech{error escape handler} is called.
 
 When the current @tech{error display handler} is the default handler, then the
 error-display call is parameterized to install an emergency error
-display handler that attempts to print directly to a console and never
+display handler that logs an error (see @racket[log-error]) and never
 fails.}
 
 @defform[(with-handlers ([pred-expr handler-expr] ...)
@@ -293,7 +298,7 @@ fails.}
 
 Evaluates each @racket[pred-expr] and @racket[handler-expr] in the
 order that they are specified, and then evaluates the @racket[body]s
-with a new exception handler during the its dynamic extent.
+with a new exception handler during its dynamic extent.
 
 The new exception handler processes an exception only if one of the
 @racket[pred-expr] procedures returns a true value when applied to the
@@ -378,7 +383,7 @@ To report a run-time error, use @racket[raise] or procedures like
 @racket[error], instead of calling the error display handler
 directly.}
 
-@defparam[error-print-width width (and exact-integer? (>=/c 3))]{
+@defparam[error-print-width width (and/c exact-integer? (>=/c 3))]{
 
 A parameter whose value is used as the maximum number of characters
 used to print a Racket value that is embedded in a primitive error
@@ -415,7 +420,7 @@ non-string is returned, then the string @racket["..."] is used. If a
 primitive error string needs to be generated before the handler has
 returned, the default error value conversion handler is used.
 
-Call to an error value conversion handler are @racket[parameterize]d
+Calls to an error value conversion handler are @racket[parameterize]d
 to re-install the default error value conversion handler, and to
 enable printing of unreadable values (see @racket[print-unreadable]).}
 
@@ -548,7 +553,7 @@ platform or configuration.}
 @defstruct[(exn:fail:user exn:fail) ()
            #:inspector #f]{
 
-Raised for errors that are intended to be seen by end-users. In
+Raised for errors that are intended to be seen by end users. In
 particular, the default error printer does not show the program
 context when printing the error message.}
 
@@ -571,6 +576,58 @@ value---the structure type instance from which to extract source
 locations---and returns a list of @racket[srcloc]s. Some @tech{error
 display handlers} use only the first returned location.}
 
+As an example,
+@codeblock|{
+#lang racket
+
+;; We create a structure that supports the
+;; prop:exn:srcloc protocol.  It carries
+;; with it the location of the syntax that
+;; is guilty.
+(define-struct (exn:fail:he-who-shall-not-be-named
+                exn:fail)
+  (a-srcloc)
+  #:property prop:exn:srclocs
+  (lambda (a-struct)
+    (match a-struct
+      [(struct exn:fail:he-who-shall-not-be-named
+         (msg marks a-srcloc))
+       (list a-srcloc)])))
+
+;; We can play with this by creating a form that
+;; looks at identifiers, and only flags specific ones.
+(define-syntax (skeeterize stx)
+  (syntax-case stx ()
+    [(_ expr)
+     (cond
+       [(and (identifier? #'expr)
+             (eq? (syntax-e #'expr) 'voldemort))
+        (quasisyntax/loc stx
+          (raise (make-exn:fail:he-who-shall-not-be-named
+                  "oh dear don't say his name"
+                  (current-continuation-marks)
+                  (srcloc '#,(syntax-source #'expr)
+                          '#,(syntax-line #'expr)
+                          '#,(syntax-column #'expr)
+                          '#,(syntax-position #'expr)
+                          '#,(syntax-span #'expr)))))]
+       [else
+        ;; Otherwise, leave the expression alone.
+        #'expr])]))
+
+(define (f x)
+  (* (skeeterize x) x))
+
+(define (g voldemort)
+  (* (skeeterize voldemort) voldemort))
+
+;; Examples:
+(f 7)
+(g 7)  
+;; The error should highlight the use
+;; of the one-who-shall-not-be-named
+;; in g.
+}|
 
 @defproc[(exn:srclocs? [v any/c]) boolean?]{
 
@@ -591,7 +648,7 @@ Returns the @racket[srcloc]-getting procedure associated with @racket[v].}
                    [span (or/c exact-nonnegative-integer? #f)])
                   #:inspector #f]{
 
-The fields of an @racket[srcloc] instance are as follows:
+The fields of a @racket[srcloc] instance are as follows:
 
 @itemize[
 

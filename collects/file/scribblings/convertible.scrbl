@@ -1,12 +1,12 @@
 #lang scribble/doc
 @(require scribble/manual
-          (for-label file/convertible))
+          (for-label file/convertible racket/base racket/contract))
 
 @title[#:tag "convertible"]{Convertible: Data-Conversion Protocol}
 
 @defmodule[file/convertible]
 
-The @schememodname[file/convertible] library provides a protocol to
+The @racketmodname[file/convertible] library provides a protocol to
 mediate between providers of data in different possible formats and
 consumers of the formats. For example, a datatype that implements
 @racket[prop:convertible] might be able to convert itself to a GIF or
@@ -19,12 +19,15 @@ should be considered standard:
 @itemlist[
  #:style 'compact
 
- @item{@scheme['text] --- a string for human-readable text}
- @item{@scheme['gif-bytes] --- a byte string containing a GIF image encoding}
- @item{@scheme['png-bytes] --- a byte string containing a PNG image encoding}
- @item{@scheme['ps-bytes] --- a byte string containing a PostScript document}
- @item{@scheme['eps-bytes] --- a byte string containing an Encapsulated PostScript document}
- @item{@scheme['pdf-bytes] --- a byte string containing a PDF document}
+ @item{@racket['text] --- a string for human-readable text}
+ @item{@racket['gif-bytes] --- a byte string containing a GIF image encoding}
+ @item{@racket['png-bytes] --- a byte string containing a PNG image encoding}
+ @item{@racket['ps-bytes] --- a byte string containing a PostScript document}
+ @item{@racket['eps-bytes] --- a byte string containing an Encapsulated PostScript document}
+ @item{@racket['pdf-bytes] --- a byte string containing a PDF document}
+ @item{@racket['pdf-bytes+bounds] --- a list containing a byte string and four numbers; 
+        the byte string contains a PDF document and the four numbers are sizing information for the PDF document, 
+        namely the width, height, ascent and descent in that order}
 ]
 
 @defthing[prop:convertible struct-type-property?]{
@@ -43,8 +46,17 @@ Returns @racket[#t] if @racket[v] supports the conversion protocol,
 @racket[#f] otherwise.}
 
 @defproc[(convert [v convertible?] [request symbol?] [default any/c #f])
-         any]{
-
+         (case request
+           [(text) (or/c string? (λ (x) (eq? x default)))]
+           [(gif-bytes png-bytes ps-bytes eps-bytes pdf-bytes)
+            (or/c bytes? (λ (x) (eq? x default)))]
+           [(pdf-bytes+bounds) (or/c (list/c bytes?
+                                             (and/c real? (not/c negative?))
+                                             (and/c real? (not/c negative?))
+                                             (and/c real? (not/c negative?))
+                                             (and/c real? (not/c negative?)))
+                                     (λ (x) (eq? x default)))]
+           [else any/c])]{
 
 Requests a data conversion from @racket[v], where @racket[request]
 indicates the type of requested data and @racket[default] is the value

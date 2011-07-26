@@ -1,19 +1,20 @@
-#lang scheme/base
-#| planet-shared.ss -- shared client/server utility functions
+#lang racket/base
+#| planet-shared.rkt -- shared client/server utility functions
 
 Various common pieces of code that both the client and server need to access
 ==========================================================================================
 |#
   
   (require (only-in mzlib/file path-only)
-	   mzlib/port
+           mzlib/port
+           racket/file
            setup/getinfo
            (prefix-in srfi1: srfi/1)
-           "../config.ss"
-           "data.ss")
+           "../config.rkt"
+           "data.rkt")
   
   (provide (all-defined-out)
-           (all-from-out "data.ss")) 
+           (all-from-out "data.rkt"))
   
   ; ==========================================================================================
   ; CACHE LOGIC
@@ -124,7 +125,7 @@ Various common pieces of code that both the client and server need to access
         empty-table))
   
   ; the link table format:
-  ; (listof (list string[name] (listof string[path]) num num bytes[directory] (union string[mzscheme version] #f))
+  ; (listof (list string[name] (listof string[path]) num num bytes[directory] (union string[racket version] #f))
   
   ; hard-links : FULL-PKG-SPEC -> (listof assoc-table-row)
   (define (hard-links pkg)
@@ -172,6 +173,8 @@ Various common pieces of code that both the client and server need to access
   ;; saves the given table, overwriting any file that might be there
   (define (save-hard-link-table table)
     (verify-well-formed-hard-link-parameter!)
+    (let-values ([(base name dir) (split-path (HARD-LINK-FILE))])
+      (make-directory* base))
     (with-output-to-file (HARD-LINK-FILE) #:exists 'truncate
       (lambda ()
         (display "")
@@ -194,7 +197,7 @@ Various common pieces of code that both the client and server need to access
                           original-table))])
         (save-hard-link-table new-table))))
   
-  ;; filter-link-table! : (row -> boolean) -> void
+  ;; filter-link-table! : (row -> boolean) (row -> any/c) -> void
   ;; removes all rows from the hard link table that don't match the given predicate.
   ;; also updates auxiliary datastructures that might have dangling pointers to
   ;; the removed links
@@ -299,8 +302,8 @@ Various common pieces of code that both the client and server need to access
   
   
   ;; version<= : mz-version mz-version -> boolean
-  ;; determines if a is the version string of an earlier mzscheme release than b
-  ;;   [n.b. this relies on a guarantee from Matthew that mzscheme version
+  ;; determines if a is the version string of an earlier racket release than b
+  ;;   [n.b. this relies on a guarantee from Matthew that racket version
   ;;    x1.y1 is older than version x2.y2 iff x1<x2 or x1=x2 and y1<y2]
   (define (version<= a b)
     (or (<= (mz-version-major a) (mz-version-major b))
@@ -422,7 +425,7 @@ Various common pieces of code that both the client and server need to access
          (loop (cdr l) (add1 n))])))
   
   ; nat? : TST -> bool
-  ; determines if the given scheme value is a natural number
+  ; determines if the given value is a natural number
   (define (nat? obj) (and (integer? obj) (>= obj 0)))
   
   ; read-n-chars-to-file : Nat input-port string[filename] -> void
@@ -439,12 +442,12 @@ Various common pieces of code that both the client and server need to access
   (define (copy-n-chars n ip op)
     (let ((cport (make-cutoff-port ip 
                                    n
-                                   (lambda ()
+                                   (lambda (m)
                                      (raise 
                                       (make-exn:fail:read:eof
                                        (format "Not enough chars on input (expected ~a, got ~a)" 
                                                n 
-                                               (- n 0))
+                                               m)
                                        (current-continuation-marks)
                                        ip))))))
       (copy-port cport op)))
@@ -514,8 +517,11 @@ Various common pieces of code that both the client and server need to access
                   (close-input-port in) 
                   (when outport (close-output-port outport))]
                  [else
-                  (when outport (display l outport))
-                  (planet-log l)
+                  (when outport 
+                    (display l outport)
+                    (newline outport)
+                    (flush-output outport))
+                  (planet-log "~a" l)
                   (loop)]))))))
       (begin0
         (parameterize ([current-output-port out])
@@ -523,7 +529,7 @@ Various common pieces of code that both the client and server need to access
         (close-output-port out))))
   
   ;; pkg->info : PKG -> (symbol (-> TST) -> TST)
-  ;; get an info.ss thunk for the given package
+  ;; get an info.rkt thunk for the given package
   (define (pkg->info p)
     (or
      (with-handlers ([exn:fail? (lambda (e) #f)])
@@ -605,3 +611,15 @@ Various common pieces of code that both the client and server need to access
   ;; tree->list : tree[x] -> sexp-tree[x]
   (define (tree->list tree)
     (cons (branch-node tree) (map tree->list (branch-children tree))))
+  
+  
+
+  (define (repository-tree)
+    (define (id x) x)
+    (filter-tree-by-pattern
+     (directory->tree
+      (CACHE-DIR)
+      (lambda (x)
+        (not (regexp-match? #rx"/(?:[.]git.*|[.]svn|CVS)$" (path->string x))))
+      4)
+     (list id id id string->number string->number)))

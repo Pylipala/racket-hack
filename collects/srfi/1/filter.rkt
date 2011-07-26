@@ -1,28 +1,16 @@
 ;;;
-;;; <filter.ss> ---- List filtering and partitioning functions
+;;; <filter.rkt> ---- List filtering and partitioning functions
 ;;; Time-stamp: <02/03/01 07:26:43 noel>
 ;;;
 ;;; Copyright (C) 2002 by Noel Welsh.
 ;;;
 ;;; This file is part of SRFI-1.
 
-;;; SRFI-1 is free software; you can redistribute it and/or
-;;; modify it under the terms of the GNU Lesser General Public
-;;; License as published by the Free Software Foundation; either
-;;; version 2.1 of the License, or (at your option) any later version.
-
-;;; SRFI-1 is distributed in the hope that it will be useful,
-;;; but WITHOUT ANY WARRANTY; without even the implied warranty of
-;;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-;;; Lesser General Public License for more details.
-
-;;; You should have received a copy of the GNU Lesser General Public
-;;; License along with SRFI-1; if not, write to the Free Software
-;;; Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307  USA
+;;; This SRFI-1 implementation is distributed under the same terms as
+;;; Racket.
 
 ;;; Author: Noel Welsh <noelwelsh@yahoo.com>
-;;
-;;
+
 ;; Commentary:
 
 ;; Based on the reference implementation by Olin Shiver and hence:
@@ -32,9 +20,12 @@
 ;; hold me liable for its use. Please send bug reports to shivers@ai.mit.edu.
 ;;     -Olin
 
+;; Olin Shivers verified that he is fine with redistributing this code
+;; under the LGPL.  (Verified personally by Eli Barzilay.)
+
 #lang scheme/base
 
-(require srfi/optional "predicate.ss")
+(require srfi/optional "predicate.rkt")
 
 (provide filter (rename-out [filter filter!])
          (rename-out [my-filter filter-with-sharing]) ; see comment below
@@ -47,10 +38,10 @@
 ;; disorder the elements of their argument.
 
 ;; The following version of filter is not really needed, so we reprovide the
-;; one from "scheme/private/list.ss".  That one does not keep the longest tail,
+;; one from "scheme/private/list.rkt".  That one does not keep the longest tail,
 ;; but running a few benchmarks (on v3.99.0.18) shows that on long lists the
 ;; code below is slower, and on short lists it is a little faster, but not by
-;; much.  However, seems that "lset.ss" relies on tail-sharing, so it is
+;; much.  However, seems that "lset.rkt" relies on tail-sharing, so it is
 ;; provided under an alternative name above.
 
 ;; This FILTER shares the longest tail of L that has no deleted
@@ -175,4 +166,4 @@
 #; ; lists are immutable
 (define (remove! pred l) (filter! (lambda (x) (not (pred x))) l))
 
-;;; filter.ss ends here
+;;; filter.rkt ends here

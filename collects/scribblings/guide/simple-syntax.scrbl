@@ -1,8 +1,5 @@
 #lang scribble/doc
-@(require scribble/manual
-          scribble/eval
-          scribble/bnf
-          "guide-utils.ss")
+@(require scribble/manual scribble/eval scribble/bnf "guide-utils.rkt")
 
 @(define ex-eval (make-base-eval))
 
@@ -228,7 +225,7 @@ click on an identifier to get full details about its use.
 (code:line (string-append "rope" "twine" "yarn")  (code:comment @#,t{append strings}))
 (code:line (substring "corduroys" 0 4)            (code:comment @#,t{extract a substring}))
 (code:line (string-length "shoelace")             (code:comment @#,t{get a string's length}))
-(code:line (string? "c'est ne pas une string")    (code:comment @#,t{recognize strings}))
+(code:line (string? "Ceci n'est pas une string.") (code:comment @#,t{recognize strings}))
 (string? 1)
 (code:line (sqrt 16)                              (code:comment @#,t{find a square root}))
 (sqrt -16)
@@ -379,7 +376,7 @@ clearly written as follows:
 
 The use of square brackets for @racket[cond] clauses is a
 convention. In Racket, parentheses and square brackets are actually
-interchangable, as long as @litchar{(} is matched with @litchar{)} and
+interchangeable, as long as @litchar{(} is matched with @litchar{)} and
 @litchar{[} is matched with @litchar{]}. Using square brackets in a
 few key places makes Racket code even more readable.
 

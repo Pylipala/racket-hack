@@ -1,7 +1,5 @@
 #lang scribble/doc
-@(require scribble/manual
-          scribble/eval
-          "guide-utils.ss")
+@(require scribble/manual scribble/eval "guide-utils.rkt")
 
 @title[#:tag "symbols"]{Symbols}
 
@@ -18,7 +16,7 @@ For any sequence of characters, exactly one corresponding symbol is
 @defterm{interned}; calling the @racket[string->symbol] procedure, or
 @racket[read]ing a syntactic identifier, produces an interned
 symbol. Since interned symbols can be cheaply compared with
-@racket[eq?] (and thus @racket[eqv?] or @racket[equal?]), they serves
+@racket[eq?] (and thus @racket[eqv?] or @racket[equal?]), they serve
 as a convenient values to use for tags and enumerations.
 
 Symbols are case-sensitive. By using a @racketfont{#ci} prefix or in

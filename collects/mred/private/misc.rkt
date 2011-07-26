@@ -1,14 +1,15 @@
 (module misc mzscheme
   (require mzlib/class
-	   mzlib/file
-	   mzlib/process
-	   (prefix wx: "kernel.ss"))
+           mzlib/file
+           mzlib/process
+           (prefix wx: "kernel.rkt")
+           racket/snip/private/prefs)
 
   (provide file-creator-and-type
-	   hide-cursor-until-moved
-	   sleep/yield
-	   play-sound
-	   timer%)
+           hide-cursor-until-moved
+           sleep/yield
+           play-sound
+           timer%)
 
   ;; Formerly used for PS print and preview:
   #;
@@ -41,8 +42,14 @@
   (define (sleep/yield secs)
     (unless (and (real? secs) (not (negative? secs)))
       (raise-type-error 'sleep/yield "non-negative real number" secs))
-    (wx:yield (alarm-evt (+ (current-inexact-milliseconds)
-			    (* secs 1000))))
+    (let ([evt (alarm-evt (+ (current-inexact-milliseconds)
+                             (* secs 1000)))])
+      ;; First, allow at least some events to be handled even if 
+      ;; the alarm is immediately ready. This makes `sleep/yield'
+      ;; more like `sleep':
+      (wx:yield) 
+      ;; Now, really sleep:
+      (wx:yield evt))
     (void))
 
   (define file-creator-and-type
@@ -57,7 +64,7 @@
     (delay
       (let* (;; check user-set preference first
              ;;  (can be a string with `~a', or a name of an executable)
-             [cmd (get-preference '|MrEd:playcmd| (lambda () #f))]
+             [cmd (get-preference* '|GRacket:playcmd| (lambda () #f))]
              [cmd (cond [(not (string? cmd)) #f]
                         [(regexp-match? #rx"~[aA]" cmd) cmd]
                         [(find-executable-path cmd) => values]

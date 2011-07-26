@@ -1,7 +1,5 @@
 #lang scribble/doc
-@(require scribble/bnf
-          "mz.ss"
-          "rx.ss")
+@(require scribble/bnf "mz.rkt" "rx.rkt")
 
 @title[#:tag "regexp"]{Regular Expressions}
 
@@ -71,17 +69,17 @@ The Unicode categories follow.
 @;------------------------------------------------------------------------
 @section{Additional Syntactic Constraints}
 
-In addition to matching a grammars, regular expressions must meet two
+In addition to matching a grammar, regular expressions must meet two
 syntactic restrictions:
 
 @itemize[
 
  @item{In a @nonterm{repeat} other than @nonterm{atom}@litchar{?},
-       then @nonterm{atom} must not match an empty sequence.}
+       the @nonterm{atom} must not match an empty sequence.}
 
  @item{In a @litchar{(?<=}@nonterm{regexp}@litchar{)} or
        @litchar{(?<!}@nonterm{regexp}@litchar{)},
-       the @nonterm{regexp} must match a bounded sequence, only.}
+       the @nonterm{regexp} must match a bounded sequence only.}
 
 ]
 
@@ -190,9 +188,9 @@ syntax (see @secref["regexp-syntax"]). The result can be used with
 Produces a string or byte string suitable for use with @racket[regexp]
 to match the literal sequence of characters in @racket[str] or
 sequence of bytes in @racket[bstr]. If @racket[case-sensitive?] is
-true, the resulting regexp matches letters in @racket[str] or
-@racket[bytes] case-insensitively, otherwise it matches
-case-sensitively.
+true (the default), the resulting regexp matches letters in
+@racket[str] or @racket[bytes] case-sensitively, otherwise it matches
+case-insensitively.
 
 @examples[
 (regexp-match "." "apple.scm")
@@ -275,7 +273,7 @@ The first [byte] string in a result list is the portion of
 earliest is found.
 
 Additional [byte] strings are returned in the list if @racket[pattern]
-contains parenthesized sub-expressions (but not when the open
+contains parenthesized sub-expressions (but not when the opening
 parenthesis is followed by @litchar{?}). Matches for the
 sub-expressions are provided in the order of the opening parentheses
 in @racket[pattern]. When sub-expressions occur in branches of an
@@ -300,7 +298,7 @@ begins with a start-of-string @litchar{^}; see also
 @racket[regexp-try-match]. On success, all bytes up to and including
 the match are eventually read from the port, but matching proceeds by
 first peeking bytes from the port (using @racket[peek-bytes-avail!]),
-and then (re-)reading matching bytes to discard them after the match
+and then (re@-~-)reading matching bytes to discard them after the match
 result is determined. Non-matching bytes may be read and discarded
 before the match is determined. The matcher peeks in blocking mode
 only as far as necessary to determine a match, but it may peek extra
@@ -435,7 +433,7 @@ Like @racket[regexp-match-positions], but returns multiple matches
 like @racket[regexp-match*].
 
 @examples[
-(regexp-match-positions #rx"x." "12x4x6")
+(regexp-match-positions* #rx"x." "12x4x6")
 ]}
 
 
@@ -457,7 +455,7 @@ match succeeds, @racket[#f] otherwise.
 
 
 @defproc[(regexp-match-exact? [pattern (or/c string? bytes? regexp? byte-regexp?)]
-                              [input (or/c string? bytes? path? input-port?)])
+                              [input (or/c string? bytes? path?)])
           boolean?]{
 
 Like @racket[regexp-match?], but @racket[#t] is only returned when the
@@ -646,7 +644,7 @@ like @racket[regexp-match/end].}
 
 The complement of @racket[regexp-match*]: the result is a list of
 strings (if @racket[pattern] is a string or character regexp and
-@racket[input] is a string) or byte strings (otherwise) from in
+@racket[input] is a string) or byte strings (otherwise) from
 @racket[input] that are separated by matches to
 @racket[pattern]. Adjacent matches are separated with @racket[""] or
 @racket[#""]. Zero-length matches are treated the same as for
@@ -688,7 +686,7 @@ an end-of-file if @racket[input] is an input port).
 Performs a match using @racket[pattern] on @racket[input], and then
 returns a string or byte string in which the matching portion of
 @racket[input] is replaced with @racket[insert].  If @racket[pattern]
-matches no part of @racket[input], then @racket[iput] is returned
+matches no part of @racket[input], then @racket[input] is returned
 unmodified.
 
 The @racket[insert] argument can be either a (byte) string, or a
@@ -711,7 +709,7 @@ is replaced with the matching portion of @racket[input] before it is
 substituted into the match's place.  If @racket[insert] contains
 @litchar{\}@nonterm{n} for some integer @nonterm{n}, then it is
 replaced with the @nonterm{n}th matching sub-expression from
-@racket[input]. A @litchar{&} and @litchar{\0} are synonymous. If
+@racket[input]. A @litchar{&} and @litchar{\0} are aliases. If
 the @nonterm{n}th sub-expression was not used in the match, or if
 @nonterm{n} is greater than the number of sub-expressions in
 @racket[pattern], then @litchar{\}@nonterm{n} is replaced with the

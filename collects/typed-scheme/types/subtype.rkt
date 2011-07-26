@@ -2,10 +2,11 @@
 (require "../utils/utils.rkt"
          (rep type-rep filter-rep object-rep rep-utils)
          (utils tc-utils)
-	 (types utils comparison resolve abbrev substitute)
+	 (types utils comparison resolve abbrev numeric-tower substitute)
          (env type-name-env)
          (only-in (infer infer-dummy) unify)
          racket/match unstable/match
+         racket/function
          (rename-in racket/contract
                     [-> c->] [->* c->*])
 	 (for-syntax racket/base syntax/parse))
@@ -74,7 +75,7 @@
 (define (subtypes* A ss ts)
   (cond [(and (null? ss) (null? ts) A)]
         [(or (null? ss) (null? ts)) (fail! ss ts)]
-        [(subtype* A (car ss) (car ts)) 
+        [(subtype* A (car ss) (car ts))
          =>
          (lambda (A*) (subtypes* A* (cdr ss) (cdr ts)))]
         [else (fail! (car ss) (car ts))]))
@@ -99,14 +100,14 @@
 	    A-last)))]))
 
 (define (kw-subtypes* A0 t-kws s-kws)
-  (let loop ([A A0] [t t-kws] [s s-kws])    
+  (let loop ([A A0] [t t-kws] [s s-kws])
     (match* (t s)
       [((list (Keyword: kt tt rt) rest-t) (list (Keyword: ks ts rs) rest-s))
        (cond [(eq? kt ks)
-              (if  
+              (if
                ;; if s is optional, t must be as well
                (or rs (not rt))
-               (loop (subtype A tt ts) rest-t rest-s)
+               (loop (subtype* A tt ts) rest-t rest-s)
                (fail! t s))]
              ;; extra keywords in t are ok
              ;; we just ignore them
@@ -161,12 +162,12 @@
                     (subtypes* t-dom s-dom)
                     (kw-subtypes* t-kws s-kws)
                     (subtype* s-rng t-rng))]
-      [(_ _) 
+      [(_ _)
        (fail! s t)])))
 
 (define (subtypes/varargs args dom rst)
   (with-handlers
-      ([exn:subtype? (lambda _ #f)])      
+      ([exn:subtype? (lambda _ #f)])
     (subtypes*/varargs (empty-set) args dom rst)))
 
 (define (subtypes*/varargs A0 argtys dom rst)
@@ -183,7 +184,7 @@
 
 ;(trace subtypes*/varargs)
 
-(d/c (combine-arrs arrs)
+(define/cond-contract (combine-arrs arrs)
   (c-> (listof arr?) (or/c #f arr?))
   (match arrs
     [(list (and a1 (arr: dom1 rng1 #f #f '())) (arr: dom rng #f #f '()) ...)
@@ -195,6 +196,13 @@
        [else (make-arr (apply map (lambda args (make-Union (sort args type<?))) (cons dom1 dom)) rng1 #f #f '())])]
     [_ #f]))
 
+(define-match-expander NameStruct:
+  (lambda (stx)
+    (syntax-case stx ()
+      [(_ i)
+       #'(or (and (Name: _) (app resolve-once (? Struct? i)))
+             (App: (and (Name: _) (app resolve-once (Poly: _ (? Struct? i)))) _ _))])))
+
 (define (subtype/flds* A flds flds*)
   (for/fold ([A A]) ([f (in-list flds)] [f* (in-list flds*)])
     (match* (f f*)
@@ -202,6 +210,26 @@
        (subtype* (subtype* A t* t) t t*)]
       [((fld: t _ #f) (fld: t* _ #f))
        (subtype* A t t*)])))
+
+(define (unrelated-structs s1 s2)
+  (define (in-hierarchy? s par)
+    (define s-name
+      (match s
+        [(Poly: _ (Struct: s-name _ _ _ _ _ _ _)) s-name]
+        [(Struct: s-name _ _ _ _ _ _ _) s-name]))
+    (define p-name
+      (match par
+        [(Poly: _ (Struct: p-name _ _ _ _ _ _ _)) p-name]
+        [(Struct: p-name _ _ _ _ _ _ _) p-name]))
+    (or (equal? s-name p-name)
+        (match s
+          [(Poly: _ (? Struct? s*)) (in-hierarchy? s* par)]
+          [(Struct: _ (and (Name: _) p) _ _ _ _ _ _) (in-hierarchy? (resolve-once p) par)]
+          [(Struct: _ (? Struct? p) _ _ _ _ _ _) (in-hierarchy? p par)]
+          [(Struct: _ (Poly: _ p) _ _ _ _ _ _) (in-hierarchy? p par)]
+          [(Struct: _ #f _ _ _ _ _ _) #f]
+          [_ (int-err "wtf is this? ~a" s)])))
+  (not (or (in-hierarchy? s1 s2) (in-hierarchy? s2 s1))))
 
 ;; the algorithm for recursive types transcribed directly from TAPL, pg 305
 ;; List[(cons Number Number)] type type -> List[(cons Number Number)]
@@ -212,7 +240,7 @@
   (parameterize ([match-equality-test =t]
                  [current-seen A])
     (let ([ks (Type-key s)] [kt (Type-key t)])
-      (cond 
+      (cond
        [(or (seen? s t) (type-equal? s t)) A]
        [(and (symbol? ks) (symbol? kt) (not (eq? ks kt))) (fail! s t)]
        [(and (symbol? ks) (pair? kt) (not (memq ks kt))) (fail! s t)]
@@ -230,65 +258,34 @@
 	      ;; (Un) is bot
 	      [(_ (Union: (list))) (fail! s t)]
 	      [((Union: (list)) _) A0]
-	      ;; value types              
+	      ;; value types
 	      [((Value: v1) (Value: v2)) (=> unmatch) (if (equal? v1 v2) A0 (unmatch))]
-	      ;; now we encode the numeric hierarchy - bletch
-              [((Base: 'Integer _) (== -Real =t)) A0]
-	      [((Base: 'Integer _) (Base: 'Number _)) A0]
-              [((Base: 'Flonum _)  (Base: 'Inexact-Real _)) A0]
-	      [((Base: 'Flonum _)  (== -Real =t)) A0]
-	      [((Base: 'Flonum _)  (Base: 'Number _)) A0]
-	      [((Base: 'Exact-Rational _) (Base: 'Number _)) A0]
-	      [((Base: 'Integer _) (Base: 'Exact-Rational _)) A0]
-	      [((Base: 'Exact-Positive-Integer _) (Base: 'Exact-Rational _)) A0]
-	      [((Base: 'Exact-Positive-Integer _) (Base: 'Number _)) A0]
-	      [((Base: 'Exact-Positive-Integer _) (== -Nat =t)) A0]
-	      [((Base: 'Exact-Positive-Integer _) (Base: 'Integer _)) A0]
-
-              [((Base: 'Positive-Fixnum _) (Base: 'Exact-Positive-Integer _)) A0]
-	      [((Base: 'Positive-Fixnum _) (Base: 'Exact-Rational _)) A0]
-	      [((Base: 'Positive-Fixnum _) (Base: 'Number _)) A0]
-	      [((Base: 'Positive-Fixnum _) (== -Nat =t)) A0]
-	      [((Base: 'Positive-Fixnum _) (Base: 'Integer _)) A0]
-
-	      [((Base: 'Negative-Fixnum _) (Base: 'Exact-Rational _)) A0]
-	      [((Base: 'Negative-Fixnum _) (Base: 'Number _)) A0]
-	      [((Base: 'Negative-Fixnum _) (Base: 'Integer _)) A0]
-              
-	      [((== -Nat =t) (Base: 'Number _)) A0]
-	      [((== -Nat =t) (Base: 'Exact-Rational _)) A0]
-	      [((== -Nat =t) (Base: 'Integer _)) A0]
-
-	      [((== -Fixnum =t) (Base: 'Number _)) A0]
-	      [((== -Fixnum =t) (Base: 'Exact-Rational _)) A0]
-	      [((== -Fixnum =t) (Base: 'Integer _)) A0]
-
-              [((Base: 'Nonnegative-Flonum _) (Base: 'Flonum _)) A0]
-              [((Base: 'Nonnegative-Flonum _) (Base: 'Inexact-Real _)) A0]
-              [((Base: 'Nonnegative-Flonum _) (Base: 'Number _)) A0]
-
-              [((Base: 'Inexact-Real _) (== -Real =t)) A0]
-              [((Base: 'Inexact-Real _) (Base: 'Number _)) A0]
-
-              [((Base: 'Float-Complex _) (Base: 'Number _)) A0]
-
-              
               ;; values are subtypes of their "type"
-	      [((Value: (? exact-integer? n)) (Base: 'Integer _)) A0]
-	      [((Value: (and n (? number?) (? exact?) (? rational?))) (Base: 'Exact-Rational _)) A0]
-	      [((Value: (? exact-nonnegative-integer? n)) (== -Nat =t)) A0]
-	      [((Value: (? exact-positive-integer? n)) (Base: 'Exact-Positive-Integer _)) A0]	      
-	      [((Value: (? flonum? n)) (Base: 'Flonum _)) A0]
-	      [((Value: (? real? n)) (== -Real =t)) A0]
-	      [((Value: (? number? n)) (Base: 'Number _)) A0]
-
-              [((Value: (? keyword?)) (Base: 'Keyword _)) A0]
-              [((Value: (? char?)) (Base: 'Char _)) A0]
-	      [((Value: (? boolean? n)) (Base: 'Boolean _)) A0]
-	      [((Value: (? symbol? n)) (Base: 'Symbol _)) A0]
-	      [((Value: (? string? n)) (Base: 'String _)) A0]
+	      [((Value: v) (Base: _ _ pred _)) (if (pred v) A0 (fail! s t))]
 	      ;; tvars are equal if they are the same variable
-	      [((F: t) (F: t*)) (if (eq? t t*) A0 (fail! s t))]              
+	      [((F: t) (F: t*)) (if (eq? t t*) A0 (fail! s t))]
+              ;; Avoid needing to resolve things that refer to different structs.
+              ;; Saves us from non-termination
+              ;; Must happen *before* the sequence cases, which sometimes call `resolve' in match expanders
+              [((or (? Struct? s1) (NameStruct: s1)) (or (? Struct? s2) (NameStruct: s2)))
+               (=> unmatch)
+               (cond [(unrelated-structs s1 s2)
+                      (dprintf "found unrelated structs: ~a ~a\n" s1 s2)
+                      (fail! s t)]
+                     [else (unmatch)])]
+              ;; similar case for structs and base types, which are obviously unrelated
+              [((Base: _ _ _ _) (or (? Struct? s1) (NameStruct: s1)))
+               (fail! s t)]
+              [((or (? Struct? s1) (NameStruct: s1)) (Base: _ _ _ _))
+               (fail! s t)]
+              ;; same for all values.
+              [((Value: (? (negate struct?) _)) (or (? Struct? s1) (NameStruct: s1)))
+               (fail! s t)]
+              [((or (? Struct? s1) (NameStruct: s1)) (Value: (? (negate struct?) _)))
+               (fail! s t)]
+              ;; just checking if s/t is a struct misses recursive/union/etc cases
+              [((? (lambda (_) (eq? ks 'struct))) (Base: _ _ _ _)) (fail! s t)]
+              [((Base: _ _ _ _) (? (lambda (_) (eq? kt 'struct)))) (fail! s t)]
               ;; sequences are covariant
               [((Sequence: ts) (Sequence: ts*))
                (subtypes* A0 ts ts*)]
@@ -300,11 +297,11 @@
                (subtypes* A0 ts (map (λ _ t*) ts))]
               [((Vector: t) (Sequence: (list t*)))
                (subtype* A0 t t*)]
-              [((Base: 'String _) (Sequence: (list t*)))
+              [((Base: 'String _ _ _) (Sequence: (list t*)))
                (subtype* A0 -Char t*)]
-              [((Base: 'Bytes _) (Sequence: (list t*)))
-               (subtype* A0 -Nat t*)]
-              [((Base: 'Input-Port _) (Sequence: (list t*)))
+              [((Base: 'Bytes _ _ _) (Sequence: (list t*)))
+               (subtype* A0 -Byte t*)]
+              [((Base: 'Input-Port _ _ _) (Sequence: (list t*)))
                (subtype* A0 -Nat t*)]
               [((Hashtable: k v) (Sequence: (list k* v*)))
                (subtypes* A0 (list k v) (list k* v*))]
@@ -319,7 +316,7 @@
 	       (when (null? arr1) (fail! s t))
 	       (let loop-arities ([A* A0]
 				  [arr2 arr2])
-		 (cond 
+		 (cond
 		  [(null? arr2) A*]
 		  [(supertype-of-one/arr A* (car arr2) arr1) => (lambda (A) (loop-arities A (cdr arr2)))]
 		  [else (fail! s t)]))]
@@ -333,9 +330,9 @@
               [((ListDots: s-dty dbound) (Listof: t-elem))
                (subtype* A0 (substitute Univ dbound s-dty) t-elem)]
 	      ;; quantification over two types preserves subtyping
-	      [((Poly: ns b1) (Poly: ms b2)) 
+	      [((Poly: ns b1) (Poly: ms b2))
 	       (=> unmatch)
-	       (unless (= (length ns) (length ms)) 
+	       (unless (= (length ns) (length ms))
 		       (unmatch))
 	       (subtype* A0 b1 (subst-all (make-simple-substitution ms (map make-F ns)) b2))]
 	      [((Refinement: par _ _) t)
@@ -343,11 +340,11 @@
 	      ;; use unification to see if we can use the polytype here
 	      [((Poly: vs b) s)
 	       (=> unmatch)
-	       (if (unify vs (list b) (list s)) A0 (unmatch))]              
+	       (if (unify vs (list b) (list s)) A0 (unmatch))]
 	      [(s (Poly: vs b))
 	       (=> unmatch)
 	       (if (null? (fv b)) (subtype* A0 s b) (unmatch))]
-	      ;; rec types, applications and names (that aren't the same
+	      ;; rec types, applications and names (that aren't the same)
 	      [((? needs-resolving? s) other)
                (let ([s* (resolve-once s)])
                  (if (Type? s*) ;; needed in case this was a name that hasn't been resolved yet
@@ -363,7 +360,7 @@
                                    (fail! s t))]
 	      [(s (Union: es)) (or (and (ormap (lambda (elem) (subtype*/no-fail A0 s elem)) es) A0)
                                    (fail! s t))]
-	      ;; subtyping on immutable structs is covariant	      
+	      ;; subtyping on immutable structs is covariant
 	      [((Struct: nm _ flds proc _ _ _ _) (Struct: nm _ flds* proc* _ _ _ _))
                (let ([A (cond [(and proc proc*) (subtype* proc proc*)]
                               [proc* (fail! proc proc*)]
@@ -371,7 +368,14 @@
                  (subtype/flds* A flds flds*))]
               [((Struct: _ _ _ _ _ _ _ _) (StructTop: (== s type-equal?)))
                A0]
+              ;ephemerons are covariant
+              [((Ephemeron: s) (Ephemeron: t))
+               (subtype* A0 s t)]
+              [((CustodianBox: s) (CustodianBox: t))
+               (subtype* A0 s t)]
               [((Box: _) (BoxTop:)) A0]
+              [((ThreadCell: _) (ThreadCellTop:)) A0]
+              [((Set: t) (Set: t*)) (subtype* A0 t t*)]
               [((Channel: _) (ChannelTop:)) A0]
               [((Vector: _) (VectorTop:)) A0]
               [((HeterogenousVector: _) (VectorTop:)) A0]
@@ -380,8 +384,8 @@
               [((MPair: _ _) (MPairTop:)) A0]
               [((Hashtable: _ _) (HashtableTop:)) A0]
 	      ;; subtyping on structs follows the declared hierarchy
-	      [((Struct: nm (? Type? parent) flds proc _ _ _ _) other) 
-               ;(printf "subtype - hierarchy : ~a ~a ~a\n" nm parent other)
+	      [((Struct: nm (? Type? parent) flds proc _ _ _ _) other)
+               ;(dprintf "subtype - hierarchy : ~a ~a ~a\n" nm parent other)
 	       (subtype* A0 parent other)]
 	      ;; Promises are covariant
 	      [((Struct: (== promise-sym) _ (list t) _ _ _ _ _) (Struct: (== promise-sym) _ (list t*) _ _ _ _ _)) (subtype* A0 t t*)]
@@ -402,12 +406,12 @@
 	       (subtype* A0 t t*)]
               [((Class: '() '() (list (and s  (list names  meths )) ...))
                 (Class: '() '() (list (and s* (list names* meths*)) ...)))
-               (for/fold ([A A0]) 
+               (for/fold ([A A0])
                          ([n names*] [m meths*])
                          (cond [(assq n s) => (lambda (spec) (subtype* A (cadr spec) m))]
                                [else (fail! s t)]))]
 	      ;; otherwise, not a subtype
-	      [(_ _) (fail! s t) #;(printf "failed")])))]))))
+	      [(_ _) (fail! s t) #;(dprintf "failed")])))]))))
 
   (define (type-compare? a b)
   (and (subtype a b) (subtype b a)))
@@ -425,4 +429,4 @@
 ;(subtype (make-poly '(a) (make-tvar 'a)) (make-lst N))
 
 ;;problem:
-;; (subtype (make-Mu 'x (make-Syntax (make-Union (list (make-Base 'Number #'number?) (make-F 'x))))) (make-Syntax (make-Univ)))
+;; (subtype (make-Mu 'x (make-Syntax (make-Union (list (make-Base 'Number #'number? number? #'-Number) (make-F 'x))))) (make-Syntax (make-Univ)))

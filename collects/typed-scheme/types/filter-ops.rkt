@@ -5,16 +5,17 @@
          (utils tc-utils) (only-in (infer infer) restrict)
          "abbrev.rkt" (only-in scheme/contract current-blame-format [-> -->] listof)
 	 (types comparison printer union subtype utils remove-intersect)
-         scheme/list racket/match scheme/promise
+         scheme/list racket/match
          (for-syntax syntax/parse scheme/base)
-         unstable/debug syntax/id-table scheme/dict
+         syntax/id-table scheme/dict
          racket/trace
          (for-template scheme/base))
 
 (provide (all-defined-out))
 
-(define (atomic-filter? e)
-  (or (TypeFilter? e) (NotTypeFilter? e)))
+(define (atomic-filter? p)
+  (or (TypeFilter? p) (NotTypeFilter? p)
+      (Top? p) (Bot? p)))
 
 (define (opposite? f1 f2)
   (match* (f1 f2)
@@ -40,6 +41,8 @@
   (if (filter-equal? f1 f2)
       #t
       (match* (f1 f2)
+              [((OrFilter: fs) f2)
+               (memf (lambda (f) (filter-equal? f f2)) fs)]
               [((TypeFilter: t1 p1 i1)
                 (TypeFilter: t2 p1 i2))
                (and (name-ref=? i1 i2)
@@ -56,10 +59,12 @@
 ;; compact : (Listof prop) bool -> (Listof prop)
 ;; props : propositions to compress
 ;; or? : is this an OrFilter (alternative is AndFilter)
-(d/c (compact props or?)
+(define/cond-contract (compact props or?)
      ((listof Filter/c) boolean? . --> . (listof Filter/c))
   (define tf-map (make-hash))
   (define ntf-map (make-hash))
+  ;; props: the propositions we're processing
+  ;; others: props that are neither TF or NTF
   (let loop ([props props] [others null])
     (if (null? props)
         (append others
@@ -89,12 +94,19 @@
           [(and p (NotTypeFilter: t1 f1 x) (? (lambda _ (not or?))))
            (hash-update! ntf-map
                          (list f1 (hash-name-ref x))
-                         (match-lambda [(NotTypeFilter: t2 _ _) 
+                         (match-lambda [(NotTypeFilter: t2 _ _)
                                         (-not-filter (Un t1 t2) x f1)]
                                        [p (int-err "got something that isn't a nottypefilter ~a" p)])
                          p)
            (loop (cdr props) others)]
           [p (loop (cdr props) (cons p others))]))))
+
+
+(define (-imp p1 p2)
+  (match* (p1 p2)
+    [((Bot:) _) -top]
+    [((Top:) _) p2]
+    [(_ _) (make-ImpFilter p1 p2)]))
 
 (define (-or . args)
   (define mk
@@ -107,7 +119,7 @@
         (apply mk others)
         (match-let ([(AndFilter: elems) (car ands)])
           (apply -and (for/list ([a (in-list elems)])
-                        (apply -or a (append (cdr ands) others)))))))  
+                        (apply -or a (append (cdr ands) others)))))))
   (let loop ([fs args] [result null])
     (if (null? fs)
         (match result
@@ -118,11 +130,13 @@
           [(and t (Top:)) t]
           [(OrFilter: fs*) (loop (append fs* (cdr fs)) result)]
           [(Bot:) (loop (cdr fs) result)]
-          [t 
+          [t
            (cond [(for/or ([f (in-list (append (cdr fs) result))])
                     (opposite? f t))
                   -top]
-                 [(for/or ([f (in-list result)]) (or (filter-equal? f t) (implied-atomic? f t)))
+                 [(let ([t-seq (Rep-seq t)])
+                    (for/or ([f (in-list result)])
+                      (or (= (Rep-seq f) t-seq) (implied-atomic? f t))))
                   (loop (cdr fs) result)]
                  [else
                   (loop (cdr fs) (cons t result))])]))))
@@ -132,7 +146,7 @@
     (case-lambda [() -top]
                  [(f) f]
                  [fs (make-AndFilter fs)]))
-  (let loop ([fs (remove-duplicates args filter-equal?)] [result null])
+  (let loop ([fs (remove-duplicates args eq? #:key Rep-seq)] [result null])
     (if (null? fs)
         (match result
           [(list) -top]
@@ -143,7 +157,18 @@
                             (if (filter-equal? f1 f2)
                                 f1
                                 (apply mk (compact (list f1 f2) #f))))]
-          [_ (apply mk (compact result #f))])
+          [_
+           ;; first, remove anything implied by the atomic propositions
+           ;; We commonly see: (And (Or P Q) (Or P R) (Or P S) ... P), which this fixes
+           (let-values ([(atomic not-atomic) (partition atomic-filter? result)])
+             (define not-atomic*
+               (for/list ([p (in-list not-atomic)]
+                          #:when
+                          (not (for/or ([a (in-list atomic)])
+                                       (implied-atomic? p a))))
+                         p))
+             ;; `compact' takes care of implications between atomic props
+             (apply mk (compact (append not-atomic* atomic) #f)))])
         (match (car fs)
           [(and t (Bot:)) t]
           [(AndFilter: fs*) (loop (cdr fs) (append fs* result))]
@@ -151,7 +176,33 @@
           [t (cond [(for/or ([f (in-list (append (cdr fs) result))])
                       (opposite? f t))
                     -bot]
-                   [(for/or ([f (in-list result)]) (or (filter-equal? f t) (implied-atomic? t f)))
+                   [(let ([t-seq (Rep-seq t)])
+                      (for/or ([f (in-list result)])
+                        (or (= (Rep-seq f) t-seq)
+                            (implied-atomic? t f))))
                     (loop (cdr fs) result)]
                    [else
                     (loop (cdr fs) (cons t result))])]))))
+
+;; ands the given type filter to both sides of the given arr for each argument
+;; useful to express properties of the form: if this function returns at all,
+;; we learn this about its arguments (like fx primitives, or car/cdr, etc.)
+(define (add-unconditional-filter-all-args arr type)
+  (match arr
+    [(Function: (list (arr: dom rng rest drest kws)))
+     (match rng
+       [(Values: (list (Result: tp (FilterSet: true-filter
+                                               false-filter)
+                                op)))
+        (let ([new-filters (apply -and (build-list (length dom)
+                                                   (lambda (i)
+                                                     (-filter type i))))])
+          (make-Function
+           (list (make-arr
+                  dom
+                  (make-Values
+                   (list (-result tp
+                                  (-FS (-and true-filter new-filters)
+                                       (-and false-filter new-filters))
+                                  op)))
+                  rest drest kws))))])]))

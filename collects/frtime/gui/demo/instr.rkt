@@ -5,7 +5,7 @@
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;
-;; behavior->callbacks ;; (aux-mixin-macros.ss)
+;; behavior->callbacks ;; (aux-mixin-macros.rkt)
 ;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ; create a mixin using the macro
@@ -27,7 +27,7 @@
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;
-;; events->callbacks ;; (mixin-macros.ss)
+;; events->callbacks ;; (mixin-macros.rkt)
 ;;;;;;;;;;;;;;;;;;;;;;;
 
 ; create a mixin using the macro
@@ -38,7 +38,7 @@
 
 ; apply the mixin
 ; fr-value-text-field%s will set their value to the value of 
-; the event occurances supplied in the initialization argument
+; the event occurrences supplied in the initialization argument
 ; value-set-e
 (define fr-value-text-field% (set-value-lifter text-field%))
 
@@ -55,7 +55,7 @@
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; callbacks->args-evts ;; (mixin-macros.ss)
+;; callbacks->args-evts ;; (mixin-macros.rkt)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ; create a mixin using the macro
@@ -102,7 +102,7 @@
 
 
 ;;;;;;;;;;;;;;;;;;;
-;; mixin-merge-e ;; (aux-mixin-macros.ss)
+;; mixin-merge-e ;; (aux-mixin-macros.rkt)
 ;;;;;;;;;;;;;;;;;;;
 
 

@@ -1,16 +1,16 @@
-
 (module wxme mzscheme
   (require mzlib/port
            mzlib/string
            mzlib/kw
            mzlib/class
-           mzlib/contract
+           racket/contract
            mzlib/list
            scheme/gui/dynamic
            syntax/modread
-           "image.ss"
-           "editor.ss"
-           "private/compat.ss")
+           (only racket/snip/private/snip int->img-type)
+           "image.rkt"
+           "editor.rkt"
+           "private/compat.rkt")
 
   (define (decode who port snip-filter close? skip-content?)
     (expect #rx#"^WXME" port who "does not start with \"WXME\"")
@@ -449,7 +449,7 @@
                      [h (read-inexact who port vers "image-snip height")]
                      [dx (read-inexact who port vers "image-snip x-offset")]
                      [dy (read-inexact who port vers "image-snip y-offset")]
-                     [rel? (read-integer who port vers "image-snip relative?")])
+                     [relative (read-integer who port vers "image-snip relative?")])
                  (let ([data
                         (and (and (equal? filename #"")
                                   (cvers . > . 1)
@@ -466,7 +466,10 @@
                                        (loop (add1 i))))))))])
                    (if (header-plain-text? header)
                        #"."
-                       (make-object image% (if data #f filename) data w h dx dy)))))]
+                       (make-object image%
+                         (if data #f filename)
+                         data w h dx dy
+                         relative (int->img-type type))))))]
             [else
              (if (header-skip-content? header)
                  #f
@@ -703,8 +706,8 @@
         (values null null)))
 
   (provide/contract [is-wxme-stream? (input-port? . -> . any)]
-                    [wxme-port->text-port ((input-port?) (any/c) . opt-> . input-port?)]
-                    [wxme-port->port ((input-port?) (any/c (any/c . -> . any)) . opt-> . input-port?)]
+                    [wxme-port->text-port (->* (input-port?) (any/c) input-port?)]
+                    [wxme-port->port (->* (input-port?) (any/c (any/c . -> . any)) input-port?)]
                     [register-lib-mapping! (string? string? . -> . void?)]
                     [string->lib-path (string? any/c . -> . any)]
                     [extract-used-classes (input-port? . -> . any)])

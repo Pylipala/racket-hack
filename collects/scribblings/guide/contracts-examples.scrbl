@@ -1,10 +1,6 @@
 #lang scribble/doc
-@(require scribble/manual
-          scribble/eval
-          "guide-utils.ss"
-          "contracts-utils.ss"
-          (for-label racket/contract)
-          (for-label racket/gui))
+@(require scribble/manual scribble/eval "guide-utils.rkt" "contracts-utils.rkt"
+          (for-label racket/contract racket/gui))
 
 @title[#:tag "contracts-examples"]{Additional Examples}
 
@@ -16,7 +12,7 @@ Mitchell and McKim's principles for design by contract DbC are derived
   from the 1970s style algebraic specifications. The overall goal of DbC is
   to specify the constructors of an algebra in terms of its
   observers. While we reformulate Mitchell and McKim's terminology and 
-  we use a mostly applicative, we
+  we use a mostly applicative approach, we
   retain their terminology of ``classes'' and ``objects'':
 
 @itemize[
@@ -28,7 +24,7 @@ Mitchell and McKim's principles for design by contract DbC are derived
     implementation a command typically returns an new object of the same
     class.}
 
-@item{@bold{Separate basic queries from derived queries}
+@item{@bold{Separate basic queries from derived queries.}
 
     A @italic{derived query} returns a result that is computable in
     terms of basic queries.}
@@ -39,7 +35,7 @@ Mitchell and McKim's principles for design by contract DbC are derived
 @item{@bold{For each command, write a post-condition contract that specifies the
     changes to the observable properties in terms of the basic queries.}}
 
-@item{@bold{For each query and command, decide on suitable
+@item{@bold{For each query and command, decide on a suitable
 pre-condition contract.}}]
 
 Each of the following sections corresponds to a chapter in

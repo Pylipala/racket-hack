@@ -23,7 +23,7 @@
 The @racketmodname[compiler/embed] library provides a function to
 embed Racket code into a copy of Racket or GRacket, thus creating a
 stand-alone Racket executable. To package the executable into a
-distribution that is indpendent of your Racket installation, use
+distribution that is independent of your Racket installation, use
 @racket[assemble-distribution] from
 @racketmodname[compiler/distribute].}
 
@@ -95,7 +95,7 @@ parameter is true.
 
 Copies the Racket (if @racket[gracket?] and @racket[mred?] are
 @racket[#f]) or GRacket (otherwise) binary, embedding code into the
-copied executable to be loaded on startup.  Under Unix, the binary is
+copied executable to be loaded on startup.  On Unix, the binary is
 actually a wrapper executable that execs the original; see also the
 @racket['original-exe?] tag for @racket[aux].
 
@@ -146,9 +146,9 @@ understood by the default module name resolver). The prefix can be a
 symbol, @racket[#f] to indicate no prefix, or @racket[#t] to indicate
 an auto-generated prefix. For example,
 
-@racketblock['((#f "m.ss"))]
+@racketblock['((#f "m.rkt"))]
 
-embeds the module @racket[m] from the file @filepath{m.ss}, without
+embeds the module @racket[m] from the file @filepath{m.rkt}, without
 prefixing the name of the module; the @racket[literal-sexpr] argument
 to go with the above might be @racket['(require m)].
 
@@ -256,7 +256,7 @@ currently supported keys are as follows:
         @racket[#t] means that, to the degree that the generated
         executable must refer to another, it can use a relative path
         (so the executables can be moved together, but not
-        seperately); a @racket[#f] value (the default) means that
+        separately); a @racket[#f] value (the default) means that
         absolute paths should be used (so the generated executable can
         be moved).}
 
@@ -381,7 +381,7 @@ currently @racket[#f] for all platforms.}
          boolean?]{
 
 Indicates whether Racket/GRacket executables for the current platform
-actually correspond to directories. The result is @racket[#t] under
+actually correspond to directories. The result is @racket[#t] on
 Mac OS X when @racket[mred?] is @racket[#t], @racket[#f] otherwise.}
 
 
@@ -425,3 +425,15 @@ Includes the identifiers provided by @racketmodname[compiler/embed].}
 @defthing[compiler:embed@ unit?]{
 
 A unit that imports nothing and exports @racket[compiler:embed^].}
+
+@section{Finding the name of the executable}
+
+@defmodule[compiler/find-exe]
+
+@defproc[(find-exe [gracket? boolean?]
+                   [variant (or/c 'cgc '3m) (system-type 'gc)])
+         path?]{
+                                                                 
+  Finds the path to the racket (or gracket) executable.                                                                  
+}
+               

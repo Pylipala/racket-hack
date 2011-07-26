@@ -40,6 +40,8 @@
                                       -> _void
                                       -> (values w h)))
 (define-gtk gtk_window_set_decorated (_fun _GtkWidget _gboolean -> _void))
+(define-gtk gtk_window_set_keep_above (_fun _GtkWidget _gboolean -> _void))
+(define-gtk gtk_window_set_focus_on_map (_fun _GtkWidget _gboolean -> _void))
 (define-gtk gtk_window_maximize (_fun _GtkWidget -> _void))
 (define-gtk gtk_window_unmaximize (_fun _GtkWidget -> _void))
 (define-gtk gtk_widget_set_uposition (_fun _GtkWidget _int _int -> _void))
@@ -49,6 +51,7 @@
 (define-gtk gtk_window_set_gravity (_fun _GtkWindow _int -> _void))
 (define-gtk gtk_window_set_icon_list (_fun _GtkWindow _GList -> _void))
 (define-gtk gtk_window_fullscreen (_fun _GtkWindow -> _void))
+(define-gtk gtk_window_get_focus (_fun _GtkWindow -> (_or-null _GtkWidget)))
 
 (define-gtk gtk_window_resize (_fun _GtkWidget _int _int -> _void))
 
@@ -138,7 +141,7 @@
           style)
     (init [is-dialog? #f])
 
-    (inherit get-gtk set-size on-size
+    (inherit get-gtk set-size
              pre-on-char pre-on-event
              get-client-delta get-size
              get-parent get-eventspace
@@ -146,9 +149,14 @@
              queue-on-size)
 
     (define gtk (as-gtk-window-allocation
-                 (gtk_window_new GTK_WINDOW_TOPLEVEL)))
+                 (gtk_window_new (if (memq 'float style)
+				     GTK_WINDOW_POPUP
+				     GTK_WINDOW_TOPLEVEL))))
     (when (memq 'no-caption style)
-      (gtk_window_set_decorated gtk #f))    
+      (gtk_window_set_decorated gtk #f))
+    (when (memq 'float style)
+      (gtk_window_set_keep_above gtk #t)
+      (gtk_window_set_focus_on_map gtk #f))
     (define-values (vbox-gtk panel-gtk)
       (atomically
        (let ([vbox-gtk (gtk_vbox_new #f 0)]
@@ -208,8 +216,11 @@
         (adjust-client-delta 0 h))
       ;; Hack: calls back into the mred layer to re-compute
       ;;  sizes. By calling this early enough, the frame won't 
-      ;;  grow if it doesn't have to grow to accomodate the menu bar.
+      ;;  grow if it doesn't have to grow to accommodate the menu bar.
       (send this resized))
+
+    (define/public (reset-menu-height h)
+      (adjust-client-delta 0 h))
 
     (define saved-enforcements (vector 0 0 -1 -1))
 
@@ -326,7 +337,7 @@
 
     (define big-icon #f)
     (define small-icon #f)
-    (define/public (set-icon bm mask [mode 'both])
+    (define/public (set-icon bm [mask #f] [mode 'both])
       (let ([bm (if mask
 		    (let* ([nbm (make-object bitmap%
 					     (send bm get-width)
@@ -376,6 +387,14 @@
 				(unless (eq? on? reported-activate)
 				  (set! reported-activate on?)
 				  (on-activate on?)))))))
+
+    (define/public (get-focus-window [even-if-not-active? #f])
+      (let ([f-gtk (gtk_window_get_focus gtk)])
+        (and f-gtk
+             (or even-if-not-active?
+                 (positive? (bitwise-and (get-gtk-object-flags f-gtk)
+                                         GTK_HAS_FOCUS)))
+             (gtk->wx f-gtk))))
     
     (define/override (call-pre-on-event w e)
       (pre-on-event w e))

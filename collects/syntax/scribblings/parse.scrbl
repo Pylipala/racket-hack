@@ -4,11 +4,11 @@
 
 @title[#:tag "stxparse" #:style '(toc)]{Parsing and specifying syntax}
 
-The @schememodname[syntax/parse] library provides a framework for
+The @racketmodname[syntax/parse] library provides a framework for
 writing macros and processing syntax. The library provides a powerful
 language of syntax patterns, used by the pattern-matching form
-@scheme[syntax-parse] and the specification form
-@scheme[define-syntax-class]. Macros that use @scheme[syntax-parse]
+@racket[syntax-parse] and the specification form
+@racket[define-syntax-class]. Macros that use @racket[syntax-parse]
 automatically generate error messages based on descriptions and
 messages embedded in the macro's syntax patterns.
 @defmodule[syntax/parse]
@@ -20,6 +20,7 @@ messages embedded in the macro's syntax patterns.
 @include-section["parse/parsing.scrbl"]
 @include-section["parse/stxclasses.scrbl"]
 @include-section["parse/patterns.scrbl"]
+@include-section["parse/define.scrbl"]
 @include-section["parse/litconv.scrbl"]
 @include-section["parse/lib.scrbl"]
 

@@ -11,6 +11,7 @@
         (namespace-require '(for-syntax scheme/base))
         (namespace-require '(for-template scheme/base))
         (namespace-require 'scheme/contract)
+        (namespace-require 'scheme/set)
         (namespace-require '(only racket/contract/private/arrow procedure-accepts-and-more?))
         (namespace-require 'scheme/class)
         (namespace-require 'scheme/promise)
@@ -34,9 +35,9 @@
       [(_ a ...)
        (syntax (contract-eval `(,test a ...)))]))
 
-  (define (contract-error-test exp exn-ok?)
+  (define (contract-error-test name exp exn-ok?)
     (test #t 
-          'contract-error-test 
+          name
           (contract-eval `(with-handlers ((exn? (λ (x) (and (,exn-ok? x) #t)))) ,exp))))
 
   (define (contract-syntax-error-test name exp [reg #rx""])
@@ -89,9 +90,12 @@
   (define (test/spec-failed name expression blame)
     (let ()
       (define (has-proper-blame? msg)
-        (regexp-match?
-         (string-append "(^| )" (regexp-quote blame) " broke")
-         msg))
+        (define reg
+          (case blame
+            [(pos) #rx"self-contract violation"]
+            [(neg) #rx"blaming neg"]
+            [else (error 'test/spec-failed "unknown blame name ~s" blame)]))
+        (regexp-match? reg msg))
       (printf "testing: ~s\n" name)
       (contract-eval
        `(,thunk-error-test 
@@ -1066,6 +1070,18 @@
    'contract-arrow-any3
    '((contract (integer? . -> . any) (lambda (x) #f) 'pos 'neg) #t))
 
+  (test/spec-passed
+   'contract-arrow-all-kwds
+   '(contract (-> #:a string? string?) 
+              (make-keyword-procedure void)
+              'pos 'neg))
+  
+  (test/spec-passed
+   'contract-arrow-all-kwds2
+   '((contract (-> #:a string? void?) 
+               (make-keyword-procedure void)
+               'pos 'neg)
+     #:a "abcdef"))
   
   ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
   ;;
@@ -2496,6 +2512,38 @@
    '((contract (->i ([x number?]) #:pre () (= 1 2) any)
 	       (λ (x) 1)
 	       'pos 'neg) 2))
+  
+  (test/neg-blame
+   '->i35-b
+   '((contract (->i ([x number?]) #:pre () #t #:pre () (= 1 2) any)
+	       (λ (x) 1)
+	       'pos 'neg) 2))
+  
+  (test/neg-blame
+   '->i35-c
+   '((contract (->i ([x number?]) #:pre (x) (even? x) #:pre (x) (positive? x) any)
+	       (λ (x) 1)
+	       'pos 'neg) 3))
+  
+  (test/neg-blame
+   '->i35-d
+   '((contract (->i ([x number?]) #:pre (x) (even? x) #:pre (x) (positive? x) any)
+	       (λ (x) 1)
+	       'pos 'neg) -2))
+  
+  (test/neg-blame
+   '->i35-e
+   '((contract (->i ([x any/c]) #:pre (x) (pair? x) #:pre (x) (car x) any)
+	       (λ (x) 1)
+	       'pos 'neg)
+     (cons #f 1)))
+  
+  (test/neg-blame
+   '->i35-f
+   '((contract (->i ([x any/c]) #:pre/name (x) "pair" (pair? x) #:pre/name (x) "car" (car x) any)
+	       (λ (x) 1)
+	       'pos 'neg) 
+     (cons #f 1)))
 
   (test/spec-passed/result
    '->i36
@@ -2566,51 +2614,95 @@
   (test/spec-passed/result
    '->i44
    '((contract (->i ([x () any/c])
-					[y any/c]
-					#:post (x) x)
-			   (lambda (x) x)
-			   'pos
-			   'neg)
-	 #t)
+                    [y any/c]
+                    #:post (x) x)
+               (lambda (x) x)
+               'pos
+               'neg)
+     #t)
    '#t)
-
+  
   (test/pos-blame
    '->i45
    '((contract (->i ([x () any/c])
-					[y any/c]
-					#:post (x) x)
-			   (lambda (x) x)
-			   'pos
-			   'neg)
-	 #f))
+                    [y any/c]
+                    #:post (x) x)
+               (lambda (x) x)
+               'pos
+               'neg)
+     #f))
 
   (test/spec-passed/result
    '->i46
    '((contract (->i ([x any/c])
-					[y () any/c]
-					#:post (y) y)
-			   (lambda (x) x)
-			   'pos
-			   'neg)
-	 #t)
+                    [y () any/c]
+                    #:post (y) y)
+               (lambda (x) x)
+               'pos
+               'neg)
+     #t)
    '#t)
-
+  
   (test/pos-blame
    '->i47
    '((contract (->i ([x any/c])
-					[y () any/c]
-					#:post (y) y)
-			   (lambda (x) x)
-			   'pos
-			   'neg)
-	 #f))
+                    [y () any/c]
+                    #:post (y) y)
+               (lambda (x) x)
+               'pos
+               'neg)
+     #f))
+  
+  (test/pos-blame
+   '->i47-b
+   '((contract (->i ([x any/c])
+                    [y () any/c]
+                    #:post (y) (even? y)
+                    #:post (y) (positive? y))
+               (lambda (x) x)
+               'pos
+               'neg)
+     -2))
+  
+  (test/pos-blame
+   '->i47-c
+   '((contract (->i ([x any/c])
+                    [y () any/c]
+                    #:post (y) (even? y)
+                    #:post (y) (positive? y))
+               (lambda (x) x)
+               'pos
+               'neg)
+     3))
+  
+  (test/pos-blame
+   '->i47-d
+   '((contract (->i ([x any/c])
+                    [y () any/c]
+                    #:post (y) (pair? y)
+                    #:post (y) (car y))
+               (lambda (x) x)
+               'pos
+               'neg)
+     (cons #f 1)))
+  
+  (test/pos-blame
+   '->i47-e
+   '((contract (->i ([x any/c])
+                    [y () any/c]
+                    #:post/name (y) "pair" (pair? y)
+                    #:post/name (y) "car" (car y))
+               (lambda (x) x)
+               'pos
+               'neg)
+     (cons #f 1)))
 
   (test/spec-passed/result
    '->i48
    '(let ([x '()])
       ((contract (->i ([arg (begin (set! x (cons 'arg-eval x)) integer?)])
-		      [res () (begin
-				(set! x (cons 'res-eval x))
+                      [res () (begin
+                                (set! x (cons 'res-eval x))
 				(λ (res)
 				   (set! x (cons 'res-check x))))])
 		 (λ (arg) 
@@ -2821,6 +2913,38 @@
                'neg)
      1))
 
+  
+  ;; test to make sure the values are in the error messages
+  (contract-error-test
+   'contract-error-test1
+   #'((contract (->i ([x number?]) #:pre (x) #f any)
+                (λ (x) x)
+                'pos
+                'neg)
+      123456789)
+   (λ (x) 
+     (and (exn? x)
+          (regexp-match #rx"x: 123456789" (exn-message x)))))
+  (contract-error-test
+   'contract-error-test2
+   #'((contract (->i ([|x y| number?]) #:pre (|x y|) #f any)
+                (λ (x) x)
+                'pos
+                'neg)
+      123456789)
+   (λ (x) 
+     (and (exn? x)
+          (regexp-match (regexp-quote "|x y|: 123456789") (exn-message x)))))
+
+  ;; test to make sure the collects directories are appropriately prefixed
+  (contract-error-test
+   'contract-error-test3
+    #'(contract symbol? "not a symbol" 'pos 'neg 'not-a-symbol #'here)
+    (lambda (x)
+      (and (exn? x)
+        (regexp-match? #px"<collects>"
+          (exn-message x)))))
+   
   (test/neg-blame
    '->i-protect-shared-state
    '(let ([x 1])
@@ -3426,6 +3550,7 @@
    1)
   
   (contract-error-test
+   'contract-error-test4
    #'(contract (or/c (-> integer? integer?) (-> boolean? boolean?))
                (λ (x) x)
                'pos
@@ -3528,6 +3653,18 @@
        1)
       (reverse x))
    '(3 1 2 4))
+  
+  (test/spec-passed/result
+   'and/c-isnt
+   '(and (regexp-match #rx"isn't even?"
+                       (with-handlers ((exn:fail? exn-message))
+                         (contract (and/c integer? even? positive?)
+                                   -3
+                                   'pos
+                                   'neg)
+                         "not the error!"))
+         #t)
+   #t)
   
   (test/spec-passed
    'contract-flat1 
@@ -3802,6 +3939,7 @@
   (ctest #t contract? proj:add1->sub1)
   (ctest #f flat-contract? proj:add1->sub1)
   (ctest #f chaperone-contract? proj:add1->sub1)
+  (ctest #t impersonator-contract? proj:add1->sub1)
 
   ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
   ;;
@@ -3861,6 +3999,7 @@
   (ctest #t contract? proj:prime-box-list/c)
   (ctest #f flat-contract? proj:prime-box-list/c)
   (ctest #t chaperone-contract? proj:prime-box-list/c)
+  (ctest #f impersonator-contract? proj:prime-box-list/c)
   
   (contract-eval
    '(define proj:bad-prime-box-list/c
@@ -3881,8 +4020,10 @@
   (ctest #t contract? proj:bad-prime-box-list/c)
   (ctest #f flat-contract? proj:bad-prime-box-list/c)
   (ctest #t chaperone-contract? proj:bad-prime-box-list/c)
+  (ctest #f impersonator-contract? proj:bad-prime-box-list/c)
   
   (contract-error-test
+   'contract-error-test5
    '(contract proj:bad-prime-box-list/c (list (box 2) (box 3)) 'pos 'neg)
    exn:fail?)
   
@@ -4736,6 +4877,23 @@
                           (define (f) (values 3 "foo"))
                           (f))])
       1))
+  
+  (test/spec-passed/result
+   'with-contract-#%app
+   '(begin
+      (eval '(module with-contract-#%app-app racket
+               (define-syntax (-app x) #''apped)
+               (provide (rename-out (-app #%app)))))
+      (eval '(module with-contract-#%app-client racket
+               (require 'with-contract-#%app-app)
+               (provide with-contract-#%app-h with-contract-#%app-i)
+               (with-contract x ([f any/c]) (define (f x) 'f))
+               (define (g x) 'g)
+               (define with-contract-#%app-h (f 2))
+               (define with-contract-#%app-i (g 2))))
+      (eval '(require 'with-contract-#%app-client))
+      (eval '(list with-contract-#%app-h with-contract-#%app-i)))
+   (list 'apped 'apped))
 
 ;                                                                                                                         
 ;                                                                                                                         
@@ -6603,6 +6761,28 @@
       (send (new d%) f)))
   
   (test/spec-passed
+   'class/c-first-order-absent-1
+   '(contract (class/c (absent m)) object% 'pos 'neg))
+  
+  (test/pos-blame
+   'class/c-first-order-absent-2
+   '(contract (class/c (absent m))
+              (class object% (super-new) (define/public (m) 3))
+              'pos
+              'neg))
+  
+  (test/spec-passed
+   'class/c-first-order-absent-3
+   '(contract (class/c (absent (field f))) object% 'pos 'neg))
+  
+  (test/pos-blame
+   'class/c-first-order-absent-4
+   '(contract (class/c (absent (field f)))
+              (class object% (super-new) (field [f 3]))
+              'pos
+              'neg))
+  
+  (test/spec-passed
    'class/c-higher-order-init-1
    '(let ([c% (contract (class/c (init [a number?]))
                         (class object% (super-new) (init a))
@@ -7483,6 +7663,124 @@
                         'neg)])
       (set-field! n pre-o #t)
       (get-field n o)))
+  
+
+;                                                                           
+;                                                                           
+;                                                                           
+;   ;                                                                    ;;;
+;   ;                                                                   ;   
+;                        ;                                              ;   
+;                        ;                                              ;   
+;   ;   ;; ;;;    ;;;;  ;;;;;  ;;;;   ;; ;;;     ;;;    ;;;     ;;;    ;;;; 
+;  ;;    ;;   ;  ;    ;  ;         ;   ;;   ;   ;   ;  ;   ;   ;   ;    ;   
+;   ;    ;    ;  ;    ;  ;         ;   ;    ;  ;    ; ;     ; ;     ;   ;   
+;   ;    ;    ;   ;;     ;     ;;;;;   ;    ;  ;      ;;;;;;; ;     ;   ;   
+;   ;    ;    ;     ;;   ;    ;    ;   ;    ;  ;      ;       ;     ;   ;   
+;   ;    ;    ;  ;    ;  ;    ;    ;   ;    ;  ;      ;       ;     ;   ;   
+;   ;    ;    ;  ;    ;  ;    ;   ;;   ;    ;   ;   ;  ;    ;  ;   ;    ;   
+;  ;;;  ;;;  ;;;  ;;;;    ;;;  ;;; ;; ;;;  ;;;   ;;;    ;;;;    ;;;    ;;;  
+;                                                                           
+;                                                                           
+;                                                                           
+;                                                                           
+
+  (test/spec-passed
+   'instanceof/c-first-order-1
+   '(let* ([c% object%]
+           [c%/c (class/c)])
+      (contract (instanceof/c c%/c) (new c%) 'pos 'neg)))
+  
+  (test/pos-blame
+   'instanceof/c-first-order-2
+   '(let* ([c% object%]
+           [c%/c (class/c (field [f number?]))])
+      (contract (instanceof/c c%/c) (new c%) 'pos 'neg)))
+  
+  (test/pos-blame
+   'instanceof/c-first-order-3
+   '(let* ([c% object%]
+           [c%/c (class/c [m (->m number? number?)])])
+      (contract (instanceof/c c%/c) (new c%) 'pos 'neg)))
+  
+  (test/spec-passed
+   'instanceof/c-first-order-4
+   '(let* ([c% (class object% (super-new) (field [f 3]))]
+           [c%/c (class/c (field [f number?]))])
+      (contract (instanceof/c c%/c) (new c%) 'pos 'neg)))
+  
+  (test/spec-passed
+   'instanceof/c-first-order-5
+   '(let* ([c% (class object% (super-new) (define/public (m x) x))]
+           [c%/c (class/c [m (->m number? number?)])])
+      (contract (instanceof/c c%/c) (new c%) 'pos 'neg)))
+  
+  (test/spec-passed
+   'instanceof/c-first-order-6
+   '(let* ([c% (class object% (super-new) (define/public (m x) x))]
+           [c%/c (class/c [m (->m number? number?)])]
+           [d%/c (class/c [n (->m number? number?)])])
+      (contract (instanceof/c (or/c c%/c d%/c)) (new c%) 'pos 'neg)))
+  
+  (test/spec-passed
+   'instanceof/c-first-order-7
+   '(let* ([d% (class object% (super-new) (define/public (n x) x))]
+           [c%/c (class/c [m (->m number? number?)])]
+           [d%/c (class/c [n (->m number? number?)])])
+      (contract (instanceof/c (or/c c%/c d%/c)) (new d%) 'pos 'neg)))
+  
+  (test/pos-blame
+   'instanceof/c-first-order-8
+   '(let* ([e% (class object% (super-new) (define/public (p x) x))]
+           [c%/c (class/c [m (->m number? number?)])]
+           [d%/c (class/c [n (->m number? number?)])])
+      (contract (instanceof/c (or/c c%/c d%/c)) (new e%) 'pos 'neg)))
+  
+  (test/spec-passed/result
+   'instanceof/c-higher-order-1
+   '(let* ([c% (class object% (super-new) (field [f 3]))]
+           [c%/c (class/c (field [f number?]))]
+           [o (contract (instanceof/c c%/c) (new c%) 'pos 'neg)])
+      (get-field f o))
+   3)
+  
+  (test/neg-blame
+   'instanceof/c-higher-order-2
+   '(let* ([c% (class object% (super-new) (field [f 3]))]
+           [c%/c (class/c (field [f number?]))]
+           [o (contract (instanceof/c c%/c) (new c%) 'pos 'neg)])
+      (set-field! f o #t)))
+  
+  (test/pos-blame
+   'instanceof/c-higher-order-3
+   '(let* ([c% (class object% (super-new) (define/public (m x) (zero? x)))]
+           [c%/c (class/c [m (->m number? number?)])]
+           [o (contract (instanceof/c c%/c) (new c%) 'pos 'neg)])
+      (send o m 3)))
+  
+  (test/spec-passed
+   'instanceof/c-higher-order-4
+   '(let* ([c% (class object% (super-new) (define/public (m x) x))]
+           [c%/c (class/c [m (->m number? number?)])]
+           [d%/c (class/c [n (->m number? number?)])]
+           [o (contract (instanceof/c (or/c c%/c d%/c)) (new c%) 'pos 'neg)])
+      (send o m 3)))
+  
+  (test/pos-blame
+   'instanceof/c-higher-order-4
+   '(let* ([c% (class object% (super-new) (define/public (m x) #t))]
+           [c%/c (class/c [m (->m number? number?)])]
+           [d%/c (class/c [n (->m number? number?)])]
+           [o (contract (instanceof/c (or/c c%/c d%/c)) (new c%) 'pos 'neg)])
+      (send o m 3)))
+  
+  (test/neg-blame
+   'instanceof/c-higher-order-4
+   '(let* ([c% (class object% (super-new) (define/public (m x) x))]
+           [c%/c (class/c [m (->m number? number?)])]
+           [d%/c (class/c [n (->m number? number?)])]
+           [o (contract (instanceof/c (or/c c%/c d%/c)) (new c%) 'pos 'neg)])
+      (send o m #t)))
 
 ;                                                                                    
 ;                                                                                    
@@ -8007,6 +8305,26 @@
                          'pos
                          'neg)])
         (set-s-b! v 5))))
+  
+  (test/spec-passed/result
+   'struct/c12
+   '(let ()
+      (define-struct s (a) #:mutable)
+      (define alpha (new-∃/c 'alpha))
+      (define v (make-s 3))
+      (let ([v* (contract (struct/c s alpha) v 'pos 'neg)])
+        (set-s-a! v* (s-a v*)))
+      (s-a v))
+   3)
+  
+  (test/neg-blame
+   'struct/c13
+   '(let ()
+      (define-struct s (a) #:mutable)
+      (define alpha (new-∃/c 'alpha))
+      (define v (make-s 3))
+      (let ([v* (contract (struct/c s alpha) v 'pos 'neg)])
+        (set-s-a! v* 4))))
 
   
 ;                                                                              
@@ -8076,6 +8394,26 @@
               #f
               'pos
               'neg))
+  
+  (test/spec-passed
+   'recursive-contract6
+   '(letrec ([ctc (or/c number? (cons/c number? (recursive-contract ctc #:flat)))])
+      (contract ctc (cons 1 (cons 2 3)) 'pos 'neg)))
+  
+  (test/pos-blame
+   'recursive-contract7
+   '(letrec ([ctc (or/c number? (cons/c number? (recursive-contract ctc #:flat)))])
+      (contract ctc (cons 1 (cons 2 #t)) 'pos 'neg)))
+  
+  (test/pos-blame
+   'recursive-contract8
+   '(letrec ([ctc (or/c number? (cons/c number? (recursive-contract ctc #:flat)))])
+      (contract ctc (cons 1 (cons #t 3)) 'pos 'neg)))
+  
+  (test/spec-passed
+   'recursive-contract9
+   '(letrec ([ctc (or/c number? (hash/c (recursive-contract ctc #:chaperone) number?))])
+      (make-hash (list (cons (make-hash (list (cons 3 4))) 5)))))
   
   
 
@@ -8980,35 +9318,81 @@ so that propagation occurs.
   (ctest #t flat-contract? (let ()
                              (define-struct s (a b))
                              (struct/c s any/c any/c)))
+  (ctest #f flat-contract? (let ()
+                             (define-struct s (a b) #:mutable)
+                             (struct/c s any/c any/c)))
   (ctest #t chaperone-contract? (let ()
                                   (define-struct s (a b) #:mutable)
                                   (struct/c s any/c any/c)))
+  (ctest #f impersonator-contract? (let ()
+                                    (define-struct s (a b) #:mutable)
+                                    (struct/c s any/c any/c)))
+  (ctest #f flat-contract? (let ()
+                             (define-struct s ([a #:mutable] b))
+                             (struct/c s any/c any/c)))
   (ctest #t chaperone-contract? (let ()
                                   (define-struct s ([a #:mutable] b))
                                   (struct/c s any/c any/c)))
+  (ctest #f impersonator-contract? (let ()
+                                    (define-struct s ([a #:mutable] b))
+                                    (struct/c s any/c any/c)))
+  (ctest #f flat-contract? (let ()
+                             (define-struct s (a [b #:mutable]))
+                             (struct/c s any/c any/c)))
   (ctest #t chaperone-contract? (let ()
                                   (define-struct s (a [b #:mutable]))
                                   (struct/c s any/c any/c)))
+  (ctest #f impersonator-contract? (let ()
+                                    (define-struct s (a [b #:mutable]))
+                                    (struct/c s any/c any/c)))
+  (ctest #f flat-contract? (let ()
+                             (define-struct s (f))
+                             (struct/c s (-> number? any))))
   (ctest #t chaperone-contract? (let ()
                                   (define-struct s (f))
                                   (struct/c s (-> number? any))))
+  (ctest #f impersonator-contract? (let ()
+                                    (define-struct s (f))
+                                    (struct/c s (-> number? any))))
   
+  (ctest #f flat-contract? (let ()
+                             (define-struct s (a) #:mutable)
+                             (define alpha (new-∃/c 'alpha))
+                             (struct/c s alpha)))
+  (ctest #f chaperone-contract? (let ()
+                                  (define-struct s (a) #:mutable)
+                                  (define alpha (new-∃/c 'alpha))
+                                  (struct/c s alpha)))
+  (ctest #t impersonator-contract? (let ()
+                                    (define-struct s (a) #:mutable)
+                                    (define alpha (new-∃/c 'alpha))
+                                    (struct/c s alpha)))
+  (ctest #t contract? (let ()
+                        (define-struct s (a) #:mutable)
+                        (define alpha (new-∃/c 'alpha))
+                        (struct/c s alpha)))
+  
+  (ctest #t flat-contract? (set/c integer?))
+          
   ;; Hash contracts with flat domain/range contracts
-  (ctest #t contract?           (hash/c any/c any/c #:immutable #f))
-  (ctest #t chaperone-contract? (hash/c any/c any/c #:immutable #f))
-  (ctest #t flat-contract?      (hash/c any/c any/c #:immutable #f #:flat? #t))
+  (ctest #t contract?              (hash/c any/c any/c #:immutable #f))
+  (ctest #t chaperone-contract?    (hash/c any/c any/c #:immutable #f))
+  (ctest #f impersonator-contract? (hash/c any/c any/c #:immutable #f))
+  (ctest #t flat-contract?         (hash/c any/c any/c #:immutable #f #:flat? #t))
 
   (ctest #t flat-contract?      (hash/c any/c any/c #:immutable #t))
   (ctest #t flat-contract?      (hash/c any/c any/c #:immutable #t #:flat? #t))
 
-  (ctest #t contract?           (hash/c any/c any/c))
-  (ctest #t chaperone-contract? (hash/c any/c any/c))
-  (ctest #t flat-contract?      (hash/c any/c any/c #:flat? #t))
+  (ctest #t contract?              (hash/c any/c any/c))
+  (ctest #t chaperone-contract?    (hash/c any/c any/c))
+  (ctest #f impersonator-contract? (hash/c any/c any/c))
+  (ctest #t flat-contract?         (hash/c any/c any/c #:flat? #t))
   
   ;; Hash contracts with chaperone range contracts
-  (ctest #t contract?           (hash/c number? (hash/c number? number?)))
-  (ctest #t chaperone-contract? (hash/c number? (hash/c number? number?)))
-  (ctest #f flat-contract?      (hash/c number? (hash/c number? number?)))
+  (ctest #t contract?              (hash/c number? (hash/c number? number?)))
+  (ctest #t chaperone-contract?    (hash/c number? (hash/c number? number?)))
+  (ctest #f impersonator-contract? (hash/c number? (hash/c number? number?)))
+  (ctest #f flat-contract?         (hash/c number? (hash/c number? number?)))
   
   ;; Hash contracts with proxy range contracts
   (contract-eval
@@ -9018,20 +9402,24 @@ so that propagation occurs.
        #:first-order values
        #:projection (λ (b) values))))
 
-  (ctest #t contract?           (hash/c number? trivial-proxy-ctc #:immutable #f))
-  (ctest #f chaperone-contract? (hash/c number? trivial-proxy-ctc #:immutable #f))
-  (ctest #f flat-contract?      (hash/c number? trivial-proxy-ctc #:immutable #f))
+  (ctest #t contract?              (hash/c number? trivial-proxy-ctc #:immutable #f))
+  (ctest #f chaperone-contract?    (hash/c number? trivial-proxy-ctc #:immutable #f))
+  (ctest #t impersonator-contract? (hash/c number? trivial-proxy-ctc #:immutable #f))
+  (ctest #f flat-contract?         (hash/c number? trivial-proxy-ctc #:immutable #f))
   
-  (ctest #t contract?           (hash/c number? trivial-proxy-ctc #:immutable #t))
-  (ctest #f chaperone-contract? (hash/c number? trivial-proxy-ctc #:immutable #t))
-  (ctest #f flat-contract?      (hash/c number? trivial-proxy-ctc #:immutable #t))
+  (ctest #t contract?              (hash/c number? trivial-proxy-ctc #:immutable #t))
+  (ctest #f chaperone-contract?    (hash/c number? trivial-proxy-ctc #:immutable #t))
+  (ctest #t impersonator-contract? (hash/c number? trivial-proxy-ctc #:immutable #t))
+  (ctest #f flat-contract?         (hash/c number? trivial-proxy-ctc #:immutable #t))
   
-  (ctest #t contract?           (hash/c number? trivial-proxy-ctc))
-  (ctest #f chaperone-contract? (hash/c number? trivial-proxy-ctc))
-  (ctest #f flat-contract?      (hash/c number? trivial-proxy-ctc))
+  (ctest #t contract?              (hash/c number? trivial-proxy-ctc))
+  (ctest #f chaperone-contract?    (hash/c number? trivial-proxy-ctc))
+  (ctest #t impersonator-contract? (hash/c number? trivial-proxy-ctc))
+  (ctest #f flat-contract?         (hash/c number? trivial-proxy-ctc))
   
   ;; Make sure that proxies cannot be used as the domain contract in hash/c.
   (contract-error-test
+   'contract-error-test6
    '(let ([proxy-ctc
            (make-contract
             #:name 'proxy-ctc
@@ -9040,29 +9428,51 @@ so that propagation occurs.
       (hash/c proxy-ctc proxy-ctc))
    exn:fail?)
   
-  (ctest #t contract?           (box/c number? #:flat? #t))
-  (ctest #t chaperone-contract? (box/c number? #:flat? #t))
-  (ctest #t flat-contract?      (box/c number? #:flat? #t))
+  (ctest #t contract?              (box/c number? #:flat? #t))
+  (ctest #t chaperone-contract?    (box/c number? #:flat? #t))
+  (ctest #f impersonator-contract? (box/c number? #:flat? #t))
+  (ctest #t flat-contract?         (box/c number? #:flat? #t))
 
-  (ctest #t contract?           (box/c number? #:immutable #t))
-  (ctest #t chaperone-contract? (box/c number? #:immutable #t))
-  (ctest #t flat-contract?      (box/c number? #:immutable #t))
+  (ctest #t contract?              (box/c number? #:immutable #t))
+  (ctest #t chaperone-contract?    (box/c number? #:immutable #t))
+  (ctest #f impersonator-contract? (box/c number? #:immutable #t))
+  (ctest #t flat-contract?         (box/c number? #:immutable #t))
 
-  (ctest #t contract?           (box/c number?))
-  (ctest #t chaperone-contract? (box/c number?))
-  (ctest #f flat-contract?      (box/c number?))
+  (ctest #t contract?              (box/c number?))
+  (ctest #t chaperone-contract?    (box/c number?))
+  (ctest #f impersonator-contract? (box/c number?))
+  (ctest #f flat-contract?         (box/c number?))
 
-  (ctest #t contract?           (box/c (box/c number?) #:immutable #t))
-  (ctest #t chaperone-contract? (box/c (box/c number?) #:immutable #t))
-  (ctest #f flat-contract?      (box/c (box/c number?) #:immutable #t))
+  (ctest #t contract?              (box/c (box/c number?) #:immutable #t))
+  (ctest #t chaperone-contract?    (box/c (box/c number?) #:immutable #t))
+  (ctest #f impersonator-contract? (box/c (box/c number?) #:immutable #t))
+  (ctest #f flat-contract?         (box/c (box/c number?) #:immutable #t))
 
-  (ctest #t contract?           (box/c trivial-proxy-ctc))
-  (ctest #f chaperone-contract? (box/c trivial-proxy-ctc))
-  (ctest #f flat-contract?      (box/c trivial-proxy-ctc))
+  (ctest #t contract?              (box/c trivial-proxy-ctc))
+  (ctest #f chaperone-contract?    (box/c trivial-proxy-ctc))
+  (ctest #t impersonator-contract? (box/c trivial-proxy-ctc))
+  (ctest #f flat-contract?         (box/c trivial-proxy-ctc))
 
-  (ctest #t contract?           (box/c trivial-proxy-ctc #:immutable #t))
-  (ctest #f chaperone-contract? (box/c trivial-proxy-ctc #:immutable #t))
-  (ctest #f flat-contract?      (box/c trivial-proxy-ctc #:immutable #t))
+  (ctest #t contract?              (box/c trivial-proxy-ctc #:immutable #t))
+  (ctest #f chaperone-contract?    (box/c trivial-proxy-ctc #:immutable #t))
+  (ctest #t impersonator-contract? (box/c trivial-proxy-ctc #:immutable #t))
+  (ctest #f flat-contract?         (box/c trivial-proxy-ctc #:immutable #t))
+  
+  ;; Test the ability to create different types of contracts with recursive-contract
+  (ctest #t flat-contract? (letrec ([ctc (or/c number? 
+                                               (cons/c (recursive-contract ctc #:flat)
+                                                       (recursive-contract ctc #:flat)))])
+                             ctc))
+  
+  (ctest #f flat-contract? (letrec ([ctc (or/c number? 
+                                               (box/c (recursive-contract ctc #:chaperone)))])
+                             ctc))
+  (ctest #t chaperone-contract? (letrec ([ctc (or/c number? 
+                                                    (box/c (recursive-contract ctc #:chaperone)))])
+                                  ctc))
+  (ctest #f impersonator-contract? (letrec ([ctc (or/c number? 
+                                                  (box/c (recursive-contract ctc #:chaperone)))])
+                                    ctc))
 
   (ctest #t contract? 1)
   (ctest #t contract? (-> 1 1))
@@ -9326,7 +9736,11 @@ so that propagation occurs.
               (->i ([x integer?]) #:pre (x) #t  [q (x) number?] #:post (x) #t))
   (test-name '(->i ([x real?]) [_ (x) ...])
               (->i ([x real?]) [_ (x) (>/c x)]))
-
+  (test-name '(->i ([x any/c]) #:pre/name (x) "pair" ... #:pre/name (x) "car" ... any)
+              (->i ([x any/c]) #:pre/name (x) "pair" (pair? x) #:pre/name (x) "car" (car x) any))
+  (test-name '(->i ([x any/c]) [y () ...] #:post/name (y) "pair" ... #:post/name (y) "car" ...)
+              (->i ([x any/c]) [y () any/c] #:post/name (y) "pair" (pair? y) #:post/name (y) "car" (car y)))
+  
   (test-name '(case->) (case->))
   (test-name '(case-> (-> integer? any) (-> boolean? boolean? any) (-> char? char? char? any))
              (case-> (-> integer? any) (-> boolean? boolean? any) (-> char? char? char? any)))
@@ -9379,7 +9793,7 @@ so that propagation occurs.
   (test-name '(between/c 5 6) (between/c 5 6))
   (test-name '(between/c -inf.0 +inf.0) (between/c -inf.0 +inf.0))
   (test-name '(integer-in 0 10) (integer-in 0 10))
-  (test-name '(real-in 1 10) (real-in 1 10))
+  (test-name '(between/c 1 10) (real-in 1 10))
   (test-name '(string-len/c 3) (string-len/c 3))
   (test-name 'natural-number/c natural-number/c)
   (test-name #f false/c)
@@ -9511,6 +9925,12 @@ so that propagation occurs.
   (test-name '(couple/dc [hd any/c] [tl ...])
              (couple/dc [hd any/c] [tl (hd) any/c]))
 
+  (test-name '(set/c integer?) (set/c integer?))
+  (test-name '(set/c boolean? #:cmp 'equal) (set/c boolean? #:cmp 'equal))
+  (test-name '(set/c char? #:cmp 'eq) (set/c char? #:cmp 'eq))
+  (test-name '(set/c (set/c char?) #:cmp 'eqv) (set/c (set/c char? #:cmp 'dont-care) #:cmp 'eqv))
+  (test-name '(set/c (-> char? char?) #:cmp 'eqv) (set/c (-> char? char?) #:cmp 'eqv))
+  
   ;; NOT YET RELEASED
   #;
   (test-name '(pr/dc [x integer?]
@@ -10094,6 +10514,76 @@ so that propagation occurs.
        11))
    11)
   
+  
+;                                 ;        
+;                                ;         
+;                    ;           ;         
+;    ;;;;    ;;;;  ;;;;;;       ;     ;;;; 
+;   ;        ;   ;   ;         ;     ;     
+;   ;;      ;    ;   ;         ;    ;      
+;     ;;    ;;;;;;   ;        ;     ;      
+;       ;   ;        ;        ;     ;      
+;       ;   ;        ;       ;       ;     
+;   ;;;;     ;;;;;    ;;;   ;         ;;;; 
+;                           ;              
+;                          ;               
+;                                          
+
+  (test/spec-passed/result
+   'set/c1
+   '(contract (set/c integer?)
+              (set 0)
+              'pos 'neg)
+   (contract-eval '(set 0)))
+  
+  (test/pos-blame 
+   'set/c2
+   '(contract (set/c integer?)
+              (set #t)
+              'pos 'neg))
+  
+  (test/pos-blame
+   'set/c3
+   '(contract (set/c integer? #:cmp 'eq)
+              (set 0)
+              'pos 'neg))
+  
+  (test/pos-blame
+   'set/c4
+   '(contract (set/c integer? #:cmp 'eqv)
+              (set 0)
+              'pos 'neg))
+  
+  (test/pos-blame
+   'set/c5
+   '(contract (set/c integer? #:cmp 'equal)
+              (seteq 0)
+              'pos 'neg))
+  
+  (test/spec-passed/result
+   'set/c6
+   '(set-map (contract (set/c integer?)
+                       (set 0)
+                       'pos 'neg)
+             values)
+   (list 0))
+  
+  (test/neg-blame
+   'set/c7
+   '(let ([s (set-map (contract (set/c (-> integer? integer?))
+                                (set (λ (x) #f))
+                                'pos 'neg)
+                      values)])
+      ((car s) #f)))
+  
+  (test/pos-blame
+   'set/c8
+   '(let ([s (set-map (contract (set/c (-> integer? integer?))
+                                (set (λ (x) #f))
+                                'pos 'neg)
+                      values)])
+      ((car s) 1)))
+  
 ;                                                        
 ;                                                        
 ;                                                        
@@ -10194,7 +10684,7 @@ so that propagation occurs.
 ;                                                                    
 
   ;;
-  ;; (at the end, becuase they are slow w/out .zo files)
+  ;; (at the end, because they are slow w/out .zo files)
   ;;
   
   (test/spec-passed
@@ -10453,6 +10943,7 @@ so that propagation occurs.
   
   ;; make sure unbound identifier exception is raised.
   (contract-error-test
+   'contract-error-test7
    #'(begin
        (eval '(module pos scheme/base
                 (require scheme/contract)
@@ -10835,16 +11326,33 @@ so that propagation occurs.
            (require 'provide/contract-35/m)
            (f #f)))))
     
-      (test (format "contract-test.rktl:~a.30: "
+      (test (format "contract-test.rktl:~a.30"
                     (+ here-line 8))
             'provide/contract-compiled-source-locs
             (with-handlers ((exn:fail? (λ (x) 
-                                         (let ([m (regexp-match #rx"contract-test.rktl[^ ]* " (exn-message x))])
+                                         (let ([m (regexp-match #rx"contract-test.rktl[^ ]*.30" (exn-message x))])
                                            (and m (car m))))))
               
               (contract-eval '(require 'provide/contract-35/n)))))
   
+  ;; test that provide/contract by itself in a module doesn't signal an error
+  (test/spec-passed/result
+   'provide/contract35
+   '(begin
+      (eval '(module provide/contract35-m1 racket
+               (provide/contract [add1 (-> number? number?)])))
+      
+      (eval '(module provide/contract35-m2 racket/base
+               (require 'provide/contract35-m1)
+               (provide provide/contract35-three)
+               (define provide/contract35-three (add1 2))))
+      
+      (eval '(require 'provide/contract35-m2))
+      (eval 'provide/contract35-three))
+   3)
+  
   (contract-error-test
+   'contract-error-test8
    #'(begin
        (eval '(module pce1-bug scheme/base
                 (require scheme/contract)
@@ -10853,9 +11361,10 @@ so that propagation occurs.
        (eval '(require 'pce1-bug)))
    (λ (x)
      (and (exn? x)
-          (regexp-match #rx"on the-defined-variable1" (exn-message x)))))
+          (regexp-match #rx"the-defined-variable1: self-contract violation" (exn-message x)))))
   
   (contract-error-test
+   'contract-error-test9
    #'(begin
        (eval '(module pce2-bug scheme/base
                 (require scheme/contract)
@@ -10865,9 +11374,10 @@ so that propagation occurs.
        (eval '(the-defined-variable2 #f)))
    (λ (x)
      (and (exn? x)
-          (regexp-match #rx"on the-defined-variable2" (exn-message x)))))
+          (regexp-match #rx"the-defined-variable2: contract violation" (exn-message x)))))
   
   (contract-error-test
+   'contract-error-test10
    #'(begin
        (eval '(module pce3-bug scheme/base
                 (require scheme/contract)
@@ -10877,9 +11387,10 @@ so that propagation occurs.
        (eval '(the-defined-variable3 #f)))
    (λ (x)
      (and (exn? x)
-          (regexp-match #rx"on the-defined-variable3" (exn-message x)))))
+          (regexp-match #rx"the-defined-variable3" (exn-message x)))))
   
   (contract-error-test
+   'contract-error-test11
    #'(begin
        (eval '(module pce4-bug scheme/base
                 (require scheme/contract)
@@ -10889,9 +11400,10 @@ so that propagation occurs.
        (eval '((if #t the-defined-variable4 the-defined-variable4) #f)))
    (λ (x)
      (and (exn? x)
-          (regexp-match #rx"on the-defined-variable4" (exn-message x)))))
+          (regexp-match #rx"^the-defined-variable4" (exn-message x)))))
 
   (contract-error-test
+   'contract-error-test12
    #'(begin
        (eval '(module pce5-bug scheme/base
                 (require scheme/contract)
@@ -10906,6 +11418,7 @@ so that propagation occurs.
           (regexp-match #rx"expected field name to be b, but found string?" (exn-message x)))))
   
   (contract-error-test
+   'contract-error-test13
    #'(begin
        (eval '(module pce6-bug scheme/base
                 (require scheme/contract)
@@ -10921,6 +11434,7 @@ so that propagation occurs.
           (regexp-match #rx"expected field name to be b, but found string?" (exn-message x)))))
   
   (contract-error-test
+   'contract-error-test14
    #'(begin
        (eval '(module pce7-bug scheme/base
                 (require scheme/contract)
@@ -10934,6 +11448,7 @@ so that propagation occurs.
           (regexp-match #rx"cannot set!" (exn-message x)))))
   
   (contract-error-test
+   'contract-error-test15
    #'(begin
        (eval '(module pce8-bug1 scheme/base
                 (require scheme/contract)
@@ -10941,11 +11456,11 @@ so that propagation occurs.
                 (provide/contract [f (-> integer? integer? integer?)])))
        (eval '(require 'pce8-bug1)))
    (λ (x)
-     (printf ">> ~s\n" (exn-message x))
      (and (exn? x)
           (regexp-match #rx"pce8-bug" (exn-message x)))))
 
   (contract-error-test
+   'contract-error-test16
    #'(begin
        (eval '(module pce9-bug scheme
                 (define (f x) "wrong")
@@ -10956,9 +11471,10 @@ so that propagation occurs.
        (eval '(g 12)))
    (λ (x)
      (and (exn? x)
-          (regexp-match #rx"broke the contract.*on g" (exn-message x)))))
+          (regexp-match #rx"^g.*contract from: pce9-bug" (exn-message x)))))
   
   (contract-error-test
+   'contract-error-test17
    #'(begin
        (eval '(module pce10-bug scheme
                 (define (f x) "wrong")
@@ -10969,7 +11485,7 @@ so that propagation occurs.
        (eval '(g 'a)))
    (λ (x)
      (and (exn? x)
-          (regexp-match #rx"broke the contract.*on g" (exn-message x)))))
+          (regexp-match #rx"^g.*contract from: pce10-bug" (exn-message x)))))
    
   (contract-eval
    `(,test
@@ -10977,15 +11493,206 @@ so that propagation occurs.
      (compose blame-positive exn:fail:contract:blame-object)
      (with-handlers ((void values)) (contract not #t 'pos 'neg))))
 
-  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-  ;;;;
-  ;;;;
-  ;;;;  Legacy Contract Constructor tests
-  ;;;;
-  ;;;;
-  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  
+  
+;                                                            
+;                                                            
+;                                                            
+;                                                            
+;                      ;;;   ;  ;;;      ;;;;;;; ;;;         
+;                      ;;; ;;;          ;;;      ;;;         
+;  ;;; ;; ;;;  ;;; ;;; ;;; ;;;; ;;;     ;;;; ;;; ;;;   ;;;;  
+;  ;;;;;;;;;;; ;;; ;;; ;;; ;;;; ;;;     ;;;; ;;; ;;;  ;; ;;; 
+;  ;;; ;;; ;;; ;;; ;;; ;;; ;;;  ;;;     ;;;  ;;; ;;; ;;; ;;; 
+;  ;;; ;;; ;;; ;;; ;;; ;;; ;;;  ;;; ;;;;;;;  ;;; ;;; ;;;;;;; 
+;  ;;; ;;; ;;; ;;; ;;; ;;; ;;;  ;;; ;;;;;;;  ;;; ;;; ;;;     
+;  ;;; ;;; ;;; ;;;;;;; ;;; ;;;; ;;;     ;;;  ;;; ;;;  ;;;;;; 
+;  ;;; ;;; ;;;  ;; ;;; ;;;  ;;; ;;;     ;;;  ;;; ;;;   ;;;;  
+;                                                            
+;                                                            
+;                                                            
+;                                                            
+  
+  (let ()
+    ;; build-and-run : (listof (cons/c string[filename] (cons/c string[lang-line] (listof sexp[body-of-module]))) -> any
+    ;; sets up the files named by 'test-case', dynamically requires the first one, deletes the files
+    ;; and returns/raises-the-exception from the require'd file
+    (define (build-and-run test-case)
+      (define dir (make-temporary-file "contract-test~a" 'directory))
+      (for ([f (in-list test-case)])
+        (call-with-output-file (build-path dir (car f))
+          (lambda (port)
+            (display (cadr f) port)
+            (newline port)
+            (for ([sexp (in-list (cddr f))])
+              (fprintf port "~s\n" sexp)))))
+      (dynamic-wind
+       void
+       (lambda () (contract-eval `(dynamic-require ,(build-path dir (car (car test-case))) #f)))
+       (lambda ()
+         (for ([f (in-list test-case)])
+           (delete-file (build-path dir (car f))))
+         (delete-directory dir))))
+
+    (define exn:fail:contract:blame-object (contract-eval 'exn:fail:contract:blame-object))
+    (define (get-last-part-of-path sexp)
+      (define str (format "orig-blame: ~s" sexp))
+      (define m (regexp-match #rx"[/\\]([-a-z0-9.]*)[^/\\]*$" str))
+      (if m (cadr m) str))
+    
+    ;; basic negative blame case
+    (let ([blame
+           (exn:fail:contract:blame-object 
+            (with-handlers ((exn? values))
+              (build-and-run 
+               (list (list "a.rkt"
+                           "#lang racket/base"
+                           '(require "b.rkt")
+                           '(f #f))
+                     (list "b.rkt"
+                           "#lang racket/base"
+                           '(require racket/contract)
+                           '(provide/contract [f (-> integer? integer?)])
+                           '(define (f x) 1))))))])
+      (ctest "a.rkt"
+             'multi-file-blame1-positive
+             (,get-last-part-of-path (blame-positive ,blame)))
+      (ctest "b.rkt"
+             'multi-file-blame1-negative
+             (,get-last-part-of-path (blame-negative ,blame))))
+    
+    ;; basic positive blame case
+    (let ([blame
+           (exn:fail:contract:blame-object 
+            (with-handlers ((exn? values))
+              (build-and-run 
+               (list (list "a.rkt"
+                           "#lang racket/base"
+                           '(require "b.rkt")
+                           '(f 1))
+                     (list "b.rkt"
+                           "#lang racket/base"
+                           '(require racket/contract)
+                           '(provide/contract [f (-> integer? integer?)])
+                           '(define (f x) #f))))))])
+      (ctest "b.rkt"
+             'multi-file-blame2-positive
+             (,get-last-part-of-path (blame-positive ,blame)))
+      (ctest "a.rkt"
+             'multi-file-blame2-negative
+             (,get-last-part-of-path (blame-negative ,blame))))
+    
+    ;; positive blame via a re-provide
+    (let ([blame
+           (exn:fail:contract:blame-object 
+            (with-handlers ((exn? values))
+              (build-and-run 
+               (list (list "a.rkt"
+                           "#lang racket/base"
+                           '(require "b.rkt")
+                           '(f 1))
+                     (list "b.rkt"
+                           "#lang racket/base"
+                           '(require "c.rkt")
+                           '(provide f))
+                     (list "c.rkt"
+                           "#lang racket/base"
+                           '(require racket/contract)
+                           '(provide/contract [f (-> integer? integer?)])
+                           '(define (f x) #f))))))])
+      (ctest "c.rkt"
+             'multi-file-blame3-positive
+             (,get-last-part-of-path (blame-positive ,blame)))
+      (ctest "a.rkt"
+             'multi-file-blame3-negative
+             (,get-last-part-of-path (blame-negative ,blame))))
+    
+    ;; negative blame via a re-provide
+    (let ([blame
+           (exn:fail:contract:blame-object 
+            (with-handlers ((exn? values))
+              (build-and-run 
+               (list (list "a.rkt"
+                           "#lang racket/base"
+                           '(require "b.rkt")
+                           '(f #f))
+                     (list "b.rkt"
+                           "#lang racket/base"
+                           '(require "c.rkt")
+                           '(provide f))
+                     (list "c.rkt"
+                           "#lang racket/base"
+                           '(require racket/contract)
+                           '(provide/contract [f (-> integer? integer?)])
+                           '(define (f x) 1))))))])
+      (ctest "a.rkt"
+             'multi-file-blame4-positive
+             (,get-last-part-of-path (blame-positive ,blame)))
+      (ctest "c.rkt"
+             'multi-file-blame4-negative
+             (,get-last-part-of-path (blame-negative ,blame))))
+    
+    ;; have some sharing in the require graph
+    (let ([blame
+           (exn:fail:contract:blame-object 
+            (with-handlers ((exn? values))
+              (build-and-run 
+               (list (list "client.rkt"
+                           "#lang racket/base"
+                           '(require "server.rkt" "other.rkt")
+                           '(turn-init #f))
+                     (list "server.rkt"
+                           "#lang racket/base"
+                           '(require racket/contract)
+                           '(provide/contract [turn-init (-> number? any)])
+                           '(define turn-init void))
+                     (list "other.rkt"
+                           "#lang racket/base"
+                           '(require "server.rkt"))))))])
+      (ctest "client.rkt"
+             'multi-file-blame5-positive
+             (,get-last-part-of-path (blame-positive ,blame)))
+      (ctest "server.rkt"
+             'multi-file-blame5-negative
+             (,get-last-part-of-path (blame-negative ,blame)))))
+  
+  
+  
+;                                             
+;                                             
+;                                             
+;                                             
+;  ;;;                                        
+;  ;;;                                        
+;  ;;;   ;;;;   ;; ;;;  ;;;;;    ;;;   ;;; ;;;
+;  ;;;  ;; ;;; ;;;;;;; ;;;;;;;  ;;;;;  ;;; ;;;
+;  ;;; ;;; ;;; ;;; ;;; ;;  ;;; ;;;  ;;  ;; ;; 
+;  ;;; ;;;;;;; ;;; ;;;   ;;;;; ;;;      ;; ;; 
+;  ;;; ;;;     ;;; ;;; ;;; ;;; ;;;  ;;  ;; ;; 
+;  ;;;  ;;;;;; ;;;;;;; ;;; ;;;  ;;;;;    ;;;  
+;  ;;;   ;;;;   ;; ;;;  ;;;;;;   ;;;     ;;;  
+;                  ;;;                 ;;;;;  
+;              ;;;;;;                  ;;;;   
+;                                             
+;                                             
+
+;                                                                                    
+;                                                                                    
+;                                                                                    
+;                                                                                    
+;                                   ;                         ;                      
+;                                 ;;;                       ;;;                      
+;    ;;;     ;;;   ;;; ;;   ;;;;  ;;;; ;;; ;;;; ;;;   ;;;   ;;;;   ;;;   ;;; ;;;;;;  
+;   ;;;;;   ;;;;;  ;;;;;;; ;;; ;; ;;;; ;;;;;;;; ;;;  ;;;;;  ;;;;  ;;;;;  ;;;;;;;; ;; 
+;  ;;;  ;; ;;; ;;; ;;; ;;; ;;;    ;;;  ;;;  ;;; ;;; ;;;  ;; ;;;  ;;; ;;; ;;;  ;;;    
+;  ;;;     ;;; ;;; ;;; ;;;  ;;;;  ;;;  ;;;  ;;; ;;; ;;;     ;;;  ;;; ;;; ;;;   ;;;;  
+;  ;;;  ;; ;;; ;;; ;;; ;;;    ;;; ;;;  ;;;  ;;; ;;; ;;;  ;; ;;;  ;;; ;;; ;;;     ;;; 
+;   ;;;;;   ;;;;;  ;;; ;;; ;; ;;; ;;;; ;;;  ;;;;;;;  ;;;;;  ;;;;  ;;;;;  ;;;  ;; ;;; 
+;    ;;;     ;;;   ;;; ;;;  ;;;;   ;;; ;;;   ;; ;;;   ;;;    ;;;   ;;;   ;;;   ;;;;  
+;                                                                                    
+;                                                                                    
+;                                                                                    
+;                                                                                    
 
   ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
   ;;

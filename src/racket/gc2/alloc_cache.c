@@ -1,6 +1,6 @@
 /* 
    Provides:
-      static ssize_t alloc_cache_free_page(AllocCacheBlock *blockfree, char *p, size_t len, int dirty)
+      static ssize_t alloc_cache_free_page(AllocCacheBlock *blockfree, char *p, size_t len, int dirty, int originated_here)
       static ssize_t void alloc_cache_flush_freed_pages(AllocCacheBlock *blockfree)
       static void *alloc_cache_alloc_page(AllocCacheBlock *blockfree,  size_t len, size_t alignment, int dirty_ok, ssize_t *size_diff)
    Requires (defined earlier):
@@ -9,8 +9,15 @@
       static void *os_vm_alloc_pages(size_t len);
 */
 
+#ifdef __APPLE__
+#include <TargetConditionals.h>
+#endif
+#ifndef TARGET_OS_IPHONE
+#define TARGET_OS_IPHONE 0
+#endif
+
 /* Controls how often freed pages are actually returned to OS: */
-#ifdef IPHONE
+#if TARGET_OS_IPHONE
 #define BLOCKFREE_UNMAP_AGE 0
 #else
 #define BLOCKFREE_UNMAP_AGE 3
@@ -24,6 +31,16 @@
 
 static AllocCacheBlock *alloc_cache_create() {
   return ofm_malloc_zero(sizeof(AllocCacheBlock) * BLOCKFREE_CACHE_SIZE); 
+}
+
+static ssize_t alloc_cache_free_all_pages(AllocCacheBlock *blockfree);
+static ssize_t alloc_cache_free(AllocCacheBlock *ac) {
+  if (ac) {
+    ssize_t s = alloc_cache_free_all_pages(ac);
+    free(ac);
+    return s;
+  }
+  return 0;
 }
 
 static int alloc_cache_block_compare(const void *a, const void *b)
@@ -106,7 +123,7 @@ inline static void *alloc_cache_find_pages(AllocCacheBlock *blockfree, size_t le
   return NULL;
 }
 
-static ssize_t alloc_cache_free_page(AllocCacheBlock *blockfree, char *p, size_t len, int dirty)
+static ssize_t alloc_cache_free_page(AllocCacheBlock *blockfree, char *p, size_t len, int dirty, int originated_here)
 {
   int i;
 
@@ -118,14 +135,14 @@ static ssize_t alloc_cache_free_page(AllocCacheBlock *blockfree, char *p, size_t
         blockfree[i].len += len;
         if (dirty)
           blockfree[i].zeroed = 0;
-        return 0;
+        return (originated_here ? 0 : len);
       }
       if (p + len == blockfree[i].start) {
         blockfree[i].start = p;
         blockfree[i].len += len;
         if (dirty)
           blockfree[i].zeroed = 0;
-        return 0;
+        return (originated_here ? 0 : len);
       }
     }
 
@@ -135,7 +152,7 @@ static ssize_t alloc_cache_free_page(AllocCacheBlock *blockfree, char *p, size_t
       blockfree[i].len = len;
       blockfree[i].age = 0;
       blockfree[i].zeroed = !dirty;
-      return 0;
+      return (originated_here ? 0 : len);
     }
   }
 
@@ -143,7 +160,7 @@ static ssize_t alloc_cache_free_page(AllocCacheBlock *blockfree, char *p, size_t
   alloc_cache_collapse_pages(blockfree);
 
   os_free_pages(p, len);
-  return -len;
+  return (originated_here ? -len : 0);
 }
 
 static ssize_t alloc_cache_flush_freed_pages(AllocCacheBlock *blockfree)
@@ -161,6 +178,23 @@ static ssize_t alloc_cache_flush_freed_pages(AllocCacheBlock *blockfree)
         blockfree[i].len = 0;
       } else
         blockfree[i].age++;
+    }
+  }
+  return freed;
+}
+
+static ssize_t alloc_cache_free_all_pages(AllocCacheBlock *blockfree)
+{
+  int i;
+  ssize_t freed = 0;
+  alloc_cache_collapse_pages(blockfree);
+
+  for (i = 0; i < BLOCKFREE_CACHE_SIZE; i++) {
+    if (blockfree[i].start) {
+        os_free_pages(blockfree[i].start, blockfree[i].len);
+        freed -= blockfree[i].len;
+        blockfree[i].start = NULL;
+        blockfree[i].len = 0;
     }
   }
   return freed;
@@ -184,7 +218,7 @@ static void *alloc_cache_alloc_page(AllocCacheBlock *blockfree,  size_t len, siz
   r = alloc_cache_find_pages(blockfree, len, alignment, dirty_ok);
   if(!r) {
     /* attempt to allocate from OS */
-    size_t extra = alignment + CACHE_SEED_PAGES * APAGE_SIZE;
+    size_t extra = (alignment ? (alignment + CACHE_SEED_PAGES * APAGE_SIZE) : 0);
     r = os_alloc_pages(len + extra);
     if(r == (void *)-1) { return NULL; }
 
@@ -203,14 +237,15 @@ static void *alloc_cache_alloc_page(AllocCacheBlock *blockfree,  size_t len, siz
           /* Instead of actually unmapping, put it in the cache, and there's
              a good chance we can use it next time: */
           (*size_diff) += extra;
-          (*size_diff) += alloc_cache_free_page(blockfree, real_r + len, extra, 1);
-        } 
-        else { os_free_pages(real_r + len, extra - pre_extra); }
+          (*size_diff) += alloc_cache_free_page(blockfree, real_r + len, extra, 1, 1);
+        } else { 
+          os_free_pages(real_r + len, extra - pre_extra);
+        }
       }
       r = real_r;
     }
 
-    (*size_diff) += extra;
+    (*size_diff) += len;
   }
 
   return r;

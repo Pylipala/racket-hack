@@ -15,7 +15,8 @@
 	 "window.rkt"
          "wndclass.rkt"
          "hbitmap.rkt"
-         "cursor.rkt")
+         "cursor.rkt"
+	 "menu-item.rkt")
 
 (provide 
  (protect-out frame%
@@ -25,6 +26,7 @@
 (define-user32 SetLayeredWindowAttributes (_wfun _HWND _COLORREF _BYTE _DWORD -> _BOOL))
 (define-user32 GetActiveWindow (_wfun -> _HWND))
 (define-user32 SetFocus (_wfun _HWND -> _HWND))
+(define-user32 BringWindowToTop (_wfun _HWND -> (r : _BOOL) -> (unless r (failed 'BringWindowToTop))))
 
 (define-gdi32 GetDeviceCaps (_wfun _HDC _int -> _int))
 
@@ -56,12 +58,17 @@
 
 (define SPI_GETWORKAREA            #x0030)
 
-(define (display-size xb yb ?)
-  (atomically
-   (let ([hdc (GetDC #f)])
-     (set-box! xb (GetDeviceCaps hdc HORZRES))
-     (set-box! yb (GetDeviceCaps hdc VERTRES))
-     (ReleaseDC #f hdc))))
+(define (display-size xb yb all?)
+  (if all?
+      (atomically
+       (let ([hdc (GetDC #f)])
+	 (set-box! xb (GetDeviceCaps hdc HORZRES))
+	 (set-box! yb (GetDeviceCaps hdc VERTRES))
+	 (ReleaseDC #f hdc)))
+      (let ([r (make-RECT 0 0 0 0)])
+	(SystemParametersInfoW SPI_GETWORKAREA 0 r 0)
+	(set-box! xb (- (RECT-right r) (RECT-left r)))
+	(set-box! yb (- (RECT-bottom r) (RECT-top r))))))
 
 (define (display-origin xb yb avoid-bars?)
   (if avoid-bars?
@@ -104,7 +111,7 @@
   (inherit get-hwnd 
 	   is-shown?
 	   get-eventspace
-           on-size
+           queue-on-size
            pre-on-char pre-on-event
            reset-cursor-in-child)
 
@@ -141,6 +148,8 @@
 
   (define saved-title (or label ""))
   (define hidden-zoomed? #f)
+  (define float-without-caption? (and (memq 'float style)
+                                      (memq 'no-caption style)))
 
   (define min-width #f)
   (define min-height #f)
@@ -169,15 +178,29 @@
 
   (define/override (show on?)
     (let ([es (get-eventspace)])
-      (when (and on?
-		 (eventspace-shutdown? es))
-	(error (string->symbol
-		(format "show method in ~a"
-			(if (is-dialog?)
-			    'dialog%
-			    'frame%)))
-	       "eventspace has been shutdown")))
-    (super show on?))
+      (when on?
+        (when (eventspace-shutdown? es)
+          (error (string->symbol
+                  (format "show method in ~a"
+                          (if (is-dialog?)
+                              'dialog%
+                              'frame%)))
+                 "eventspace has been shutdown"))
+        (when saved-child
+          (if (eq? (current-thread) (eventspace-handler-thread es))
+              (do-paint-children)
+              (let ([s (make-semaphore)])
+                (queue-callback (lambda ()
+                                  (do-paint-children)
+                                  (semaphore-post s)))
+                (sync/timeout 1 s))))))
+    ;; calling `direct-show' instead of `show' avoids
+    ;;  calling `show-children':
+    (atomically (direct-show on?)))
+
+  (define/private (do-paint-children)
+    (when saved-child
+      (send saved-child paint-children)))
 
   (define/override (direct-show on?)
     ;; atomic mode
@@ -187,9 +210,14 @@
       (set! hidden-zoomed? (is-maximized?)))
     (super direct-show on? (if hidden-zoomed?
                                SW_SHOWMAXIMIZED
-                               SW_SHOW))
+                               (if float-without-caption?
+                                   SW_SHOWNOACTIVATE
+                                   SW_SHOW)))
     (when (and on? (iconized?))
-      (ShowWindow hwnd SW_RESTORE)))
+      (ShowWindow hwnd SW_RESTORE))
+    (when on?
+      (unless float-without-caption?
+        (BringWindowToTop hwnd))))
 
   (define/public (destroy)
     (direct-show #f))
@@ -202,14 +230,15 @@
      [(= msg WM_CLOSE)
       (queue-window-event this (lambda () 
 				 (when (on-close)
-				   (direct-show #f))))
+                                   (atomically
+                                    (direct-show #f)))))
       0]
      [(and (= msg WM_SIZE)
            (not (= wParam SIZE_MINIMIZED)))
-      (queue-window-event this (lambda () (on-size 0 0)))
+      (queue-window-event this (lambda () (queue-on-size)))
       (stdret 0 1)]
      [(= msg WM_MOVE)
-      (queue-window-event this (lambda () (on-size 0 0)))
+      (queue-window-event this (lambda () (queue-on-size)))
       (stdret 0 1)]
      [(= msg WM_ACTIVATE)
       (let ([state (LOWORD wParam)]
@@ -222,7 +251,10 @@
       0]
      [(and (= msg WM_COMMAND)
            (zero? (HIWORD wParam)))
-      (queue-window-event this (lambda () (on-menu-command (LOWORD wParam))))
+      (let ([id (LOWORD wParam)])
+	(let ([item (id-to-menu-item id)])
+	  (when item (send item auto-check)))
+	(queue-window-event this (lambda () (on-menu-command id))))
       0]
      [(= msg WM_INITMENU)
       (constrained-reply (get-eventspace)
@@ -247,6 +279,9 @@
                            (POINT-y (MINMAXINFO-ptMinTrackSize mmi)))))))
       0]
      [else (super wndproc w msg wParam lParam default)]))
+
+  (define/override (try-nc-mouse w msg wParam lParam)
+    #f)
 
   (define/override (set-size x y w h)
     (unless (and (= w -1) (= h -1))
@@ -279,13 +314,21 @@
                (memq v focus-window-path))
       (set! focus-window-path #f)))
   (define/override (set-top-focus win win-path child-hwnd)
-    (set! focus-window-path win-path)
+    (set! focus-window-path (cons this win-path))
     (when (ptr-equal? hwnd (GetActiveWindow))
-      (SetFocus child-hwnd)))
+      (void (SetFocus child-hwnd))))
 
   (define/private (set-frame-focus)
-    (when (pair? focus-window-path)
-      (SetFocus (send (last focus-window-path) get-focus-hwnd))))
+    (let ([p focus-window-path])
+      (when (pair? p)
+        (SetFocus (send (last p) get-focus-hwnd)))))
+
+  (define/public (get-focus-window [even-if-not-active? #f])
+    (let ([p focus-window-path])
+      (and (pair? p)
+           (or even-if-not-active?
+               (ptr-equal? hwnd (GetActiveWindow)))
+           (last p))))
 
   (define/override (can-accept-focus?)
     #f)
@@ -343,17 +386,35 @@
           [w (box 0)]
           [h (box 0)]
           [x (box 0)]
-          [y (box 0)])
+          [y (box 0)]
+	  [ww (box 0)]
+	  [wh (box 0)]
+	  [wx (box 0)]
+	  [wy (box 0)])
       (display-size sw sh #f)
+      (if wrt
+	  (begin
+	    (send wrt get-size ww wh)
+	    (set-box! wx (send wrt get-x))
+	    (set-box! wy (send wrt get-y)))
+	  (begin
+	    (set-box! ww (unbox sw))
+	    (set-box! wh (unbox sh))))
       (get-size w h)
       (MoveWindow hwnd
                   (if (or (eq? mode 'both)
                           (eq? mode 'horizontal))
-                      (quotient (- (unbox sw) (unbox w)) 2)
+                      (max 0 
+			   (min (- (unbox sw) (unbox w))
+				(+ (quotient (- (unbox ww) (unbox w)) 2) 
+				   (unbox wx))))
                       (get-x))
                   (if (or (eq? mode 'both)
                           (eq? mode 'vertical))
-                      (quotient (- (unbox sh) (unbox h)) 2)
+		      (max 0
+			   (min (- (unbox sh) (unbox h))
+				(+ (quotient (- (unbox wh) (unbox h)) 2) 
+				   (unbox wy))))
                       (get-x))
                   (unbox w)
                   (unbox h)
@@ -372,7 +433,6 @@
   (define/override (get-top-frame) this)
 
   (define/public (designate-root-frame) (void))
-  (def/public-unimplemented system-menu)
 
   (define modified? #f)
   (define/public (set-modified on?)
@@ -470,7 +530,7 @@
   (define small-hicon #f)
   (define big-hicon #f)
 
-  (define/public (set-icon bm mask [mode 'both])
+  (define/public (set-icon bm [mask #f] [mode 'both])
     (let* ([bg-hbitmap
             (let* ([bm (make-object bitmap% (send bm get-width) (send bm get-height))]
                    [dc (make-object bitmap-dc% bm)])
@@ -500,6 +560,11 @@
   (define/public (set-title s)
     (atomically
      (set! saved-title s)
-     (SetWindowTextW (get-hwnd) (string-append s (if modified? "*" ""))))))
+     (SetWindowTextW (get-hwnd) (string-append s (if modified? "*" "")))))
 
+  (define/public (popup-menu-with-char c)
+    (DefWindowProcW hwnd WM_SYSKEYDOWN (char->integer c) (arithmetic-shift 1 29))
+    (DefWindowProcW hwnd WM_SYSCHAR (char->integer c) (arithmetic-shift 1 29)))
 
+  (define/public (system-menu)
+    (popup-menu-with-char #\space)))

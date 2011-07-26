@@ -50,6 +50,7 @@
                 (exact->inexact (send bm get-height)))))
 
     (define/override (get-cr) c)
+    (define/override (release-cr cr) (when bm (send bm drop-alpha-s)))
 
     (define/override (end-cr) (void))
 
@@ -58,20 +59,34 @@
           'unsmoothed
           s))
 
-    (define/override (install-color cr c a)
+    (define/override (install-color cr c a bg?)
       (if b&w?
           (begin
             (cairo_set_operator cr CAIRO_OPERATOR_SOURCE)
-            (if (zero? a)
-                (super install-color cr c a)
-                (if (and (= (color-red c) 255)
-                         (= (color-green c) 255)
-                         (= (color-blue c) 255))
+            (if (or (zero? a)
+                    (zero? (color-alpha c)))
+                (super install-color cr c a bg?)
+                (if (if bg?
+                        ;; Background: all non-black to white
+                        (not (and (= (color-red c) 0)
+                                  (= (color-green c) 0)
+                                  (= (color-blue c) 0)
+                                  (= (color-alpha c) 1.0)))
+                        ;; Foreground: all non-white to black:
+                        (and (= (color-red c) 255)
+                             (= (color-green c) 255)
+                             (= (color-blue c) 255)
+                             (= (color-alpha c) 1.0)))
                     (cairo_set_source_rgba cr 1.0 1.0 1.0 0.0)
                     (cairo_set_source_rgba cr 0.0 0.0 0.0 1.0))))
-          (super install-color cr c a)))
+          (super install-color cr c a bg?)))
 
     (define/override (collapse-bitmap-b&w?) b&w?)
+
+    (define/override (get-clear-operator)
+      (if (or b&w? (send bm has-alpha-channel?))
+          CAIRO_OPERATOR_CLEAR
+          CAIRO_OPERATOR_OVER))
 
     (super-new)))
 
@@ -85,7 +100,10 @@
              get-size
              get-transformation
              set-transformation
-             scale)
+             get-smoothing
+             set-smoothing
+             scale
+             get-font)
     
     (super-new)
 
@@ -116,20 +134,22 @@
                                  [exact-nonnegative-integer? w]
                                  [exact-nonnegative-integer? h]
                                  [bytes? bstr]
-                                 [any? [set-alpha? #f]])
+                                 [any? [set-alpha? #f]]
+                                 [any? [pre-mult? #f]])
       (let ([bm (internal-get-bitmap)])
         (when bm
-          (send bm set-argb-pixels x y w h bstr set-alpha?))))
+          (send bm set-argb-pixels x y w h bstr set-alpha? pre-mult?))))
 
     (def/public (get-argb-pixels [exact-nonnegative-integer? x]
                                  [exact-nonnegative-integer? y]
                                  [exact-nonnegative-integer? w]
                                  [exact-nonnegative-integer? h]
                                  [bytes? bstr]
-                                 [any? [get-alpha? #f]])
+                                 [any? [get-alpha? #f]]
+                                 [any? [pre-mult? #f]])
       (let ([bm (internal-get-bitmap)])
         (when bm
-          (send bm get-argb-pixels x y w h bstr get-alpha?))))
+          (send bm get-argb-pixels x y w h bstr get-alpha? pre-mult?))))
 
     (def/public (draw-bitmap-section-smooth [bitmap% src]
                                             [real? dest-x]
@@ -145,10 +165,32 @@
                                             [(make-or-false bitmap%) [mask #f]])
       (let ([sx (if (zero? src-w) 1.0 (/ dest-w src-w))]
             [sy (if (zero? src-h) 1.0 (/ dest-h src-h))])
-        (let ([t (get-transformation)])
+        (let ([t (get-transformation)]
+              [s (get-smoothing)])
           (scale sx sy)
+          (when (eq? s 'unsmoothed) (set-smoothing 'aligned))
           (begin0
            (draw-bitmap-section src (/ dest-x sx) (/ dest-y sy) src-x src-y src-w src-h style color mask)
-           (set-transformation t)))))))
+           (when (eq? s 'unsmoothed) (set-smoothing 'unsmoothed))
+           (set-transformation t)))))
+
+    (def/override (get-char-width)
+      (if (internal-get-bitmap)
+          (super get-char-width)
+          (send (get-temp-bitmap-dc) get-char-width)))
+
+    (def/override (get-char-height)
+      (if (internal-get-bitmap)
+          (super get-char-height)
+          (send (get-temp-bitmap-dc) get-char-height)))
+
+    (define temp-dc #f)
+    (define/private (get-temp-bitmap-dc)
+      (let ([dc (or (and temp-dc (weak-box-value temp-dc))
+                    (let ([dc (make-object bitmap-dc% (make-object bitmap% 1 1))])
+                      (set! temp-dc (make-weak-box dc))
+                      dc))])
+        (send dc set-font (get-font))
+        dc))))
 
 (install-bitmap-dc-class! bitmap-dc%)

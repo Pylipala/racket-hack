@@ -1,6 +1,5 @@
 #lang scribble/doc
-@(require "mz.ss"
-          racket/sandbox
+@(require "mz.rkt" racket/sandbox
           (for-label racket/sandbox
                      racket/port
                      (only-in racket/gui make-gui-namespace)
@@ -285,7 +284,7 @@ sandboxed environment --- one that is safe to make publicly available.
 Further customizations might be needed in case more privileges are
 needed, or if you want tighter restrictions.  Another useful approach
 for customizing an evaluator is to begin with a relatively
-unrestricted configuration and add the desired restrictions.  This is
+unrestricted configuration and add the desired restrictions.  This approach is made
 possible by the @racket[call-with-trusted-sandbox-configuration]
 function.
 

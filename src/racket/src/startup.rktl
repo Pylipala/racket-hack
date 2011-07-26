@@ -12,21 +12,20 @@
 ;; of initial module definitions and parameter values.
 
 ;; When using makefiles, `make startup' in [the build directory for]
-;; plt/src/mzscheme creates plt/src/mzscheme/src/cstartup.inc. Note
-;; that `make startup' requires a working Racket executable; see
-;; schminc.h for information about avoiding cstartup.inc, and using
-;; startup.inc (requires perl), instead. In fact, the recommend
-;; build strategy for cstartup.inc is
-;;   * Run configure in <builddir> with --enable-perl
+;; "plt/src/racket" creates "plt/src/racket/src/cstartup.inc", and
+;; `make cstartup' creates plt/src/racket/src/cstartup.inc. Both
+;; require a working Racket executable.
+
+;; The recommend build strategy for cstartup.inc is
 ;;   * Set USE_COMPILED_STARTUP in schminc.h to 0
 ;;   * Modify startup.rkt to taste
-;;   * Run make in <builddir>/mzscheme
-;;   * Run make startup in <builddir>/mzscheme
+;;   * Run make startup in <builddir>/racket
+;;   * Run make in <builddir>/racket
 ;;   * Set USE_COMPILED_STARTUP in schminc.h to 1
-;;   * Run make in <builddir>/mzscheme
+;;   * Run make in <builddir>/racket
 
 ;; Do not use block comments (with #| and |#) in this file. The
-;; pre-processing script to build startup.inc can't handle them.
+;; script to build startup.inc can't handle them.
 
 ;; ------------------------------------------------------
 ;; Minimal syntax (no error checks!) needed for the rest
@@ -133,15 +132,16 @@
       (let-values ([(s) (cdr (syntax->list stx))])
         (let-values ([(bindings) (apply append
                                         (map syntax->list (syntax->list (car s))))])
-          (datum->syntax 
-           here-stx
-           (list 'with-continuation-mark
-                 'parameterization-key
-                 (list* 'extend-parameterization
-                        '(continuation-mark-set-first #f parameterization-key)
-                        bindings)
-                 (list* 'let-values ()
-                        (cdr s))))))))
+          (syntax-arm
+           (datum->syntax 
+            here-stx
+            (list 'with-continuation-mark
+                  'parameterization-key
+                  (list* 'extend-parameterization
+                         '(continuation-mark-set-first #f parameterization-key)
+                         bindings)
+                  (list* 'let-values ()
+                         (cdr s)))))))))
 
   (define-syntaxes (cond)
     (lambda (stx)
@@ -403,7 +403,10 @@
 	  (cons-path (lambda (default s l) 
 		       (if (bytes=? s #"")
 			   (append default l)
-			     (cons (bytes->path s) l)))))
+                           (cons (bytes->path (if (eq? (system-type) 'windows)
+                                                  (regexp-replace* #rx#"\"" s #"")
+                                                  s))
+                                 l)))))
       (lambda (s default)
 	(unless (or (bytes? s)
 		    (string? s))
@@ -490,21 +493,29 @@
             (eval e)
             (loop)))))))
 
-;; ----------------------------------------
-;; A module that collects all the built-in modules,
-;;  so that it's easier to keep them attached in new
-;;  namespaces.
 
-(module #%builtin '#%kernel
-  (#%require '#%expobs
-             (only '#%foreign)  ; so it's attached, but doesn't depend on any exports
-             (only '#%unsafe)   ; ditto
-             (only '#%flfxnum)  ; ditto
-             '#%paramz
-             '#%network
-             '#%utils
-             (only '#%place)
-             (only '#%futures)))
+;; ----------------------------------------
+;; When places are implemented by plain old threads,
+;; place channels need to be shared across namespaces,
+;; so `#%place-struct' is included in builtins
+
+(module #%place-struct '#%kernel
+  
+  (define-values (struct:TH-place-channel TH-place-channel TH-place-channel? 
+                  TH-place-channel-ref TH-place-channel-set!)
+    (make-struct-type 'TH-place-channel #f 2 0 #f (list (cons prop:evt (lambda (x) (TH-place-channel-ref x 0))))))
+
+  (define-values (TH-place-channel-in TH-place-channel-out) 
+    (values
+      (lambda (x) (TH-place-channel-ref x 0))
+      (lambda (x) (TH-place-channel-ref x 1))))
+
+ (#%provide 
+    struct:TH-place-channel
+    TH-place-channel 
+    TH-place-channel? 
+    TH-place-channel-in
+    TH-place-channel-out))
 
 ;; ----------------------------------------
 ;; Handlers to install on startup
@@ -512,7 +523,7 @@
 (module #%boot '#%kernel
   (#%require '#%min-stx '#%utils '#%paramz)
 
-  (#%provide boot seal)
+  (#%provide boot seal orig-paramz)
 
   (define-values (dll-suffix)
     (system-type 'so-suffix))
@@ -912,3 +923,22 @@
       (set! orig-paramz
             (reparameterize 
              (continuation-mark-set-first #f parameterization-key))))))
+
+;; ----------------------------------------
+;; A module that collects all the built-in modules,
+;;  so that it's easier to keep them attached in new
+;;  namespaces.
+
+(module #%builtin '#%kernel
+  (#%require '#%expobs
+             (only '#%foreign)  ; so it's attached, but doesn't depend on any exports
+             (only '#%unsafe)   ; ditto
+             (only '#%flfxnum)  ; ditto
+             '#%boot
+             '#%place-struct
+             '#%paramz
+             '#%network
+             '#%utils
+             (only '#%place)
+             (only '#%futures)))
+

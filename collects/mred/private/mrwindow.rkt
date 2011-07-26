@@ -1,29 +1,30 @@
 (module mrwindow mzscheme
   (require mzlib/class
-	   mzlib/class100
-	   (prefix wx: "kernel.ss")
-	   "lock.ss"
-	   "helper.ss"
-	   "const.ss"
-	   "check.ss"
-	   "wx.ss"
-	   "kw.ss"
-	   "wxwindow.ss"
-	   "mrpopup.ss")
+           mzlib/class100
+           (prefix wx: "kernel.rkt")
+           "lock.rkt"
+           "helper.rkt"
+           "const.rkt"
+           "check.rkt"
+           "wx.rkt"
+           "kw.rkt"
+           "wxwindow.rkt"
+           "mrpopup.rkt")
 
   (provide area<%>
-	   (protect area%-keywords)
-	   area%
-	   (protect internal-subarea<%>)
-	   subarea<%>
-	   (protect subarea%-keywords
-		    make-subarea%)
-	   window<%>
-	   (protect window%-keywords)
-	   subwindow<%>
-	   (protect make-window%)
+           (protect area%-keywords)
+           area%
+           (protect internal-subarea<%>)
+           subarea<%>
+           (protect subarea%-keywords
+                    make-subarea%)
+           window<%>
+           (protect window%-keywords)
+           subwindow<%>
+           (protect make-window%)
            
-           (protect set-get-outer-panel))
+           (protect set-get-outer-panel
+                    set-parent))
 
   (define area<%>
     (interface ()
@@ -39,7 +40,8 @@
     [stretchable-height no-val])
 
   (define-local-member-name
-    set-get-outer-panel)
+    set-get-outer-panel
+    set-parent)
 
   (define area%
     (class100* mred% (area<%>) (mk-wx get-wx-pan get-outer-wx-pan mismatches prnt
@@ -57,6 +59,7 @@
        [get-wx-outer-panel get-outer-wx-pan]
        [parent prnt])
       (public
+        [set-parent (lambda (p) (set! parent p))] ; called in atomic mode
 	[get-parent (lambda () parent)]
 	[get-top-level-window (entry-point (lambda () (wx->mred (send wx get-top-level))))]
 	[(minw min-width) (param get-wx-outer-panel min-width)]
@@ -116,12 +119,13 @@
       get-client-size get-size get-width get-height get-x get-y
       get-cursor set-cursor popup-menu
       show is-shown? on-superwindow-show refresh
-      get-handle))
+      get-handle get-client-handle))
 
   (define-keywords window%-keywords [enabled #t])
 
   (define subwindow<%> 
-    (interface (window<%> subarea<%>)))
+    (interface (window<%> subarea<%>)
+      reparent))
 
   (define (make-window% top? %) ; % implements area<%>
     (class100* % (window<%>) (mk-wx get-wx-panel get-outer-wx-panel mismatches lbl parent crsr
@@ -173,6 +177,7 @@
 	[get-plain-label (lambda () (and (string? label) (wx:label->plain-label label)))]
 
 	[get-handle (lambda () (send wx get-handle))]
+	[get-client-handle (lambda () (send wx get-client-handle))]
 
 	[accept-drop-files
 	 (entry-point

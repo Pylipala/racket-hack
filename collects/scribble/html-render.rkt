@@ -1,8 +1,8 @@
 #lang scheme/base
 
-(require "core.ss"
-         "private/render-utils.ss"
-         "html-properties.ss"
+(require "core.rkt"
+         "private/render-utils.rkt"
+         "html-properties.rkt"
          scheme/class
          scheme/path
          scheme/file
@@ -19,8 +19,8 @@
          scheme/serialize
          (prefix-in xml: xml/xml)
          (for-syntax scheme/base)
-         "search.ss"
-         (except-in "base.ss" url))
+         "search.rkt"
+         (except-in "base.rkt" url))
 (provide render-mixin
          render-multi-mixin)
 
@@ -146,7 +146,12 @@
       (if (string? name)
           (cons `[class ,name]
                 a)
-          a))))       
+          a))))
+
+(define (style->tag style)
+  (for/or ([s (in-list (style-properties style))])
+    (and (alt-tag? s)
+         (string->symbol (alt-tag-name s)))))
 
 (define (make-search-box top-path) ; appears on every page
   (let ([sa         string-append]
@@ -198,6 +203,9 @@
                 [script-path #f]
                 [script-file #f]
                 [search-box? #f])
+
+    (define/override (current-render-mode)
+      '(html))
 
     (define/override (get-suffix) #".html")
 
@@ -914,7 +922,10 @@
                      (not (style-name style))
                      (null? attrs))
                 contents
-                `((,(if (memq 'div (style-properties style)) 'div 'p)
+                `((,(or (style->tag style)
+                        (if (memq 'div (style-properties style)) 
+                            'div 
+                            'p))
                    [,@attrs
                     ,@(case (style-name style)
                         [(author) '([class "author"])]
@@ -966,24 +977,59 @@
                    (number->string
                     (inexact->exact
                      (floor (* scale (integer-bytes->integer s #f #t))))))]
-                [src (select-suffix src suffixes '(".png" ".gif"))]
-                [sz (if (= 1.0 scale)
-                        null
-                        ;; Try to extract file size:
-                        (call-with-input-file*
-                         src
-                         (lambda (in)
-                           (if (regexp-try-match #px#"^\211PNG.{12}" in)
-                               `([width ,(to-num (read-bytes 4 in))]
-                                 [height ,(to-num (read-bytes 4 in))])
-                               null))))])
-           `((img ([src ,(let ([p (install-file src)])
+                [src (select-suffix src suffixes '(".png" ".gif" ".svg"))]
+                [svg? (regexp-match? #rx#"[.]svg$" (if (path? src) (path->bytes src) src))]
+                [sz (cond
+                     [svg?
+                      (call-with-input-file*
+                       src
+                       (lambda (in)
+                         (with-handlers ([exn:fail? (lambda (exn) 
+                                                      (log-warning
+                                                       (format "warning: error while reading SVG file for size: ~a"
+                                                               (if (exn? exn)
+                                                                   (exn-message exn)
+                                                                   (format "~e" exn))))
+                                                      null)])
+                           (let* ([d (xml:read-xml in)]
+                                  [attribs (xml:element-attributes 
+                                            (xml:document-element d))]
+                                  [check-name (lambda (n)
+                                                (lambda (a)
+                                                  (and (eq? n (xml:attribute-name a))
+                                                       (xml:attribute-value a))))]
+                                  [w (ormap (check-name 'width) attribs)]
+                                  [h (ormap (check-name 'height) attribs)])
+                             (if (and w h)
+                                 `([width ,w][height ,h])
+                                 null)))))]
+                     [(= 1.0 scale) null]
+                     [else
+                      ;; Try to extract file size:
+                      (call-with-input-file*
+                       src
+                       (lambda (in)
+                         (cond
+                          [(regexp-try-match #px#"^\211PNG.{12}" in)
+                           `([width ,(to-num (read-bytes 4 in))]
+                             [height ,(to-num (read-bytes 4 in))])]
+                          [else
+                           null])))])])
+           (let ([srcref (let ([p (install-file src)])
                            (if (path? p)
                                (url->string (path->url (path->complete-path p)))
-                               p))]
-                   [alt ,(content->string (element-content e))]
-                   ,@sz
-                   ,@(attribs)))))]
+                               p))])
+             `((,(if svg? 'object 'img)
+                ([,(if svg? 'data 'src) ,srcref]
+                 [alt ,(content->string (element-content e))]
+                 ,@(if svg?
+                       `([type "image/svg+xml"])
+                       null)
+                 ,@sz
+                 ,@(attribs))
+                ,@(if svg? 
+                      `((param ([name "src"] [value ,srcref])))
+                      null)))))]
         [(and (or (element? e) (multiarg-element? e))
               (ormap (lambda (v) (and (script-property? v) v))
                      (let ([s (if (element? e)
@@ -1042,7 +1088,7 @@
                                           (bytes->string/utf-8
                                            (base64-encode
                                             (string->bytes/utf-8
-                                             (format "~a" (serialize
+                                             (format "~s" (serialize
                                                            (link-element-tag e)))))))
                                     (url-query u))])))]
                         [else
@@ -1077,6 +1123,10 @@
                      (if (style? s)
                          (style-name s)
                          s))]
+             [alt-tag
+              (let ([s (content-style e)])
+                (and (style? s)
+                     (style->tag s)))]
              [link? (and (ormap target-url? properties)
                          (not (current-no-links)))]
              [anchor? (ormap url-anchor? properties)]
@@ -1110,7 +1160,8 @@
           (if (and (null? attribs) 
                    (not link?)
                    (not anchor?)
-                   (not newline?))
+                   (not newline?)
+                   (not alt-tag))
               content
               `(,@(if anchor?
                       (append-map (lambda (v)
@@ -1120,6 +1171,7 @@
                                   properties)
                       null)
                 (,(cond
+                   [alt-tag alt-tag]
                    [link? 'a]
                    [newline? 'br]
                    [else 'span]) 
@@ -1219,16 +1271,20 @@
 
     (define/override (render-nested-flow t part ri)
       `((blockquote [,@(style->attribs (nested-flow-style t))
-                     ,@(if (and (not (string? (style-name (nested-flow-style t))))
-                                (not (eq? 'inset (style-name (nested-flow-style t)))))
-                           `([class "SubFlow"])
-                           null)]
+                     ,@(if (eq? 'code-inset (style-name (nested-flow-style t)))
+                           `([class "SCodeFlow"])
+                           (if (and (not (string? (style-name (nested-flow-style t))))
+                                    (not (eq? 'inset (style-name (nested-flow-style t)))))
+                               `([class "SubFlow"])
+                               null))]
                     ,@(append-map (lambda (i) (render-block i part ri #f))
                                   (nested-flow-blocks t)))))
 
     (define/override (render-compound-paragraph t part ri starting-item?)
-      `((p ,(style->attribs (compound-paragraph-style t))
-           ,@(super render-compound-paragraph t part ri starting-item?))))
+      (let ([style (compound-paragraph-style t)])
+        `((,(or (style->tag style) 'p)
+           ,(style->attribs style)
+           ,@(super render-compound-paragraph t part ri starting-item?)))))
 
     (define/override (render-itemization t part ri)
       (let ([style-str (or (and (string? (style-name (itemization-style t)))
@@ -1263,7 +1319,7 @@
              (ascii-ize i)))]
         [(symbol? i)
          (case i
-           [(mdash) '(" " ndash " ")]
+           [(mdash) '(8212 (wbr))] ;; <wbr> encourages breaking after rather than before
            ;; use "single left/right-pointing angle quotation mark"
            ;; -- it's not a correct choice, but works best for now
            ;;    (see the "Fonts with proper angle brackets"

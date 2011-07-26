@@ -1,10 +1,12 @@
-
 (module slatex-wrapper scheme/base
   (require mzlib/file
            scheme/contract
-	   mzlib/process
-	   mzlib/sendevent
-           "slatex.ss")
+           mzlib/process
+           mzlib/sendevent
+           scheme/runtime-path
+           "private/slatex.rkt")
+  
+  (define-runtime-path here ".")
 
   (provide/contract
    [slatex (string? . -> . boolean?)]
@@ -90,6 +92,10 @@
               (lambda (latex-fun)
                 (lambda (filename)
                   (slatex/no-latex filename)
+                  (putenv "TEXINPUTS" 
+                          (format "~a:~a" 
+                                  (path->string here)
+                                  (or (getenv "TEXINPUTS") "")))
                   (latex-fun filename)))])
       (values 
        (meta-slatex latex)

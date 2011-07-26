@@ -173,6 +173,9 @@ void *GC_malloc_weak_box(void *p, void **secondary, int soffset, int is_late)
 
   w = (GC_Weak_Box *)GC_malloc_one_tagged(sizeof(GC_Weak_Box));
 
+  /* Future-local allocation may fail: */
+  if (!w) return NULL;
+
   p = gc->park[0];
   secondary = (void **)gc->park[1];
   gc->park[0] = NULL;
@@ -213,7 +216,7 @@ static void zero_weak_boxes(GCTYPE *gc, int is_late, int force_zero)
           GC_MP_CNT_INC(mp_mark_cnt);
         }
 
-        p = (void **)GC_resolve(wb->secondary_erase);
+        p = (void **)GC_resolve2(wb->secondary_erase, gc);
         *(p + wb->soffset) = NULL;
         wb->secondary_erase = NULL;
       }

@@ -2,8 +2,8 @@
 
 (require mzlib/list
          mzlib/contract
-         "my-macros.ss"
-         "shared.ss"
+         "my-macros.rkt"
+         "shared.rkt"
          #;(file "/Users/clements/clements/scheme-scraps/eli-debug.ss"))
 
 (define-struct full-mark-struct (source label bindings values))
@@ -90,7 +90,8 @@
   (full-mark-struct-label (mark)))
 
 (define (mark-binding-value mark-binding)
-  ((cadr mark-binding)))
+  (with-handlers ([(λ (e) #t) (λ (e) "--- undefined ---")])
+    ((cadr mark-binding))))
 
 (define (mark-binding-binding mark-binding)
   (car mark-binding))
@@ -160,23 +161,24 @@
 ;;;;;;;;;;
 
 (define (make-debug-info source tail-bound free-vars label lifting?)
-  (let*-2vals ([kept-vars (binding-set-varref-set-intersect tail-bound free-vars)])
-              (if lifting?
-                  (let*-2vals ([let-bindings (filter (lambda (var) 
-                                                       (and 
-                                                        (case (stepper-syntax-property var 'stepper-binding-type)
-                                                          ((let-bound macro-bound) #t)
-                                                          ((lambda-bound stepper-temp non-lexical) #f)
-                                                          (else (error 'make-debug-info 
-                                                                       "varref ~a's binding-type info was not recognized: ~a"
-                                                                       (syntax-e var)
-                                                                       (stepper-syntax-property var 'stepper-binding-type))))
-                                                        (not (stepper-syntax-property var 'stepper-no-lifting-info))))
-                                                     kept-vars)]
-                               [lifter-syms (map get-lifted-var let-bindings)])
-                              (make-full-mark source label (append kept-vars lifter-syms)))
-                  ;; I'm not certain that non-lifting is currently tested: 2005-12, JBC
-                  (make-full-mark source label kept-vars))))
+  (define kept-vars (binding-set-varref-set-intersect tail-bound free-vars))
+  (define (let-binding? var)
+    (and 
+     (not (stepper-syntax-property var 'stepper-no-lifting-info))
+     (case (stepper-syntax-property var 'stepper-binding-type)
+       ((let-bound macro-bound) #t)
+       ((lambda-bound stepper-temp non-lexical) #f)
+       (else (error 'make-debug-info 
+                    "varref ~a's binding-type info was not recognized: ~a"
+                    (syntax-e var)
+                    (stepper-syntax-property var 'stepper-binding-type))))))
+  (cond [lifting?
+         (define let-bindings (filter let-binding? kept-vars))
+         (define lifter-syms (map get-lifted-var let-bindings))
+         (make-full-mark source label (append kept-vars lifter-syms))]
+        [else
+         ;; I'm not certain that non-lifting is currently tested: 2005-12, JBC
+         (make-full-mark source label kept-vars)]))
 
 
 (define (make-top-level-mark source-expr)

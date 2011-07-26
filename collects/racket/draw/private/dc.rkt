@@ -7,20 +7,22 @@
          ffi/unsafe/atomic
          racket/math
          racket/class
-         "hold.ss"
-         "local.ss"
-         "../unsafe/cairo.ss"
-         "../unsafe/pango.ss"
-         "color.ss"
-         "pen.ss"
-         "brush.ss"
-         "font.ss"
-         "bitmap.ss"
-         "region.ss"
-         "dc-intf.ss"
-         "dc-path.ss"
-         "point.ss"
-         "local.ss"
+         "hold.rkt"
+         "local.rkt"
+         "../unsafe/cairo.rkt"
+         "../unsafe/pango.rkt"
+         "color.rkt"
+         "pen.rkt"
+         "brush.rkt"
+         "gradient.rkt"
+         "font.rkt"
+         "bitmap.rkt"
+         "region.rkt"
+         "dc-intf.rkt"
+         "dc-path.rkt"
+         "point.rkt"
+         "transform.rkt"
+         "local.rkt"
          "../unsafe/bstr.rkt")
 
 (provide dc-mixin
@@ -42,27 +44,10 @@
   (if (string? c)
       (or (send the-color-database find-color c)
           black)
-      (if (send c is-immutable?)
-          c
-          (let ([c (make-object color% 
-                                (color-red c) 
-                                (color-green c) 
-                                (color-blue c))]) 
-            (send c set-immutable)
-            c))))
+      (color->immutable-color c)))
 
 (define -bitmap-dc% #f)
 (define (install-bitmap-dc-class! v) (set! -bitmap-dc% v))
-
-(define (transformation-vector? v)
-  (and (vector? v)
-       (= 6 (vector-length v))
-       (matrix-vector? (vector-ref v 0))
-       (real? (vector-ref v 1))
-       (real? (vector-ref v 2))
-       (real? (vector-ref v 3))
-       (real? (vector-ref v 4))
-       (real? (vector-ref v 5))))
 
 ;; dc-backend : interface
 ;;
@@ -128,8 +113,27 @@
     ;; Used to keep smoothing disabled for b&w contexts
     dc-adjust-smoothing
 
-    ;; The public get-size method:
+    ;; dc-adjust-cap-shape
+    ;; 
+    ;; Adjusts cap shape, used to get more consistent drawing
+    ;; in bitmaps with small pens
+    dc-adjust-cap-shape
+
+    ;; get-hairline-width
+    ;;
+    ;; Gets the pen width to use in place of 0 in 'smoothed mode
+    get-hairline-width
+
+    ;; install-color : cairo_t color<%> alpha boolean? -> void
+    ;; 
+    ;; Installs a color, which a monochrome context might reduce
+    ;;  to black or white. The boolean argument indicates whether
+    ;;  the color is for a background.
+    install-color
+
+    ;; The public get-size & get-device-scale methods:
     get-size
+    get-device-scale
 
     ;; set-auto-scroll : real real -> void
     ;;
@@ -141,6 +145,8 @@
     ;; Return #t if text at given font size (already scaled)
     ;;  looks good when drawn all at once (which allows kerning,
     ;;  but may be spaced weirdly)
+    ;; This method is not currently used, because consistent
+    ;;  kerning is needed for libraries like Slideshow
     can-combine-text?
 
     ;; can-mask-bitmap? : -> bool
@@ -151,7 +157,12 @@
 
     ;; erase : -> void
     ;; A public method: erases all drawing
-    erase))
+    erase
+
+    ;; get-clear-operator : -> int
+    ;;  Gets the Cairo operator used by the default
+    ;;  `clear' implementation
+    get-clear-operator))
 
 (define default-dc-backend%
   (class* object% (dc-backend<%>)
@@ -179,18 +190,24 @@
     (define/public (ok?) #t)
 
     (define/public (dc-adjust-smoothing s) s)
+    (define/public (get-hairline-width sx) (/ 1 sx))
+    (define/public (dc-adjust-cap-shape shape sx pw)
+      (if ((* pw sx) . <= . 1.0)
+          'round
+          shape))
 
-    (define/public (install-color cr c a)
+    (define/public (install-color cr c a bg?)
       (let ([norm (lambda (v) (/ v 255.0))])
         (cairo_set_source_rgba cr
                                (norm (color-red c))
                                (norm (color-green c))
                                (norm (color-blue c))
-                               a)))
+                               (* a (color-alpha c)))))
 
     (define/public (collapse-bitmap-b&w?) #f)
 
     (define/public (get-size) (values 0.0 0.0))
+    (define/public (get-device-scale) (values 1.0 1.0))
 
     (define/public (set-auto-scroll dx dy) (void))
 
@@ -206,10 +223,12 @@
     (define/public (get-gl-context)
       #f)
 
+    (define/public (get-clear-operator)
+      CAIRO_OPERATOR_CLEAR)
+
     (super-new)))
 
-(define hilite-color (send the-color-database find-color "black"))
-(define hilite-alpha 0.3)
+(define hilite-color (make-object color% 0 0 0 0.3))
 
 (define-local-member-name
   draw-bitmap-section/mask-offset)
@@ -226,9 +245,10 @@
     (super-new)
 
     (inherit flush-cr get-cr release-cr end-cr init-cr-matrix get-pango
-             install-color dc-adjust-smoothing reset-clip
+             install-color dc-adjust-smoothing get-hairline-width dc-adjust-cap-shape
+             reset-clip
              collapse-bitmap-b&w?
-             ok? can-combine-text? can-mask-bitmap?)
+             ok? can-mask-bitmap? get-clear-operator)
 
     ;; Using the global lock here is troublesome, becase
     ;; operations involving paths, regions, and text can
@@ -314,14 +334,47 @@
 
     (define current-xform (vector 1.0 0.0 0.0 1.0 0.0 0.0))
 
+    (define/public (reset-config)
+      (start-atomic)
+      (set! matrix (make-cairo_matrix_t 1 0 0 1 0 0))
+      (set! origin-x 0.0)
+      (set! origin-y 0.0)
+      (set! scale-x 1.0)
+      (set! scale-y 1.0)
+      (set! rotation 0.0)
+      (set! effective-scale-x 1.0)
+      (set! effective-scale-y 1.0)
+      (set! effective-origin-x 0.0)
+      (set! effective-origin-y 0.0)
+      (set! current-xform (vector 1.0 0.0 0.0 1.0 0.0 0.0))
+      (set! pen (send the-pen-list find-or-create-pen "black" 1 'solid))
+      (set! brush (send the-brush-list find-or-create-brush "white" 'solid))
+      (set! font (send the-font-list find-or-create-font 12 'default))
+      (set! text-fg (send the-color-database find-color "black"))
+      (set! text-bg (send the-color-database find-color "white"))
+      (set! text-mode 'transparent)
+      (set! bg (send the-color-database find-color "white"))
+      (set! pen-stipple-s #f)
+      (set! brush-stipple-s #f)
+      (set! x-align-delta 0.5)
+      (set! y-align-delta 0.5)
+      (set! smoothing 'unsmoothed)
+      (set! current-smoothing #f)
+      (set! alpha 1.0)
+      (set! clipping-region #f)
+      (end-atomic))
+
     (define/private (reset-effective!)
       (let* ([mx (make-cairo_matrix_t 1 0 0 1 0 0)])
         (cairo_matrix_multiply mx mx matrix)
         (cairo_matrix_translate mx origin-x origin-y)
         (cairo_matrix_scale mx scale-x scale-y)
         (cairo_matrix_rotate mx (- rotation))
-        (set! effective-scale-x (cairo_matrix_t-xx mx))
-        (set! effective-scale-y (cairo_matrix_t-yy mx))
+        (let ([ssq (lambda (a b) (sqrt (+ (* a a) (* b b))))])
+          (set! effective-scale-x (ssq (cairo_matrix_t-xx mx)
+                                       (cairo_matrix_t-xy mx)))
+          (set! effective-scale-y (ssq (cairo_matrix_t-yy mx)
+                                       (cairo_matrix_t-yx mx))))
         (set! effective-origin-x (cairo_matrix_t-x0 mx))
         (set! effective-origin-y (cairo_matrix_t-y0 mx))
         (let ([v (vector (cairo_matrix_t-xx mx)
@@ -389,22 +442,26 @@
         (cairo_matrix_translate mx origin-x origin-y)
         (cairo_matrix_scale mx scale-x scale-y)
         (cairo_matrix_rotate mx (- rotation))
-        (cairo_matrix_multiply mx mx mx2)
+        (cairo_matrix_multiply mx mx2 mx)
         (set! origin-x 0.0)
         (set! origin-y 0.0)
         (set! scale-x 1.0)
         (set! scale-y 1.0)
         (set! rotation 0.0)
         (set! matrix mx)
+        (reset-effective!)
         (reset-matrix)))
 
+    (define/private (vector->matrix m)
+      (make-cairo_matrix_t (vector-ref m 0)
+                           (vector-ref m 1)
+                           (vector-ref m 2)
+                           (vector-ref m 3)
+                           (vector-ref m 4)
+                           (vector-ref m 5)))
+
     (def/public (set-initial-matrix [matrix-vector? m])
-      (set! matrix (make-cairo_matrix_t (vector-ref m 0)
-                                        (vector-ref m 1)
-                                        (vector-ref m 2)
-                                        (vector-ref m 3)
-                                        (vector-ref m 4)
-                                        (vector-ref m 5)))
+      (set! matrix (vector->matrix m))
       (reset-effective!)
       (reset-align!)
       (reset-matrix))
@@ -455,7 +512,8 @@
       (do-reset-matrix cr)
       (when clipping-region
         (send clipping-region install-region cr scroll-dx scroll-dy
-              (lambda (x) (align-x x)) (lambda (y) (align-y y)))))
+              (lambda (x) (align-x x)) (lambda (y) (align-y y))
+              #:init-matrix (lambda (cr) (init-cr-matrix cr)))))
 
     (define smoothing 'unsmoothed)
 
@@ -503,6 +561,7 @@
            [(unsmoothed) CAIRO_ANTIALIAS_NONE]
            [(partly-smoothed) CAIRO_ANTIALIAS_GRAY]
            [(smoothed) CAIRO_ANTIALIAS_SUBPIXEL]))
+        (cairo_font_options_set_hint_metrics o2 CAIRO_HINT_METRICS_OFF)
         (pango_cairo_context_set_font_options context o2)
         (cairo_font_options_destroy o2)))
 
@@ -572,6 +631,10 @@
       (check-ok 'get-size)
       (super get-size))
 
+    (define/override (get-device-scale)
+      (check-ok 'get-device-scale)
+      (super get-device-scale))
+
     (def/public (suspend-flush) (void))
     (def/public (resume-flush) (void))
     (def/public (flush) (void))
@@ -590,7 +653,8 @@
                        255
                        0)])
             (send dest set v v v))
-          (send dest set (color-red c) (color-green c) (color-blue c))))
+          (send dest copy-from c))
+      (void))
 
     (define clipping-region #f)
 
@@ -609,9 +673,10 @@
        (when clipping-region
          (send clipping-region lock-region 1)
          (send clipping-region install-region cr scroll-dx scroll-dy
-               (lambda (x) (align-x x)) (lambda (y) (align-y y))))))
+               (lambda (x) (align-x x)) (lambda (y) (align-y y))
+               #:init-matrix (lambda (cr) (init-cr-matrix cr))))))
 
-    (define/public (get-clipping-matrix)
+    (define/private (get-current-matrix)
       (let* ([cm (make-cairo_matrix_t (cairo_matrix_t-xx matrix)
                                       (cairo_matrix_t-yx matrix)
                                       (cairo_matrix_t-xy matrix)
@@ -621,6 +686,10 @@
         (cairo_matrix_translate cm origin-x origin-y)
         (cairo_matrix_scale cm scale-x scale-y)
         (cairo_matrix_rotate cm (- rotation))
+        cm))
+    
+    (define/public (get-clipping-matrix)
+      (let* ([cm (get-current-matrix)])
         (vector (cairo_matrix_t-xx cm)
                 (cairo_matrix_t-yx cm)
                 (cairo_matrix_t-xy cm)
@@ -644,14 +713,14 @@
       (with-cr
        (check-ok 'erase)
        cr
-       (install-color cr bg 1.0)
+       (install-color cr bg alpha #t)
        (cairo_paint cr)))
 
     (define/override (erase)
       (with-cr
        (check-ok 'erase)
        cr
-       (cairo_set_operator cr CAIRO_OPERATOR_CLEAR)
+       (cairo_set_operator cr (get-clear-operator))
        (cairo_set_source_rgba cr 1.0 1.0 1.0 1.0)
        (cairo_paint cr)
        (cairo_set_operator cr CAIRO_OPERATOR_OVER)))
@@ -675,7 +744,7 @@
                                               CAIRO_CONTENT_COLOR_ALPHA
                                               12 12)]
              [cr2 (cairo_create s)])
-        (install-color cr2 col alpha)
+        (install-color cr2 col alpha #f)
         (cairo_set_line_width cr2 1)
         (cairo_set_line_cap cr CAIRO_LINE_CAP_ROUND)
         (cairo_set_antialias cr2 (case (dc-adjust-smoothing smoothing)
@@ -690,6 +759,33 @@
           (cairo_set_source cr p)
           (cairo_pattern_destroy p))))
 
+    (define/private (make-gradient-pattern cr gradient transformation)
+      (define p 
+        (if (is-a? gradient linear-gradient%)
+            (call-with-values (lambda () (send gradient get-line)) cairo_pattern_create_linear)
+            (call-with-values (lambda () (send gradient get-circles)) cairo_pattern_create_radial)))
+      (for ([st (send gradient get-stops)])
+          (let* ([offset (car st)]
+                 [c (cadr st)]
+                 [norm (lambda (v) (/ v 255.0))]
+                 [r (norm (color-red c))]
+                 [g (norm (color-green c))]
+                 [b (norm (color-blue c))]
+                 [a (color-alpha c)])
+            (cairo_pattern_add_color_stop_rgba p offset r g b a)))
+      (when transformation
+        (cairo_identity_matrix cr)
+        (init-cr-matrix cr)
+        (cairo_translate cr scroll-dx scroll-dy)        
+        (cairo_transform cr (vector->matrix (vector-ref transformation 0)))
+        (cairo_translate cr (vector-ref transformation 1) (vector-ref transformation 2))
+        (cairo_scale cr (vector-ref transformation 3) (vector-ref transformation 4))
+        (cairo_rotate cr (- (vector-ref transformation 5))))
+      (cairo_set_source cr p)
+      (when transformation
+        (do-reset-matrix cr))
+      (cairo_pattern_destroy p))
+
     ;; Stroke, fill, and flush the current path
     (define/private (draw cr brush? pen?)
       (define (install-stipple st col mode get put)
@@ -699,12 +795,14 @@
                         (eq? mode 'solid)
                         (and (= 0 (color-red col))
                              (= 0 (color-green col))
-                             (= 0 (color-blue col))))
+                             (= 0 (color-blue col))
+                             (= 1.0 (color-alpha col))))
                    (put (send st get-cairo-surface))]
                   [(collapse-bitmap-b&w?)
                    (put (send (bitmap-to-b&w-bitmap 
                                st 0 0 
                                (send st get-width) (send st get-height) mode col
+                               #f
                                #f)
                               get-cairo-surface))]
                   [(and (send st is-color?)
@@ -727,65 +825,70 @@
         (let ([s (send brush get-style)])
           (unless (eq? 'transparent s)
             (let ([st (send brush get-stipple)]
-                  [col (send brush get-color)])
-              (if st
-                  (install-stipple st col s 
-                                   (lambda () brush-stipple-s)
-                                   (lambda (v) (set! brush-stipple-s v) v))
-                  (let ([horiz (lambda (cr2)
-                                 (cairo_move_to cr2 0 3.5)
-                                 (cairo_line_to cr2 12 3.5)
-                                 (cairo_move_to cr2 0 7.5)
-                                 (cairo_line_to cr2 12 7.5)
-                                 (cairo_move_to cr2 0 11.5)
-                                 (cairo_line_to cr2 12 11.5))]
-                        [vert (lambda (cr2)
-                                (cairo_move_to cr2 3.5 0)
-                                (cairo_line_to cr2 3.5 12)
-                                (cairo_move_to cr2 7.5 0)
-                                (cairo_line_to cr2 7.5 12)
-                                (cairo_move_to cr2 11.5 0)
-                                (cairo_line_to cr2 11.5 12))]
-                        [bdiag (lambda (cr2)
-                                 (for ([i (in-range -2 3)])
-                                   (let ([y (* i 6)])
-                                     (cairo_move_to cr2 -1 (+ -1 y))
-                                     (cairo_line_to cr2 13 (+ 13 y)))))]
-                        [fdiag (lambda (cr2)
-                                 (for ([i (in-range -2 3)])
-                                   (let ([y (* i 6)])
-                                     (cairo_move_to cr2 13 (+ -1 y))
-                                     (cairo_line_to cr2 -1 (+ 13 y)))))])
-                                 
-                    (case s
-                      [(horizontal-hatch)
-                       (make-pattern-surface
-                        cr col
-                        horiz)]
-                      [(vertical-hatch)
-                       (make-pattern-surface
-                        cr col
-                        vert)]
-                      [(cross-hatch)
-                       (make-pattern-surface
-                        cr col
-                        (lambda (cr) (horiz cr) (vert cr)))]
-                      [(bdiagonal-hatch)
-                       (make-pattern-surface
-                        cr col
-                        bdiag)]
-                      [(fdiagonal-hatch)
-                       (make-pattern-surface
-                        cr col
-                        fdiag)]
-                      [(crossdiag-hatch)
-                       (make-pattern-surface
-                        cr col
-                        (lambda (cr) (bdiag cr) (fdiag cr)))]
-                      [else
-                       (install-color cr 
-                                      (if (eq? s 'hilite) hilite-color col)
-                                      (if (eq? s 'hilite) hilite-alpha alpha))]))))
+                  [col (send brush get-color)]
+                  [gradient (send brush get-gradient)])
+              (if (and gradient
+                       (not (collapse-bitmap-b&w?)))
+                  (make-gradient-pattern cr gradient (send brush get-transformation))
+                  (if st
+                      (install-stipple st col s 
+                                       (lambda () brush-stipple-s)
+                                       (lambda (v) (set! brush-stipple-s v) v))
+                      (let ([horiz (lambda (cr2)
+                                     (cairo_move_to cr2 0 3.5)
+                                     (cairo_line_to cr2 12 3.5)
+                                     (cairo_move_to cr2 0 7.5)
+                                     (cairo_line_to cr2 12 7.5)
+                                     (cairo_move_to cr2 0 11.5)
+                                     (cairo_line_to cr2 12 11.5))]
+                            [vert (lambda (cr2)
+                                    (cairo_move_to cr2 3.5 0)
+                                    (cairo_line_to cr2 3.5 12)
+                                    (cairo_move_to cr2 7.5 0)
+                                    (cairo_line_to cr2 7.5 12)
+                                    (cairo_move_to cr2 11.5 0)
+                                    (cairo_line_to cr2 11.5 12))]
+                            [bdiag (lambda (cr2)
+                                     (for ([i (in-range -2 3)])
+                                       (let ([y (* i 6)])
+                                         (cairo_move_to cr2 -1 (+ -1 y))
+                                         (cairo_line_to cr2 13 (+ 13 y)))))]
+                            [fdiag (lambda (cr2)
+                                     (for ([i (in-range -2 3)])
+                                       (let ([y (* i 6)])
+                                         (cairo_move_to cr2 13 (+ -1 y))
+                                         (cairo_line_to cr2 -1 (+ 13 y)))))])
+                        
+                        (case s
+                          [(horizontal-hatch)
+                           (make-pattern-surface
+                            cr col
+                            horiz)]
+                          [(vertical-hatch)
+                           (make-pattern-surface
+                            cr col
+                            vert)]
+                          [(cross-hatch)
+                           (make-pattern-surface
+                            cr col
+                            (lambda (cr) (horiz cr) (vert cr)))]
+                          [(bdiagonal-hatch)
+                           (make-pattern-surface
+                            cr col
+                            bdiag)]
+                          [(fdiagonal-hatch)
+                           (make-pattern-surface
+                            cr col
+                            fdiag)]
+                          [(crossdiag-hatch)
+                           (make-pattern-surface
+                            cr col
+                            (lambda (cr) (bdiag cr) (fdiag cr)))]
+                          [else
+                           (install-color cr 
+                                          (if (eq? s 'hilite) hilite-color col)
+                                          alpha
+                                          #f)])))))
             (cairo_fill_preserve cr))))
       (when pen?
         (let ([s (send pen get-style)])
@@ -798,13 +901,17 @@
                                    (lambda (v) (set! pen-stipple-s v) v))
                   (install-color cr 
                                  (if (eq? s 'hilite) hilite-color col)
-                                 (if (eq? s 'hilite) hilite-alpha alpha))))
+                                 alpha
+                                 #f)))
             (cairo_set_line_width cr (let* ([v (send pen get-width)]
-                                            [v (if (aligned? smoothing)
+                                            [align? (aligned? smoothing)]
+                                            [v (if align?
                                                    (/ (floor (* effective-scale-x v)) effective-scale-x)
                                                    v)])
                                        (if (zero? v)
-                                           1
+                                           (if align?
+                                               (/ 1 effective-scale-x)
+                                               (get-hairline-width effective-scale-x))
                                            v)))
             (unless (or (eq? s 'solid)
                         (eq? s 'xor))
@@ -833,9 +940,9 @@
                                [(eq? s 'dot-dash) 4]
                                [else 0])))
             (cairo_set_line_cap cr
-                                (case (if ((send pen get-width) . <= . 1.0)
-                                          'round
-                                          (send pen get-cap))
+                                (case (dc-adjust-cap-shape (send pen get-cap)
+                                                           effective-scale-x
+                                                           (send pen get-width))
                                   [(butt) CAIRO_LINE_CAP_BUTT]
                                   [(round) CAIRO_LINE_CAP_ROUND]
                                   [(projecting) CAIRO_LINE_CAP_SQUARE]))
@@ -1103,6 +1210,13 @@
                     (substring s offset))]
              [blank? (string=? s "")]
              [s (if (and (not draw?) blank?) " " s)]
+             [s (if (for/or ([c (in-string s)])
+                      (or (eqv? c #\uFFFE) (eqv? c #\uFFFF)))
+                    ;; Since \uFFFE and \uFFFF are not supposed to be in any
+                    ;; interchange, we must replace them away before passing a
+                    ;; string to Pango:
+                    (regexp-replace* #rx"[\uFFFE\uFFFF]" s "\uFFFD")
+                    s)]
              [rotate? (and draw? (not (zero? angle)))]
              [smoothing-index (case (dc-adjust-smoothing (send font get-smoothing))
                                 [(default) 0]
@@ -1124,12 +1238,12 @@
           (when (eq? text-mode 'solid)
             (unless rotate?
               (let-values ([(w h d a) (do-text cr #f s 0 0 font combine? 0 0.0)])
-                (install-color cr text-bg alpha)
+                (install-color cr text-bg alpha #f)
                 (cairo_new_path cr)
                 (cairo_rectangle cr x y w h)
                 (cairo_fill cr))))
           (cairo_new_path cr) ; important for underline mode
-          (install-color cr text-fg alpha))
+          (install-color cr text-fg alpha #f))
         (when rotate?
           (cairo_save cr)
           (cairo_translate cr x y)
@@ -1141,22 +1255,21 @@
               [y (if rotate? 0.0 (exact->inexact y))])
           ;; We have two ways to draw text:
           ;;  - If `combine?' (to enable kerning etc.), then we create a Pango layout
-          ;;    and draw it. This is the slow but pretty way (bt not used for editors,
+          ;;    and draw it. This is the slow but pretty way (but not used for editors,
           ;;    where the text needs to draw the same if it's drawn all together or
           ;;    in pieces).
-          ;;  - If not `combine' or if combining isn't supported (e.g., because the scale
-          ;;    is too small, so that it would look bad), then we draw character by character.
-          (if (and combine?
-                   (can-combine-text? (* effective-scale-y (send font get-point-size))))
+          ;;  - If not `combine?', then we draw character by character.
+          (if combine?
               ;; This is combine mode. It has to be a little complicated, after all,
               ;; because we may need to implement font substitution ourselves, which
               ;; breaks the string into multiple layouts.
-              (let loop ([s s] [w 0.0] [h 0.0] [d 0.0] [a 0.0])
+              (let loop ([s s] [draw? draw?] [measured? #f] [w 0.0] [h 0.0] [d 0.0] [a 0.0])
                 (cond
                  [(not s)
                   (when rotate? (cairo_restore cr))
                   (values w h d a)]
                  [else
+                  (pango_cairo_update_context cr context)
                   (let ([layout (pango_layout_new context)]
                         [next-s #f])
                     (pango_layout_set_font_description layout desc)
@@ -1186,28 +1299,37 @@
                                    ;; find a face that works for the long character:
                                    (install-alternate-face (string-ref s 0) layout font desc attrs context))
                                  (substring s (max 1 ok-count))))])
-                      (let ([logical (make-PangoRectangle 0 0 0 0)])
-                        (pango_layout_get_extents layout #f logical)
-                        (when draw?
-                          (let ([bl (/ (pango_layout_get_baseline layout) (exact->inexact PANGO_SCALE))])
-                            (pango_layout_get_extents layout #f logical)
-                            (cairo_move_to cr (text-align-x/delta (+ x w) 0) (text-align-y/delta (+ y bl) 0))
-                            ;; Draw the text:
-                            (pango_cairo_show_layout_line cr (pango_layout_get_line_readonly layout 0))))
-                        (cond
-                         [(and draw? (not next-s))
-                          (g_object_unref layout)
-                          (when rotate? (cairo_restore cr))]
-                         [else
-                          (let ([nw (if blank?
-                                        0.0
-                                        (integral (/ (PangoRectangle-width logical) (exact->inexact PANGO_SCALE))))]
-                                [nh (/ (PangoRectangle-height logical) (exact->inexact PANGO_SCALE))]
+                      (cond
+                       [(and draw? next-s (not measured?))
+                        ;; It's going to take multiple layouts, so first gather measurements.
+                        (let-values ([(w2 h d a) (loop s #f #f w h d a)])
+                          ;; draw again, supplying `h', `d', and `a' for the whole line
+                          (loop s #t #t w h d a))]
+                       [else
+                        (let ([logical (make-PangoRectangle 0 0 0 0)])
+                          (pango_layout_get_extents layout #f logical)
+                          (let ([nh (/ (PangoRectangle-height logical) (exact->inexact PANGO_SCALE))]
                                 [nd (/ (- (PangoRectangle-height logical)
                                           (pango_layout_get_baseline layout))
-                                       (exact->inexact PANGO_SCALE))]
-                                [na 0.0])
-                            (loop next-s (+ w nw) (max h nh) (max d nd) (max a na)))]))))]))
+                                       (exact->inexact PANGO_SCALE))])
+                            (when draw?
+                              (let ([bl (if measured? (- h d) (- nh nd))])
+                                (pango_layout_get_extents layout #f logical)
+                                (cairo_move_to cr 
+                                               (text-align-x/delta (+ x w) 0) 
+                                               (text-align-y/delta (+ y bl) 0))
+                                ;; Draw the text:
+                                (pango_cairo_show_layout_line cr (pango_layout_get_line_readonly layout 0))))
+                            (cond
+                             [(and draw? (not next-s))
+                              (g_object_unref layout)
+                              (when rotate? (cairo_restore cr))]
+                             [else
+                              (let ([nw (if blank?
+                                            0.0
+                                            (integral (/ (PangoRectangle-width logical) (exact->inexact PANGO_SCALE))))]
+                                    [na 0.0])
+                                (loop next-s measured? draw? (+ w nw) (max h nh) (max d nd) (max a na)))])))])))]))
               ;; This is character-by-character mode. It uses a cached per-character+font layout
               ;;  object.
               (let ([cache (if (or combine?
@@ -1384,9 +1506,6 @@
               (vector-set! vec 3 #f)
               (vector-set! vec 4 #f)))))
     
-    (def/public (get-char-width)
-      10.0)
-
     (def/public (start-doc [string? desc])
       (check-ok 'start-doc))
     (def/public (end-doc)
@@ -1437,6 +1556,7 @@
                                [adc (make-object -bitmap-dc% alpha-mask)])
                           (send adc set-alpha alpha)
                           (send adc set-brush "black" 'solid)
+                          (send adc set-pen "black" 1 'transparent)
                           (send adc draw-rectangle 0 0 src-w src-h)
                           (send adc set-bitmap #f)
                           (let ([tmp-bm (bitmap-to-argb-bitmap src src-x src-y src-w src-h 0 0 
@@ -1463,28 +1583,31 @@
         (let ([black? (or (not color)
                           (and (= 0 (color-red color))
                                (= 0 (color-green color))
-                               (= 0 (color-blue color))))])
+                               (= 0 (color-blue color))
+                               (= 1.0 (color-alpha color))))])
           (cond
            [(and (collapse-bitmap-b&w?)
                  (or (send src is-color?)
-                     (and mask
-                          (send mask is-color?))))
+                     mask))
             ;; Need to ensure that the result is still B&W
-            (let* ([tmp-bm (bitmap-to-b&w-bitmap src src-x src-y src-w src-h style color mask)])
-              (do-draw-bitmap-section tmp-bm dest-x dest-y 0 0 src-w src-h 0 0 'solid #f #t #f clip-mask))]
+            (let-values ([(tmp-bm tmp-mask) (bitmap-to-b&w-bitmap src src-x src-y src-w src-h style color mask #t)])
+              (do-draw-bitmap-section tmp-bm dest-x dest-y 0 0 src-w src-h 0 0 'solid #f #t tmp-mask 
+                                      clip-mask CAIRO_OPERATOR_SOURCE))]
            [(and mask
-                 (or (not black?)
+                 (or (and (or (not black?) (eq? style 'opaque))
+                          (not (send src is-color?)))
                      (alpha . < . 1.0)))
             ;; mask plus color or alpha with a color bitmap
             (let ([tmp-bm (bitmap-to-argb-bitmap src src-x src-y src-w src-h 0 0 style color alpha #f)])
-              (do-draw-bitmap-section tmp-bm dest-x dest-y 0 0 src-w src-h msrc-x msrc-y 'solid #f #t mask clip-mask))]
+              (do-draw-bitmap-section tmp-bm dest-x dest-y 0 0 src-w src-h msrc-x msrc-y 'solid #f #t mask 
+                                      clip-mask #f))]
            [else
             ;; Normal combination...
             (do-draw-bitmap-section src dest-x dest-y src-x src-y src-w src-h msrc-x msrc-y
-                                    style color black? mask clip-mask)]))))
+                                    style color black? mask clip-mask #f)]))))
 
     (define/public (do-draw-bitmap-section src dest-x dest-y src-x src-y src-w src-h msrc-x msrc-y 
-                                           style color black? mask clip-mask)
+                                           style color black? mask clip-mask op)
       (with-cr
        (void)
        cr
@@ -1519,25 +1642,41 @@
               [a-src-y (floor src-y)]
               [a-msrc-x (floor msrc-x)]
               [a-msrc-y (floor msrc-y)]
+              [adjust-pattern-filter
+               (lambda (p)
+                 (when (eq? smoothing 'unsmoothed)
+                   (cairo_pattern_set_filter p CAIRO_FILTER_NEAREST)))]
               [stamp-pattern
                (lambda (src a-src-x a-src-y)
                  (let ([p (cairo_pattern_create_for_surface (send src get-cairo-alpha-surface))]
                        [m (make-cairo_matrix_t 0.0 0.0 0.0 0.0 0.0 0.0)])
                    (cairo_matrix_init_translate m (- a-src-x a-dest-x) (- a-src-y a-dest-y))
                    (cairo_pattern_set_matrix p m)
+                   (adjust-pattern-filter (cairo_get_source cr))
+                   ;; clip to the section that we're supposed to draw:
+                   (cairo_save cr)
+                   (when op (cairo_set_operator cr op))
+                   (cairo_new_path cr)
+                   (cairo_rectangle cr a-dest-x a-dest-y a-dest-w a-dest-h)
+                   (cairo_clip cr)
+                   ;; draw:
                    (cairo_mask cr p)
+                   ;; restore clipping:
+                   (cairo_restore cr)
                    (cairo_pattern_destroy p)))])
          (cond
           [(or (send src is-color?)
                (and (not (eq? style 'opaque))
                     (= alpha 1.0)
-                    black?))
+                    black?
+                    (not (collapse-bitmap-b&w?))))
            (let ([s (cairo_get_source cr)])
              (cairo_pattern_reference s)
              (cairo_set_source_surface cr 
                                        (send src get-cairo-surface)
                                        (- a-dest-x a-src-x)
                                        (- a-dest-y a-src-y))
+             (adjust-pattern-filter (cairo_get_source cr))
              (if mask
                  (stamp-pattern mask a-msrc-x a-msrc-y)
                  (begin
@@ -1548,41 +1687,54 @@
              (cairo_pattern_destroy s))]
           [else
            (when (eq? style 'opaque)
-             (install-color cr bg alpha)
+             (install-color cr bg alpha #f)
              (cairo_new_path cr)
              (cairo_rectangle cr a-dest-x a-dest-y a-dest-w a-dest-h)
              (cairo_fill cr))
-           (install-color cr color alpha)
+           (install-color cr color alpha #f)
            (stamp-pattern src a-src-x a-src-y)])
          (when clip-mask
            (cairo_restore cr))
          (flush-cr)))
       #t)
 
-    (define/private (bitmap-to-b&w-bitmap src src-x src-y src-w src-h style color mask)
+    (define/private (bitmap-to-b&w-bitmap src src-x src-y src-w src-h style color mask result-mask?)
       (let* ([bm-w (inexact->exact (ceiling src-w))]
              [bm-h (inexact->exact (ceiling src-h))]
              [tmp-bm (make-object bitmap% bm-w bm-h #f #t)]
+             [tmp-mask (and result-mask?
+                            (make-object bitmap% bm-w bm-h #f #t))]
              [tmp-dc (make-object -bitmap-dc% tmp-bm)])
         (send tmp-dc set-background bg)
         (send tmp-dc draw-bitmap-section src 0 0 src-x src-y src-w src-h style color mask)
         (send tmp-dc set-bitmap #f)
-        (let ([bstr (make-bytes (* bm-w bm-h 4))])
+        (let* ([bstr (make-bytes (* bm-w bm-h 4))]
+               [mask-bstr (if result-mask?
+                              (make-bytes (* bm-w bm-h 4))
+                              bstr)])
           (send tmp-bm get-argb-pixels 0 0 bm-w bm-h bstr)
           (for ([i (in-range 0 (bytes-length bstr) 4)])
-            (bytes-set! bstr i (if (= (bytes-ref bstr i) 255)
-                                   255
-                                   0))
-            (let ([v (if (and (= 255 (bytes-ref bstr (+ i 1)))
-                              (= 255 (bytes-ref bstr (+ i 2)))
-                              (= 255 (bytes-ref bstr (+ i 3))))
-                         255
-                         0)])
+            (let ([v (if (= (bytes-ref bstr i) 255)
+                         (if (and (= 255 (bytes-ref bstr (+ i 1)))
+                                  (= 255 (bytes-ref bstr (+ i 2)))
+                                  (= 255 (bytes-ref bstr (+ i 3))))
+                             255
+                             0)
+                         255)])
+              (let ([old-v (bytes-ref bstr i)])
+                (bytes-set! bstr i (- 255 v))
+                (bytes-set! mask-bstr i (if (= old-v 255)
+                                            255
+                                            0)))
               (bytes-set! bstr (+ i 1) v)
               (bytes-set! bstr (+ i 2) v)
               (bytes-set! bstr (+ i 3) v)))
           (send tmp-bm set-argb-pixels 0 0 bm-w bm-h bstr)
-          tmp-bm)))
+          (when result-mask?
+            (send tmp-mask set-argb-pixels 0 0 bm-w bm-h mask-bstr))
+          (if result-mask?
+              (values tmp-bm tmp-mask)
+              tmp-bm))))
     
     (define/private (bitmap-to-argb-bitmap src src-x src-y src-w src-h msrc-x msrc-y 
                                            style color alpha mask) 
@@ -1598,24 +1750,63 @@
         tmp-bm))
 
     (def/public (glyph-exists? [char? c])
-      (with-cr
-       #f
-       cr
-       (let ([desc (get-pango font)]
-             [attrs (send font get-pango-attrs)]
-             [context (or (for/or ([c (in-vector contexts)])
-                            c)
-                          (pango_cairo_create_context cr))])
-         (let ([layout (pango_layout_new context)])
-           (pango_layout_set_font_description layout desc)
-           (pango_layout_set_text layout (string c))
-           (pango_cairo_update_layout cr layout)
-           (begin0
-            (or (zero? (pango_layout_get_unknown_glyphs_count layout))
-                (and substitute-fonts?
-                     (install-alternate-face c layout font desc attrs context)
-                     (zero? (pango_layout_get_unknown_glyphs_count layout))))
-            (g_object_unref layout))))))
+      (and
+       (not (eqv? c #\uFFFF))
+       (not (eqv? c #\uFFFE))
+       (with-cr
+        #f
+        cr
+        (let ([desc (get-pango font)]
+              [attrs (send font get-pango-attrs)]
+              [context (or (for/or ([c (in-vector contexts)])
+                             c)
+                           (pango_cairo_create_context cr))])
+          (let ([layout (pango_layout_new context)])
+            (pango_layout_set_font_description layout desc)
+            (pango_layout_set_text layout (string c))
+            (pango_cairo_update_layout cr layout)
+            (begin0
+             (or (zero? (pango_layout_get_unknown_glyphs_count layout))
+                 (and substitute-fonts?
+                      (install-alternate-face c layout font desc attrs context)
+                      (zero? (pango_layout_get_unknown_glyphs_count layout))))
+             (g_object_unref layout)))))))
+    
+    (def/public (get-char-width)
+      (or (with-cr
+           10.0
+           cr
+           (get-font-metric cr pango_font_metrics_get_approximate_char_width))
+          (let-values ([(w h d a) (get-text-extent "X")])
+            w)))
+
+    (def/public (get-char-height)
+      (or (with-cr
+           12.0
+           cr
+           (get-font-metric cr (lambda (m)
+                                 (+ (pango_font_metrics_get_ascent m)
+                                    (pango_font_metrics_get_descent m)))))
+          (let-values ([(w h d a) (get-text-extent "X")])
+            h)))
+
+    (define/private (get-font-metric cr sel)
+      (let ([desc (get-pango font)]
+            [attrs (send font get-pango-attrs)]
+            [context+fontmap (or (for/or ([c (in-vector contexts)]
+                                          [fm (in-vector font-maps)])
+                                   (and c (cons c fm)))
+                                 (cons
+                                  (pango_cairo_create_context cr)
+                                  (pango_cairo_font_map_get_default)))])
+        (let ([font (pango_font_map_load_font (cdr context+fontmap)
+                                              (car context+fontmap)
+                                              desc)])
+          (and font ;; else font match failed
+               (let ([metrics (pango_font_get_metrics font (pango_language_get_default))])
+                 (let ([v (sel metrics)])
+                   (pango_font_metrics_unref metrics)
+                   (/ v (exact->inexact PANGO_SCALE))))))))
 
     (void))
 

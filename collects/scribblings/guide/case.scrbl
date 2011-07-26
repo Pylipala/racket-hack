@@ -1,7 +1,5 @@
 #lang scribble/doc
-@(require scribble/manual
-          scribble/eval
-          "guide-utils.ss"
+@(require scribble/manual scribble/eval "guide-utils.rkt"
           (for-label racket/match))
 
 @title[#:tag "case"]{Simple Dispatch: @racket[case]}
@@ -19,7 +17,7 @@ many kinds of values, notably strings and lists, each @racket[_datum]
 is typically a number, symbol, or boolean.
 
 Multiple @racket[_datum]s can be supplied for each clause, and the
-corresponding @racket[_expr] is evaluated of any of the
+corresponding @racket[_expr] is evaluated if any of the
 @racket[_datum]s match.
 
 @examples[

@@ -1,7 +1,10 @@
 #lang racket/base
 
 (require (for-syntax racket/base)
-         "guts.ss")
+         "guts.rkt"
+         "prop.rkt"
+         "blame.rkt"
+         "misc.rkt")
 
 (provide (rename-out [wrap-vectorof vectorof]
                      [wrap-vector/c vector/c])
@@ -59,7 +62,7 @@
         (for ([e (in-vector val)]
               [n (in-naturals)])
           (unless (contract-first-order-passes? elem-ctc e)
-            (fail "expected <~s> for element ~v, got ~v" (contract-name elem-ctc) n e))))
+            (fail "expected: ~s for element ~v, got ~v" (contract-name elem-ctc) n e))))
       #t)))
 
 (define (vectorof-first-order ctc)
@@ -193,7 +196,7 @@
               [n (in-naturals)]
               [c (in-list elem-ctcs)])
           (unless (contract-first-order-passes? c e)
-            (fail "expected <~s> for element ~v, got ~v" (contract-name c) n val))))
+            (fail "expected: ~s for element ~v, got ~v" (contract-name c) n val))))
       #t)))
 
 (define (vector/c-first-order ctc)

@@ -14,8 +14,15 @@
 	       [eval-jit-enabled #t])
   (namespace-require 'racket/flonum)
   (namespace-require 'racket/fixnum)
-  (let* ([check-error-message (lambda (name proc [fixnum? #f])
-				(unless (memq name '(eq? not null? pair?
+  (eval '(define-values (prop:thing thing? thing-ref) 
+           (make-struct-type-property 'thing)))
+  (eval '(struct rock (x) #:property prop:thing 'yes))
+  (let* ([struct:rock (eval 'struct:rock)]
+         [a-rock (eval '(rock 0))]
+         [chap-rock (eval '(chaperone-struct (rock 0) rock-x (lambda (r v) (add1 v))))]
+         [check-error-message (lambda (name proc [fixnum? #f])
+				(unless (memq name '(eq? eqv? equal? 
+                                                         not null? pair? list?
 							 real? number? boolean? 
 							 procedure? symbol?
 							 string? bytes?
@@ -23,7 +30,8 @@
 							 eof-object?
                                                          exact-integer?
                                                          exact-nonnegative-integer?
-                                                         exact-positive-integer?))
+                                                         exact-positive-integer?
+                                                         thing?))
 				  (let ([s (with-handlers ([exn? exn-message])
 					     (proc (if fixnum? 10 'bad)))]
 					[name (symbol->string name)])
@@ -146,7 +154,13 @@
 		      (tri0 v op get-arg1 arg2 arg3 check-effect))])
 
     (un #f 'null? 0)
+    (un-exact #t 'null? '())
     (un #f 'pair? 0)
+    (un-exact #t 'pair? '(1 2))
+    (un #f 'list? 0)
+    (un #f 'list? '(1 2 . 3))
+    (un-exact #t 'list? '(1 2 3))
+    (un-exact 3 'length '(1 2 3))
     (un #f 'boolean? 0)
     (un #t 'boolean? #t)
     (un #t 'boolean? #f)
@@ -165,8 +179,31 @@
     (un #f 'string? #"apple")
     (un #f 'bytes? "apple")
     (un #t 'bytes? #"apple")
+    (un #f 'thing? 10)
+    (un #t 'thing? a-rock)
+    (un #t 'thing? chap-rock)
+    (un #t 'thing? struct:rock)
 
     (bin #f 'eq? 0 10)
+    (bin-exact #t 'eq? 10 10)
+
+    (bin-exact #f 'eqv? 0 10)
+    (bin-exact #f 'eqv? "apple" "banana")
+    (bin-exact #t 'eqv? 10 10)
+    (bin-exact #t 'eqv? #\a #\a)
+    (bin-exact #f 'eqv? #\a #\b)
+    (bin-exact #t 'eqv? #\u3bb #\u3bb)
+    (bin-exact #f 'eqv? #\u3bb #\u3bc)
+    (bin-exact #t 'eqv? 1.0 1.0)
+    (bin-exact #f 'eqv? 1.0 2.0)
+    (bin-exact #t 'eqv? +nan.0 +nan.0)
+    (bin-exact #t 'eqv? 1/2 1/2)
+    (bin-exact #f 'eqv? 1/2 1/3)
+    (bin-exact #t 'eqv? 1+2i 1+2i)
+    (bin-exact #f 'eqv? 1+2i 1+3i)
+
+    (bin-exact #f 'equal? 0 10)
+    (bin-exact #t 'equal? "apple" "apple")
 
     (un #t 'zero? 0)
     (un #f 'zero? 1)
@@ -599,7 +636,14 @@
       (test-setter make-bytes 0 7 'bytes-set! bytes-set! bytes-ref #f)
       (test-setter make-string #\a #\7 'string-set! string-set! string-ref #f)
       (test-setter make-flvector 1.0 7.0 'flvector-set! flvector-set! flvector-ref #f)
-      (test-setter make-fxvector 1 7 'fxvector-set! fxvector-set! fxvector-ref #f))
+      (test-setter make-fxvector 1 7 'fxvector-set! fxvector-set! fxvector-ref #f)
+      
+      (let ([chap-vec (lambda (vec)
+                        (chaperone-vector vec (lambda (vec i val) val) (lambda (vec i val) val)))])
+        (test-setter (lambda (n v) (chap-vec (make-vector n v)))
+                     #f 7 'vector-set! vector-set! vector-ref #t)
+        (test-setter (lambda (n v) (chap-vec (chap-vec (make-vector n v))))
+                     #f 7 'vector-set! vector-set! vector-ref #t)))
 
     (err/rt-test (apply (list-ref (list (lambda (v) (vector-set! v 0 #t))) (random 1)) 
                         (list (vector-immutable 1 2 3))))
@@ -615,6 +659,19 @@
       (tri0 (void) '(lambda (b i v) (set-box! b v))
             (lambda () v) 0 "other"
             (lambda () (test "other" unbox v))))
+
+    (bin-exact #t 'procedure-arity-includes? cons 2)
+    (bin-exact #f 'procedure-arity-includes? cons 1)
+    (bin-exact #f 'procedure-arity-includes? cons 3)
+    (bin-exact #t 'procedure-arity-includes? car 1)
+    (bin-exact #t 'procedure-arity-includes? car 1)
+    (bin-exact #t 'procedure-arity-includes? (lambda (x) x) 1)
+    (bin-exact #f 'procedure-arity-includes? (lambda (x) x) 2)
+    (bin-exact #t 'procedure-arity-includes? (lambda x x) 2)
+
+    (un0 'yes 'thing-ref a-rock)
+    (bin0 'yes 'thing-ref a-rock 99)
+    (bin0 99 'thing-ref 10 99)
 
     ))
 
@@ -712,6 +769,8 @@
 	   '(expt 5 (* 5 6)))
 (test-comp 88
 	   '(if (pair? null) 89 88))
+(test-comp 89
+	   '(if (list? null) 89 88))
 (test-comp '(if _x_ 2 1)
 	   '(if (not _x_) 1 2))
 (test-comp '(if _x_ 2 1)
@@ -770,6 +829,15 @@
               (let ([x (list (cons 1 (cons w z)))])
                 (car (cdr (car x)))))
            '(lambda (w z) w))
+
+(test-comp '(lambda (w z)
+              (let ([x (list* w z)]
+                    [y (list* z w)])
+                (error "bad")
+                (equal? x y)))
+           '(lambda (w z)
+              (error "bad")
+              (equal? (list* w z) (list* z w))))
 
 (test-comp '(let ([x 1][y 2]) x)
 	   '1)
@@ -1044,6 +1112,41 @@
                          [y (lambda () (x))])
                   (list (x) (y) h)))))
 
+(test-comp '(lambda (f a)
+              (define x (f y))
+              (define y (m))
+              (define-syntax-rule (m) 10)
+              (f "hi!\n")
+              (define z (f (lambda () (+ x y a))))
+              (define q (p))
+              (define p (q))
+              (list x y z))
+           '(lambda (f a)
+              (letrec ([x (f y)]
+                       [y 10])
+                (f "hi!\n")
+                (let ([z (f (lambda () (+ x y a)))])
+                  (letrec ([q (p)]
+                           [p (q)])
+                    (list x y z))))))
+
+(test-comp '(lambda (f a)
+              (#%stratified-body
+               (define x (f y))
+               (define y (m))
+               (define-syntax-rule (m) 10)
+               (define z (f (lambda () (+ x y a))))
+               (define q (p))
+               (define p (q))
+               (list x y z)))
+           '(lambda (f a)
+              (letrec-values ([(x) (f y)]
+                              [(y) 10]
+                              [(z) (f (lambda () (+ x y a)))]
+                              [(q) (p)]
+                              [(p) (q)])
+                (list x y z))))
+
 (test-comp '(procedure? add1)
            #t)
 (test-comp '(procedure? (lambda (x) x))
@@ -1054,6 +1157,12 @@
                   88))
            '(let ([f (lambda (x) x)])
               (list f)))
+
+(test-comp '(letrec ([f (case-lambda 
+                         [(x) x]
+                         [(x y) (f (+ x y))])])
+	      (f 10))
+	   '10)
 
 (test-comp '(procedure-arity-includes? integer? 1)
            #t)
@@ -1381,6 +1490,57 @@
                   ;; not a float argument => no unboxing of x:
                   (f y (sub1 y)))))
         (f 1.0 100)))
+
+;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Test against letrec-splitting bug:
+
+(err/rt-test (eval `(begin
+                      (define (T x) 'v)
+                      (let ([A (lambda (x) 'v)]) 
+                        (define (B x) (F))
+                        (define (C x) (A)) ; turns into constant
+                        (define (D x) (D))
+                        (define (E x) (A) (T))
+                        (define (F x) 'v)
+                        (list (C) (E) (D)))))
+             exn:fail:contract:arity?)
+
+(err/rt-test (eval `(begin
+                      (define (T x) 'v)
+                      (let ()
+                        (define (A x) 'v)
+                        (define (B x) 'v)
+                        (define (C x) 'v)
+                        (define (D x) (B))
+                        (define (E x) (H) (E))
+                        (define (F x) (C))
+                        (define (G x) (T))
+                        (define (H x) (A) (T))
+                        (define (I x) 'v)
+                        (H)
+                        (F))))
+             exn:fail:contract:arity?)
+
+;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Make sure the compiler doesn't reorder past a mutable variable:
+
+(let ()
+  (define (example-1 lst)
+    (define x 0)
+    (define (doit)
+    (reverse (foldl (lambda (v store) (set! x (add1 x)) (cons v store))
+                    '() lst)))
+    (let ([results (doit)])
+      (list x results)))
+  (test '(3 (a b c)) example-1 '(a b c)))
+
+;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Make sure JIT-implemented `apply-values' recognizes chaperones:
+
+(test 99 (lambda ()
+           (call-with-values 
+               (lambda () (apply values (make-list (add1 (random 1)) '(99))))
+             (chaperone-procedure car (lambda (v) v)))))
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 

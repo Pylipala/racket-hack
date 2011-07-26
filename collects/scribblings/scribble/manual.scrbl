@@ -1,6 +1,5 @@
 #lang scribble/doc
-@(require scribble/manual
-          "utils.ss"
+@(require scribble/manual "utils.rkt"
           (for-syntax racket/base)
           (for-label scribble/manual-struct))
 
@@ -31,33 +30,47 @@ includes a @racket[latex-defaults] @tech{style property}.
 @section[#:tag "scribble:manual:code"]{Typesetting Code}
 
 @defform/subs[(codeblock option ... str-expr ...+)
-              ([option (code:line #:indent indent-expr)
+              ([option (code:line #:keep-lang-line? keep-expr)
+                       (code:line #:indent indent-expr)
                        (code:line #:expand expand-expr)
                        (code:line #:context context-expr)
-                       (code:line #:keep-lang-line? keep-expr)])
-              #:contracts ([indent-expr exact-nonnegative-integer?]
+                       (code:line #:w/line-numbers line-number-expr)])
+              #:contracts ([keep-expr any/c]
+                           [indent-expr exact-nonnegative-integer?]
                            [expand-expr (or/c #f (syntax-object? . -> . syntax-object?))]
                            [context-expr syntax-object?]
-                           [keep-expr any/c])]{
+                           [line-number-expr (or/c #f exact-nonnegative-integer?)])]{
 
 Parses the code formed by the strings produced by the
-@racket[str-expr]s as a Racket module and produces a @tech{block} that
-typesets the code. The code is indented by the amount specified by
-@racket[indent-expr], which defaults to @racket[2].
+@racket[str-expr]s as a Racket module (roughly) and produces a
+@tech{block} that typesets the code inset via @racket[nested] with the
+style @racket['code-inset].
+
+The @racket[str-expr]s should normally start with @hash-lang[] to
+determine the reader syntax for the module, but the resulting
+``module'' need not expand or compile---except as needed by
+@racket[expand-expr]. If @racket[expand-expr] is omitted or produces
+false, then the input formed by @racket[str-expr] is read until an
+end-of-file is encountered, otherwise a single form is read from the
+input.
+
+When @racket[keep-expr] produces a true value (the default), the first
+line in the input (which is typically @hash-lang[]) is preserved in
+the typeset output, otherwise the first line is dropped. The typeset
+code is indented by the amount specified by @racket[indent-expr],
+which defaults to @racket[2].
 
 When @racket[expand-expr] produces @racket[#f] (which is the default),
 identifiers in the typeset code are colored and linked based on
 for-label bindings in the lexical environment of the syntax object
 provided by @racket[context-expr]. The default @racket[context-expr]
 has the same lexical context as the first @racket[str-expr].
+When @racket[line-number-expr] is true, line number is enabled starting 
+from @racket[line-number-expr].
 
 When @racket[expand-expr] produces a procedure, it is used to
 macro-expand the parsed program, and syntax coloring is based on the
 parsed program.
-
-When @racket[keep-lang-line?-expr] produces a true value (the
-default), the @hash-lang[] line in the input is preserved in the
-typeset output, otherwise the first line is dropped.
 
 For example,
 
@@ -87,8 +100,9 @@ produces the typeset result
 @defform[(racketblock datum ...)]{
 
 Typesets the @racket[datum] sequence as a table of Racket code inset
-by two spaces. The source locations of the @racket[datum]s determine
-the generated layout. For example,
+inset via @racket[nested] with the style @racket['code-inset]. The
+source locations of the @racket[datum]s determine the generated
+layout. For example,
 
 @racketblock[
 (racketblock
@@ -189,10 +203,10 @@ See also @racketmodname[scribble/comment-reader].
 the expression escape @racket[UNSYNTAX] instead of @racket[unsyntax].}
 
 @defform[(racketblock0 datum ...)]{Like @racket[racketblock], but
-without insetting the code.}
+without insetting the code via @racket[nested].}
 
 @defform[(RACKETBLOCK0 datum ...)]{Like @racket[RACKETBLOCK], but
-without insetting the code.}
+without insetting the code via @racket[nested].}
 
 @deftogether[(
 @defform[(racketresultblock datum ...)]
@@ -201,7 +215,7 @@ without insetting the code.}
 @defform[(RACKETRESULTBLOCK0 datum ...)]
 )]{
 
-Like @racketblock[racketblock], etc., but colors the typeset text as a
+Like @racket[racketblock], etc., but colors the typeset text as a
 result  (i.e., a single color with no hyperlinks) instead of code.}
 
 @deftogether[(
@@ -209,6 +223,13 @@ result  (i.e., a single color with no hyperlinks) instead of code.}
 @defform[(RACKETINPUT datum ...)]
 )]{Like @racket[racketblock] and @racket[RACKETBLOCK], but the
 @racket[datum]s are typeset after a prompt representing a REPL.}
+
+@deftogether[(
+@defform[(racketinput0 datum ...)]
+@defform[(RACKETINPUT0 datum ...)]
+)]{
+Like @racket[racketinput] and @racket[RACKETINPUT], but
+without insetting the code via @racket[nested].}
 
 @defform/subs[(racketmod maybe-file lang datum ...)
               ([maybe-file code:blank
@@ -225,6 +246,10 @@ The source location of @racket[lang] (relative to the body
 If @racket[#:file] is provided, then the code block is typeset using
 @racket[filebox] with @racket[filename-expr] as the filename
 argument.}
+
+@defform[(racketmod0 maybe-file lang datum ...)]{
+Like @racket[racketmod], but
+without insetting the code via @racket[nested].}
 
 @defform[(racket datum ...)]{Like @racket[racketblock], but typeset on
 a single line and wrapped with its enclosing paragraph, independent of
@@ -319,7 +344,7 @@ in a form definition.}
 @defform[(schemeresult datum ...)]
 @defform[(schemeid datum ...)]
 @defform*[((schememodname datum)
-           (schememodname ((unsyntax (scheme unsyntax)) expr)))]
+           (schememodname ((unsyntax (racket unsyntax)) expr)))]
 @defform[(schememodlink datum pre-content-expr ...)]
 @defproc[(schemefont [pre-content pre-content?] ...) element?]
 @defproc[(schemevalfont [pre-content pre-content?] ...) element?]
@@ -456,14 +481,15 @@ and one that combines several modules) via your own
 Associates the @racket[mod-path]s to all bindings defined within the
 enclosing section, except as overridden by other
 @racket[declare-exporting] declarations in nested sub-sections.  The
-list of @racket[mod-path]s is shown, for example, when the user hovers
-the mouse over one of the bindings defined within the section.
+list of @racket[mod-path]s before @racket[#:use-sources] is shown, for
+example, when the user hovers the mouse over one of the bindings
+defined within the section.
 
-More significantly, the first @racket[mod-path] plus the
-@racket[#:use-sources] @racket[mod-path]s determine the binding that
-is documented by each @racket[defform], @racket[defproc], or similar
-form within the section that contains the @racket[declare-exporting]
-declaration:
+More significantly, the first @racket[mod-path] before
+@racket[#:use-sources] plus the @racket[mod-path]s after
+@racket[#:use-sources] determine the binding that is documented by
+each @racket[defform], @racket[defproc], or similar form within the
+section that contains the @racket[declare-exporting] declaration:
 
 @itemize[
 
@@ -472,14 +498,46 @@ declaration:
        @racket[mod-path].}
 
  @item{If @racket[#:use-sources] @racket[mod-path]s are supplied, then
-       they are tried in order. The first one to provide an export
-       with the same symbolic name and
-       @racket[free-label-identifier=?] to the given name is used as
-       the documented binding. This binding is assumed to be the same
-       as the identifier as exported by the first @racket[mod-path] in
-       the @racket[declare-exporting] declaration.}
+       they are tried in order before the first @racket[mod-path]. The
+       @racket[mod-path] that provides an export with the same
+       symbolic name and @racket[free-label-identifier=?] to the given
+       name is used as the documented binding. This binding is assumed
+       to be the same as the identifier as exported by the first
+       @racket[mod-path] in the @racket[declare-exporting]
+       declaration.}
 
 ]
+
+Use @racket[#:use-sources] sparingly, but it is needed when
+
+@itemlist[
+
+ @item{bindings are documented as originating from a module
+       @racket[_M], but the bindings are actually re-exported from
+       some module @racket[_P]; and}
+
+ @item{other documented modules also re-export the bindings from
+       @racket[_P], but they are documented as re-exporting from
+       @racket[_M].}
+
+]
+
+For example, the @racket[parameterize] binding of
+@racketmodname[mzscheme] is documented as re-exported from
+@racketmodname[racket/base], but @racket[parameterize] happens to be
+implemented in a private module and re-exported by both
+@racketmodname[racket/base] and @racketmodname[mzscheme].  Importing
+@racket[parameterize] from @racketmodname[mzscheme] does not go
+through @racketmodname[racket/base], so a search for documentation on
+@racket[parameterize] in @racketmodname[mzscheme] would not
+automatically connect to the documentation of
+@racketmodname[racket/base]. To make the connection, the documentation
+of @racketmodname[racket/base] declares the private module to be a
+source through @racket[#:use-sources], so that any re-export of
+@racket[parameterize] from the private module connects to the
+documentation for @racketmodname[racket/base] (unless a re-export has
+its own documentation, which would override the automatic connection
+when searching for documentation).
 
 The initial @racket[mod-path]s sequence can be empty if
 @racket[mod-path]s are given with @racket[#:use-sources]. In that
@@ -582,7 +640,8 @@ it's best to document a related group of procedures at once.}
 @defform/subs[(defform maybe-id maybe-literals form-datum maybe-contracts
                 pre-flow ...)
               ([maybe-id code:blank
-                         (code:line #:id id)]
+                         (code:line #:id id)
+                         (code:line #:id [id id-expr])]
                [maybe-literals code:blank
                                (code:line #:literals (literal-id ...))]
                [maybe-contracts code:blank
@@ -590,18 +649,24 @@ it's best to document a related group of procedures at once.}
                                                         ...))])]{
 
 Produces a sequence of flow elements (encapsulated in a
-@racket[splice]) to document a syntatic form named by @racket[id]
-whose syntax is described by @racket[form-datum]. If no @racket[#:id] is used
-to specify @racket[id], then @racket[form-datum] must have the form
-@racket[(id . _datum)].
+@racket[splice]) to document a syntatic form named by @racket[id] (or the
+result of @racket[id-expr]) whose syntax is described by
+@racket[form-datum]. If no @racket[#:id] is used to specify
+@racket[id], then @racket[form-datum] must have the form @racket[(id
+. _datum)].
 
-The @racket[id] is indexed, and it is also registered so that
-@racket[racket]-typeset uses of the identifier (with the same
-for-label binding) are hyperlinked to this documentation.
+If @racket[#:id [id id-expr]] is supplied, then @racket[id] is the
+identifier as it appears in the @racket[form-datum] (to be replaced by
+a defining instance), and @racket[id-expr] produces the identifier to
+be documented. This split between @racket[id] and @racket[id-expr]
+roles is useful for functional abstraction of @racket[defform].
 
-The @racket[defmodule] or @racket[declare-exporting] requirements, as
-well as the binding requirements for @racket[id], are the same as for
-@racket[defproc].
+The @racket[id] (or result of @racket[id-expr]) is indexed, and it is
+also registered so that @racket[racket]-typeset uses of the identifier
+(with the same for-label binding) are hyperlinked to this
+documentation. The @racket[defmodule] or @racket[declare-exporting]
+requirements, as well as the binding requirements for @racket[id] (or
+result of @racket[id-expr]), are the same as for @racket[defproc].
 
 The @tech{decode}d @racket[pre-flow] documents the form. In this
 description, a reference to any identifier in @racket[form-datum] via
@@ -613,7 +678,12 @@ determined by the enclosing context).
 If a @racket[#:contracts] clause is provided, each
 @racket[subform-datum] (typically an identifier that serves as a
 meta-variable in @racket[form-datum]) is shown as producing a value
-that must satisfy the contract described by @racket[contract-expr-datum].
+that must satisfy the contract described by
+@racket[contract-expr-datum].  Use @racket[#:contracts] only to
+specify constraints on a @emph{value} produced by an expression;
+for constraints on the @emph{syntax} of a @racket[subform-datum],
+use grammar notation instead, possibly through an 
+auxiliary grammar specified using @racket[defform/subs].
 
 The typesetting of @racket[form-datum], @racket[subform-datum], and
 @racket[contract-expr-datum] preserves the source layout, like
@@ -655,11 +725,13 @@ Like @racket[defform], but without registering a definition.}
 Like @racket[defform], but with a plain @racket[id] as the form.}
 
 
-@defform[(defidform/inline id)]{
+@defform*[[(defidform/inline id)
+           (defidform/inline (@#,racket[unsyntax] id-expr))]]{
 
-Like @racket[defidform], but @racket[id] is typeset as an inline
-element. Use this form sparingly, because the typeset form does not
-stand out to the reader as a specification of @racket[id].}
+Like @racket[defidform], but @racket[id] (or the result of
+@racket[id-expr], analogous to @racket[defform]) is typeset as an
+inline element. Use this form sparingly, because the typeset form does
+not stand out to the reader as a specification of @racket[id].}
 
 
 @defform[(specform maybe-literals datum maybe-contracts
@@ -937,6 +1009,13 @@ not @racket[method-id].}
 
 Like @racket[method], but the hyperlink shows both the method name and
 the containing class/interface.}
+
+@defform[(this-obj)]{
+
+Within a @racket[defmethod] or similar form, typesets as a
+meta-variable that stands for the target of the method call. Use
+@racket[(this-obj)] to be more precise than prose such as ``this
+method's object.''}
 
 @; ------------------------------------------------------------------------
 @section[#:tag "doc-signatures"]{Documenting Signatures}
@@ -1232,6 +1311,9 @@ Returns @racket[#t] if @racket[v] is a bibliography entry created by
 
 @defproc[(t [pre-content pre-content?] ...) paragraph?]{Wraps the
 @tech{decode}d @racket[pre-content] as a paragraph.}
+
+@defthing[etc element?]{Like @racket["etc."], but with an
+abbreviation-ending period for use in the middle of a sentence.}
 
 @defthing[PLaneT element?]{@racket["PLaneT"] (to help make sure you get
 the letters in the right case).}

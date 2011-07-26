@@ -1,14 +1,13 @@
-
 (module distribute scheme/base
   (require scheme/file
            scheme/path
            setup/dirs
-	   mzlib/list
-	   setup/variant
-	   dynext/filename-version
-	   "private/macfw.ss"
-	   "private/windlldir.ss"
-	   "private/collects-path.ss")
+           mzlib/list
+           setup/variant
+           dynext/filename-version
+           "private/macfw.rkt"
+           "private/windlldir.rkt"
+           "private/collects-path.rkt")
 
   (provide assemble-distribution)
 
@@ -378,7 +377,9 @@
                             (let loop ([exts exts][counter counter])
                               (cond
                                [(null? exts) (values null counter)]
-                               [(eq? 'module (cadar (car exts)))
+                               [(and (pair? (car (car exts)))
+                                     (pair? (cdar (car exts)))
+                                     (eq? 'module (cadar (car exts))))
                                 (let-values ([(rest-exts counter)
                                               (loop (cdr exts) counter)])
                                   (values (cons (car exts) rest-exts) counter))]

@@ -1,8 +1,8 @@
 (module check mzscheme
   (require mzlib/class
-	   (prefix wx: "kernel.ss")
-	   "wx.ss"
-	   "const.ss")
+           (prefix wx: "kernel.rkt")
+           "wx.rkt"
+           "const.rkt")
   (provide (protect (all-defined)))
 
   (define (key-code-symbol? x)
@@ -145,6 +145,19 @@
   (define (check-label-string-or-bitmap who label)
     (unless (or (label-string? label) (is-a? label wx:bitmap%))
       (raise-type-error (who->name who) "string (up to 200 characters) or bitmap% object" label)))
+
+  (define (check-label-string-or-bitmap-or-both who label)
+    (unless (or (label-string? label) (is-a? label wx:bitmap%)
+                (and (list? label) 
+                     (= 3 (length label)) 
+                     (is-a? (car label) wx:bitmap%)
+                     (label-string? (cadr label))
+                     (memq (caddr label) '(left right top bottom))))
+      (raise-type-error (who->name who) 
+                        (string-append
+                         "string (up to 200 characters), bitmap% object, or list of bitmap%, "
+                         "string, and image-placement symbol ('left, 'right, 'top, or 'bottom)")
+                        label)))
 
   (define (check-label-string-or-bitmap/false who label)
     (unless (or (not label) (label-string? label) (is-a? label wx:bitmap%))

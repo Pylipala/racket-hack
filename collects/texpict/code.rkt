@@ -1,11 +1,13 @@
-(module code mzscheme
-  (require "mrpict.ss"
-	   (prefix r: racket/base)
+(module code racket/base
+  (require "mrpict.rkt"
+           (prefix-in r: racket/base)
            mzlib/class
-	   mzlib/list
-           (only scheme/list last)
+           mzlib/list
+           (only-in scheme/list last)
            racket/draw
-           mzlib/unit)
+           mzlib/unit
+           (for-syntax racket/base)
+           (only-in mzscheme make-namespace))
 
   (provide define-code code^ code-params^ code@)
 
@@ -66,7 +68,7 @@
 	   (define (stx->loc-s-expr v)
 	     (cond
 	      [(syntax? v)
-	       (let ([mk `(datum->syntax-object
+	       (let ([mk `(datum->syntax
 			   #f
 			   ,(syntax-case v (uncode)
 			      [(uncode e) #'e]
@@ -89,7 +91,7 @@
 	      [(null? v) 'null]
 	      [else `(quote ,v)]))
 	   (define (cvt s)
-	     (datum->syntax-object #'here (stx->loc-s-expr s)))
+	     (datum->syntax #'here (stx->loc-s-expr s)))
 	   (syntax-case stx ()
 	     [(_ expr) #`(typeset-code #,(cvt #'expr))]
 	     [(_ expr (... ...))
@@ -122,6 +124,32 @@
 	     (syntax-id-rules (set!)
 	       [(x (... ...)) ,illegal-use-of-once]
 	       [x (get-val)])))]))
+
+  ;; Find which line `stx' ends on, #f for unknown
+  (define (syntax-end-line stx)
+    (cond
+     [(syntax? stx) (or (syntax-end-line (syntax-e stx))
+                        (syntax-line stx))]
+     [(pair? stx) (or (syntax-end-line (cdr stx))
+                      (syntax-end-line (car stx)))]
+     [(vector? stx) (syntax-end-line (reverse (vector->list stx)))]
+     [else #f]))
+
+  ;; Find which column `stx' ends on if it's not on `line'
+  (define (syntax-end-column stx line delta)
+    (cond
+     [(syntax? stx) (or (syntax-end-column (syntax-e stx) line delta)
+                        (let ([line2 (syntax-line stx)])
+                          (and line line2
+                               (not (= line line2))
+                               (let ([span (syntax-span stx)]
+                                     [col (syntax-column stx)])
+                                 (and span col (+ col span delta))))))]
+     [(pair? stx) (or (syntax-end-column (cdr stx) line (+ delta 1))
+                      (and (or (null? (cdr stx)) 
+                               (and (syntax? (cdr stx)) (null? (cdr stx))))
+                           (syntax-end-column (car stx) line (+ delta 1))))]
+     [else #f]))
   
   (define-unit code@
       (import code-params^)
@@ -172,14 +200,14 @@
     
       (define current-keyword-list 
 	(make-parameter 
-	 (let ([ht (make-hash-table)])
-           (for-each (lambda (n) (hash-table-put! ht n #f))
+	 (let ([ht (make-hasheq)])
+           (for-each (lambda (n) (hash-set! ht n #f))
 		     mzscheme-vars)
-           (for-each (lambda (n) (hash-table-put! ht n #f))
+           (for-each (lambda (n) (hash-set! ht n #f))
 		     racket/base-vars)
 	   (map symbol->string
                 (filter (lambda (n)
-			  (hash-table-get ht n (lambda () #t)))
+			  (hash-ref ht n #t))
                         (append mzscheme-bindings
                                 racket/base-bindings))))))
       (define current-const-list 
@@ -280,15 +308,19 @@
 	       [(#\{) close-curly-p]
 	       [else close-paren-p]))))
       
-      (define (add-close p closes)
+      (define (add-close p closes [force-line #f])
 	(cond
 	 [(null? closes) p]
 	 [(memq (caar closes) '(contract line))
-	  (add-close p (cdr closes))]
+	  (add-close p (cdr closes) force-line)]
 	 [else
-	  (add-close (code-hbl-append p (get-close (caar closes) (cdar closes)))
-		     (cdr closes))]))
-
+          (let ([p (if force-line
+                       (vl-append p (tt ""))
+                       p)])
+            (add-close (code-hbl-append p (get-close (caar closes) (cdar closes)))
+                       (cdr closes)
+                       #f))]))
+      
       (define (pad-left space p)
 	(if (= 0 space)
 	    p
@@ -429,21 +461,79 @@
 	     (code-htl-append (mode-colorize mode 'literal quasisyntax-p) 
 			      (loop #'x closes mode))]
 	    [(code:contract i ...)
-	     (add-semis (loop (datum->syntax-object #f (syntax->list #'(i ...)))
+	     (add-semis (loop (datum->syntax #f (syntax->list #'(i ...)))
 			      closes 'contract))]
 	    [(code:line i ...)
-	     (loop (datum->syntax-object #f (syntax->list #'(i ...)))
-		   closes 'line)]
+             (loop (datum->syntax #f (syntax->list #'(i ...))
+                                  (syntax-case stx ()
+                                    [(_ a . b)
+                                     (let ([src (syntax-source stx)]
+                                           [line (syntax-line stx)]
+                                           [col (syntax-column stx)]
+                                           [pos (syntax-position stx)]
+                                           [span (syntax-span stx)]
+                                           [a-pos (syntax-position #'a)])
+                                       (if (and pos a-pos (a-pos . > . pos))
+                                           (vector src
+                                                   line
+                                                   (and col (+ col (- a-pos pos)))
+                                                   a-pos
+                                                   (and span (max 0 (- span (- a-pos pos)))))
+                                           stx))]
+                                    [else stx]))
+                   closes 'line)]
 	    [(code:comment s ...)
-	     (apply htl-append 
-		    (color-semi-p)
-		    (map (lambda (s)
-			   (if (pict? (syntax-e s))
-			       (syntax-e s)
-			       (maybe-colorize (tt (syntax-e s)) (current-comment-color))))
-			 (syntax->list #'(s ...))))]
+	     (let ([p
+                    (apply htl-append 
+                           (color-semi-p)
+                           (map (lambda (s)
+                                  (if (pict? (syntax-e s))
+                                      (syntax-e s)
+                                      (maybe-colorize (tt (syntax-e s)) (current-comment-color))))
+                                (syntax->list #'(s ...))))])
+               ;; Ungraceful handling of ungraceful closes by adding a line
+               ;; --- better than sticking them to the right of the comment, at least
+               (add-close p closes 'force-line))]
 	    [(code:template i ...)
 	     (add-semis (loop #'(code:line i ...) closes 'template))]
+            [(a b i ... c)
+             (let ([pos (for/fold ([pos (syntax-position #'b)]) ([i (in-list (syntax->list #'(i ... c)))])
+                          (and pos 
+                               ((syntax-position i) . > . pos)
+                               (syntax-position i)))])
+               (and pos 
+                    ((syntax-position #'a) . > . (syntax-position #'b))
+                    ((syntax-position #'a) . < . (syntax-position #'c))))
+             ;; position of `a' is after `b', while everything else is in
+             ;; order, so print as infix-dot notation
+             (loop
+              (datum->syntax
+               stx
+               (cons #'b
+                     (let loop ([l (syntax->list #'(i ... c))])
+                       (cond
+                        [((syntax-position #'a) . < . (syntax-position (car l)))
+                         (let ([src (syntax-source #'a)]
+                               [pos (syntax-position #'a)]
+                               [line (syntax-line #'a)]
+                               [col (syntax-column #'a)]
+                               [span (syntax-span #'a)])
+                           (list* (datum->syntax #f '|.| 
+                                                 (vector src line 
+                                                         (and col (max 0 (- col 2))) 
+                                                         (max 1 (- pos 2)) 
+                                                         1))
+                                  #'a 
+                                  (datum->syntax #f '|.| 
+                                                 (vector src line 
+                                                         (and col (+ col 1 span))
+                                                         (+ pos 1 span) 
+                                                         1))
+                                  l))]
+                        [else (cons (car l) (loop (cdr l)))])))
+               stx)
+              closes
+              mode)]
 	    [(i ...)
 	     (let ([is (syntax->list #'(i ...))])
 	       ;; Convert each i to a picture, include close paren in last item:
@@ -470,7 +560,7 @@
 			      [col (+ left 1)]
 			      [line (syntax-line stx)]
 			      [always-space? #f]
-                              [col->width (make-hash-table 'equal)])
+                              [col->width (make-hash)])
 		     (cond
 		      [(null? ps) (blank)]
 		      [(or (not line)
@@ -483,18 +573,21 @@
 				  line-so-far
 				  (pad-left space (car ps)))])
 			 (unless (equal? +inf.0 (+ space col))
-			   (hash-table-put! col->width 
-					    (+ space col) 
-					    (pict-width (code-htl-append line-so-far (pad-left space (blank))))))
+			   (hash-set! col->width 
+                                      (+ space col) 
+                                      (pict-width (code-htl-append line-so-far (pad-left space (blank))))))
 			 (if (null? (cdr stxs))
 			     p
 			     (loop (cdr stxs)
 				   (cdr ps)
 				   p
-				   (if (not (syntax-column (car stxs)))
-				       +inf.0
-				       (+ col space (get-span (car stxs))))
-				   (or line (syntax-line (car stxs)))
+                                   (or (syntax-end-column (car stxs) line 0)
+                                       (if (not (syntax-column (car stxs)))
+                                           +inf.0
+                                           (+ col space (get-span (car stxs)))))
+				   (or (syntax-end-line (car stxs))
+                                       line 
+                                       (syntax-line (car stxs)))
 				   #t
                                    col->width)))]
 		      [else
@@ -506,10 +599,10 @@
 			       [p 
                                 (let/ec k
                                   (code-htl-append
-                                   (blank (hash-table-get col->width 
-                                                          (+ space left)
-                                                          (lambda ()
-                                                            (k (pad-left space (car ps)))))
+                                   (blank (hash-ref col->width 
+                                                    (+ space left)
+                                                    (lambda ()
+                                                      (k (pad-left space (car ps)))))
                                           0)
                                    (car ps)))])
 			  (if (null? (cdr stxs))
@@ -520,9 +613,9 @@
 				    (+ left space (get-span (car stxs)))
 				    (or (syntax-line (car stxs)) (add1 line))
 				    #t
-                                    (let ([ht (make-hash-table 'equal)]
-                                          [v (hash-table-get col->width (+ space left) #f)])
-                                      (when v (hash-table-put! ht (+ space left) v))
+                                    (let ([ht (make-hash)]
+                                          [v (hash-ref col->width (+ space left) #f)])
+                                      (when v (hash-set! ht (+ space left) v))
                                       ht)))))])))))]
 	    [id
 	     (identifier? stx)
@@ -535,17 +628,17 @@
              (let ([p (let loop ([a (syntax-e stx)])
                         (cond
                          [(pair? a) (cons (car a) (loop (cdr a)))]
-                         [else (list (datum->syntax-object #f
-                                                           (mode-colorize mode #f dot-p)
-                                                           (list (syntax-source a)
-                                                                 (syntax-line a)
-                                                                 (- (syntax-column a) 2)
-                                                                 (- (syntax-position a) 2)
-                                                                 1))
+                         [else (list (datum->syntax #f
+                                                    (mode-colorize mode #f dot-p)
+                                                    (list (syntax-source a)
+                                                          (syntax-line a)
+                                                          (- (syntax-column a) 2)
+                                                          (- (syntax-position a) 2)
+                                                          1))
                                      a)]))])
-               (loop (datum->syntax-object stx
-                                           p
-                                           stx)
+               (loop (datum->syntax stx
+                                    p
+                                    stx)
                      closes
                      mode))]
 	    [else

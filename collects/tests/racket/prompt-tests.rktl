@@ -855,11 +855,16 @@
                        (lambda ()
                          (k (lambda () (continuation-mark-set-first #f 'x #f catch-tag))))
                        catch-tag)
-                 (test 8
+                 (test #f
                        call-with-continuation-prompt
                        (lambda ()
                          (k (lambda () (continuation-mark-set-first #f 'y #f catch-tag))))
                        catch-tag)
+                 (test (if (eq? catch-tag (default-continuation-prompt-tag)) #f 8)
+                       call-with-continuation-prompt
+                       (lambda ()
+                         (k (lambda () (continuation-mark-set-first #f 'y #f catch-tag))))
+                       (default-continuation-prompt-tag))
                  (test (if blocked?
                            '(17)
                            '(17 18))
@@ -2134,3 +2139,168 @@
             #t))
          1234)
         (λ (x) x))))))
+
+;; ----------------------------------------
+;; Test genearted by a random tester that turns out
+;;  to check meta-continuation offsets for dynamic-wind
+;;  frames:
+
+(test
+ 'expected-result
+ 'nested-meta-continuaion-test
+ (let ()
+   (define pt1 (make-continuation-prompt-tag))
+   (define pt3 (make-continuation-prompt-tag))
+
+   (define call/comp call-with-composable-continuation)
+   (define abort abort-current-continuation)
+   (define-syntax-rule (% pt body handler)
+     (call-with-continuation-prompt
+      (lambda () body)
+      pt
+      handler))
+
+   ;; (lambda (f) (f)) 
+   ;; as a composable continuation:
+   (define comp-app
+     (%
+      pt1
+      ((call/comp
+        (λ (k) (abort pt1 k))
+        pt1))
+      (lambda (k) k)))
+
+   ;; (lambda (f) (dynamic-wind void f void))
+   ;; as a composable continuation:
+   (define dw-comp-app
+     (%
+      pt1
+      (dynamic-wind
+          void
+          (λ ()
+             ((call/comp
+               (λ (k) (abort pt1 k))
+               pt1)))
+          void)
+      (lambda (k) k)))
+
+   (%
+    pt3
+    (dw-comp-app
+     (λ ()
+        (%
+         pt1
+         (dynamic-wind
+             void
+             (λ ()
+                ((call/comp
+                  (λ (k) (abort pt1 k))
+                  pt1)))
+             void)
+         (λ (k) 
+            (k ; composable app under two dyn-winds
+             ;;  where the outer dw is in a deeper meta-cont
+             (λ ()
+                (comp-app
+                 (λ () ; at this point, both dws are in a meta-cont
+                    (make-will-executor)
+                    ((%
+                      pt3
+                      (comp-app 
+                       (λ () ;; both dws are in a meta-meta-cont
+                          ;;    as the continuation is captured
+                          (call/cc (λ (k) k) pt3)))
+                      void) ; = id continuation that aborts to pt3;
+                     ;; as the continuation is applied, dws are back to
+                     ;; being in a mere meta-cont, but the continuation
+                     ;; itself will restore a meta-continuation layer
+                     'expected-result)))))))))
+    (λ (x) x))))
+
+;; ----------------------------------------
+;; There's a "is the target prompt still in place?"
+;;  check that should not happen when a composable
+;;  continuation is applied. (Random testing discovered
+;;  an incorrect check.)
+
+(test
+ 12345
+ 'no-prompt-check-on-compose
+ (let ()
+   (define pt1 (make-continuation-prompt-tag))
+
+   (define-syntax-rule (% pt body handler)
+     (call-with-continuation-prompt
+      (lambda () body)
+      pt
+      handler))
+
+   ;; (lambda (v) v)
+   ;; as a composable continuation:
+   (define comp-id
+     (%
+      pt1
+      (call-with-composable-continuation
+       (λ (k) (abort-current-continuation pt1 k))
+       pt1)
+      (lambda (k) k)))
+
+   ((% pt1
+       (dynamic-wind
+           (λ () (comp-id 2))
+           (λ () 
+              ;; As we jump back to this continuation,
+              ;; it's ok that no `pt1' prompt is
+              ;; in place anymore
+              (call-with-composable-continuation
+               (λ (k) (abort-current-continuation
+                       pt1 
+                       k))
+               pt1))
+           (λ () #f))
+       (λ (x) x))
+    12345)))
+
+(test
+ 12345
+ 'no-prompt-post-check-on-compose
+ (let ()
+   (define pt1 (make-continuation-prompt-tag))
+   
+   (define-syntax-rule (% pt body handler)
+     (call-with-continuation-prompt
+      (lambda () body)
+      pt
+      handler))
+
+   ((λ (y-comp-cont_7)
+       ((λ (x-comp-cont_3)
+           ((%
+             pt1
+             (x-comp-cont_3
+              (λ ()
+                 (y-comp-cont_7
+                  (λ () (call-with-composable-continuation
+                         (λ (k) (abort-current-continuation pt1 k))
+                         pt1)))))
+             (λ (x) x))
+            12345))
+        (%
+         pt1
+         (dynamic-wind
+             (λ () (y-comp-cont_7 (λ () #f)))
+             (λ () ((call-with-composable-continuation
+                     (λ (k) (abort-current-continuation pt1 k))
+                     pt1)))
+             (λ () #f))
+         (λ (x) x))))
+    (%
+     pt1
+     (dynamic-wind
+         (λ () #f)
+         (λ () ((call-with-composable-continuation
+                 (λ (k) (abort-current-continuation pt1 k)) 
+                 pt1)))
+         (λ () #f))
+     (λ (x) x)))))
+

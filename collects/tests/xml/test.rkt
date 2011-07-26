@@ -18,7 +18,9 @@
      (read-xml (open-input-string str)))))
 
 (define test-read-xml/exn (mk-test-read-xml/exn read-xml))
-(define (test-read-xml str xml)
+(define (test-read-xml str xml #:document-different? [diff? #f])
+  (unless diff?
+   (test-equal? str (document->list (read-xml/document (open-input-string str))) xml))
   (test-equal? str (document->list (read-xml (open-input-string str))) xml))
 
 (define test-syntax:read-xml/exn (mk-test-read-xml/exn syntax:read-xml))
@@ -119,6 +121,7 @@ END
      (test-xexpr? (list 'p "one" "two" "three"))
      (test-xexpr? 'nbsp)
      (test-xexpr? 10)
+     (test-not-xexpr? 0)
      (test-xexpr? (make-cdata #f #f "unquoted <b>"))
      (test-xexpr? (make-comment "Comment!"))
      (test-xexpr? (make-pcdata #f #f "quoted <b>"))
@@ -247,12 +250,49 @@ END
          (list (make-entity (make-source (make-location 1 6 7) (make-location 1 11 12)) '40)))
         (list)))
      
+     (test-read-xml/exn
+      "<root>&#0;</root>"
+      "read-xml: lex-error: at position 1.10/11: not a well-formed numeric entity (does not match the production for Char, see XML 4.1)")
+     
      (test-read-xml
       "<!-- comment --><br />"
       '(make-document
         (make-prolog (list) #f (list))
         (make-element (make-source (make-location 1 16 17) (make-location 1 22 23)) 'br (list) (list))
         (list)))
+
+     (test-read-xml
+      "<?xml version=\"1.0\"? encoding=\"UTF-8\" standalone=\"yes\"?><br />"
+      '(make-document
+  (make-prolog
+   (list
+    (make-p-i
+     (make-source (make-location 1 0 1) (make-location 1 56 57))
+     xml
+     "version=\"1.0\"? encoding=\"UTF-8\" standalone=\"yes\""))
+   #f
+   (list))
+  (make-element
+   (make-source (make-location 1 56 57) (make-location 1 62 63))
+   'br
+   (list)
+   (list))
+  (list)))
+
+     (test-read-xml #:document-different? #t
+      "<br /><?xml version=\"1.0\"? encoding=\"UTF-8\" standalone=\"yes\"?>"
+      '(make-document
+  (make-prolog (list) #f (list))
+  (make-element
+   (make-source (make-location 1 0 1) (make-location 1 6 7))
+   'br
+   (list)
+   (list))
+  (list
+   (make-p-i
+    (make-source (make-location 1 6 7) (make-location 1 62 63))
+    xml
+    "version=\"1.0\"? encoding=\"UTF-8\" standalone=\"yes\""))))
      
      ; XXX need more read-xml tests
      
@@ -482,6 +522,7 @@ END
         (test-equal? str (string->xexpr str) xe))
       (define (test-xexpr->string xe str)
         (test-equal? (format "~S" xe) (xexpr->string xe) str)
+        (test-equal? (format "~S" xe) (with-output-to-string (λ () (write-xexpr xe))) str)
         (test-string->xexpr str xe))
       (define (test-string->xexpr str xe)
         (test-equal? str (string->xexpr str) xe))]
@@ -580,7 +621,7 @@ END
                        (validate-xexpr xe))))]
         (test-suite
          "validate-xexpr"
-         (test-validate-xexpr 4)
+         (test-validate-xexpr 64)
          (test-validate-xexpr 'nbsp)
          (test-validate-xexpr "string")
          (test-validate-xexpr (make-pcdata #f #f "pcdata"))
@@ -592,6 +633,7 @@ END
          (test-validate-xexpr '(a ([href "#"]) "string"))
          
          (test-validate-xexpr/exn #f #f)
+         (test-validate-xexpr/exn 4 4)
          (test-validate-xexpr/exn + +)
          (test-validate-xexpr/exn '(a ([href foo]) bar) 'foo)
          (test-validate-xexpr/exn '("foo" bar) '("foo" bar))))

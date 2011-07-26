@@ -514,7 +514,7 @@
 					  (adjust-locs line col pos))))])
 	     (port-count-lines! p2)
 	     p2)))])
-  (let ([plain (let ([p (open-input-string "Hello\n\n world")])
+  (let ([plain (let ([p (open-input-string "Hello\n\n world 1\n2")])
 		 (port-count-lines! p)
 		 p)]
 	[double (mk (lambda (l c p)
@@ -536,6 +536,14 @@
     (test-values '(#f #f #f) (lambda () (port-next-location none)))
     (err/rt-test (port-next-location bad))
 
+    ;; `set-port-next-location!' should have no effect on custom ports:
+    (set-port-next-location! double 1 1 1)
+    (test-values '(2 10 12) (lambda () (port-next-location double)))
+    (set-port-next-location! none 1 1 1)
+    (test-values '(#f #f #f) (lambda () (port-next-location none)))
+    (set-port-next-location! bad 1 1 1)
+    (err/rt-test (port-next-location bad))
+
     (let ([stx (read-syntax #f plain)])
       (test 3 syntax-line stx)
       (test 1 syntax-column stx)
@@ -555,7 +563,19 @@
     
     (test-values '(3 6 14) (lambda () (port-next-location plain)))
     (test-values '(6 12 28) (lambda () (port-next-location double)))
-    (test-values '(#f #f #f) (lambda () (port-next-location none)))))
+    (test-values '(#f #f #f) (lambda () (port-next-location none)))
+
+    ;; Check `set-port-next-location!':
+    (set-port-next-location! plain 100 13 1023)
+    (test-values '(100 13 1023) (lambda () (port-next-location plain)))
+    (let ([stx (read-syntax #f plain)])
+      (test 100 syntax-line stx)
+      (test 14 syntax-column stx)
+      (test 1024 syntax-position stx))
+    (let ([stx (read-syntax #f plain)])
+      (test 101 syntax-line stx)
+      (test 0 syntax-column stx)
+      (test 1026 syntax-position stx))))
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  Check that if the initial commit thread is killed, then
@@ -625,6 +645,55 @@
                   (break-thread t)))
         (with-handlers ([exn:break? (lambda (exn) 'ok)])
           (write-byte 0 p))))
+
+;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Test port-commit-peeked and position counting
+
+(let ([check
+       (lambda (in [d 0] [first-three-bytes #"123"] [char-len 3])
+         (test d file-position in)
+         (let-values ([(l c p) (port-next-location in)])
+           (test p add1 d)
+           (test first-three-bytes peek-bytes 3 0 in)
+           (test d file-position in)
+           (let-values ([(l2 c2 p2) (port-next-location in)])
+             (test (list l c p) list l2 c2 p2))
+           (port-commit-peeked 3 (port-progress-evt in) always-evt in)
+           (test (+ d 3) file-position in)
+           (let-values ([(l2 c2 p2) (port-next-location in)])
+             (test (list l (and c (+ c char-len)) (+ p (if c char-len 3))) 
+                   list l2 c2 p2))
+           (test #\4 read-char in)))])
+  (define (check-all count-lines!)
+    (let ()
+      (define s (open-input-string "12345"))
+      (count-lines! s)
+      (check s))
+    (let ()
+      (define s (open-input-string "012345"))
+      (count-lines! s)
+      (read-byte s)
+      (check s 1))
+    (let ()
+      (define s (open-input-string "1\u03BB45"))
+      (count-lines! s)
+      (check s 0 (string->bytes/utf-8 "1\u3BB") 2))
+    (let ()
+      (define-values (in out) (make-pipe))
+      (display "12345" out)
+      (count-lines! in)
+      (check in))
+    (let ()
+      (with-output-to-file "tmp8" 
+        #:exists 'truncate/replace
+        (lambda () (display "12345")))
+      (define in (open-input-file "tmp8"))
+      (count-lines! in)
+      (check in)
+      (close-input-port in)
+      (delete-file "tmp8")))
+  (check-all void)
+  (check-all port-count-lines!))
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 

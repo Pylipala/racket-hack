@@ -2,26 +2,27 @@
 
 (require "../utils/utils.rkt"
 	 (except-in (rep type-rep) make-arr)
-         (rename-in (types convenience union utils) [make-arr* make-arr])
+         (rename-in (types convenience union utils printer filter-ops) [make-arr* make-arr])
          (utils tc-utils stxclass-util)
          syntax/stx (prefix-in c: scheme/contract)
          syntax/parse
-         (env type-env-structs tvar-env type-name-env type-alias-env lexical-env index-env)         
-         racket/match unstable/debug
-         (for-template scheme/base "colon.ss")
+         (env type-env-structs tvar-env type-name-env type-alias-env lexical-env index-env)
+         racket/match
+         (for-template scheme/base "../base-env/colon.rkt")
          ;; needed at this phase for tests
-         (combine-in (prefix-in t: "base-types-extra.ss") "colon.ss")
-         (for-template (prefix-in t: "base-types-extra.ss")))
+         (combine-in (prefix-in t: "../base-env/base-types-extra.rkt") "../base-env/colon.rkt")
+         (for-template (prefix-in t: "../base-env/base-types-extra.rkt")))
 
 (define-struct poly (name vars) #:prefab)
 
-(p/c [parse-type (syntax? . c:-> . Type/c)]
-     [parse-type/id (syntax? c:any/c . c:-> . Type/c)] 
-     [parse-tc-results (syntax? . c:-> . tc-results?)] 
-     [parse-tc-results/id (syntax? c:any/c . c:-> . tc-results?)])
+(provide/cond-contract [parse-type (syntax? . c:-> . Type/c)]
+                       [parse-type/id (syntax? c:any/c . c:-> . Type/c)]
+                       [parse-tc-results (syntax? . c:-> . tc-results?)]
+                       [parse-tc-results/id (syntax? c:any/c . c:-> . tc-results?)])
 
 (provide star ddd/bound)
 (define enable-mu-parsing (make-parameter #t))
+(print-complex-filters? #t)
 
 (define ((parse/id p) loc datum)
   #;(printf "parse-type/id id : ~a\n ty: ~a\n" (syntax-object->datum loc) (syntax-object->datum stx))
@@ -56,11 +57,11 @@
     [(ty)
      (parse-type #'ty)]
     [(x ...)
-     #:fail-unless (= 1 (length 
+     #:fail-unless (= 1 (length
 			 (for/list ([i (syntax->list #'(x ...))]
 				    #:when (and (identifier? i)
 						(free-identifier=? i #'t:->)))
-				   i))) 
+				   i)))
      #f
      (parse-type s)]))
 
@@ -74,7 +75,7 @@
        (extend-indexes v
          (extend-tvars vars
            (make-PolyDots (append vars (list v)) (parse-all-body #'t)))))]
-    [((~and kw t:All) (vars:id ...) . t) 
+    [((~and kw t:All) (vars:id ...) . t)
      (let* ([vars (map syntax-e (syntax->list #'(vars ...)))])
        (add-type-name-reference #'kw)
        (extend-tvars vars
@@ -103,8 +104,8 @@
   (pattern cdr
            #:attr pe (make-CdrPE)))
 
-(define-splicing-syntax-class latent-filter
-  #:description "latent filter"  
+(define-splicing-syntax-class simple-latent-filter
+  #:description "latent filter"
   (pattern (~seq t:expr (~describe "@" (~datum @)) pe:path-elem ...)
            #:attr type (parse-type #'t)
            #:attr path (attribute pe.pe))
@@ -112,11 +113,46 @@
            #:attr type (parse-type #'t)
            #:attr path '()))
 
-(define (parse-type stx)    
-  (parameterize ([current-orig-stx stx])    
+(define-syntax-class prop
+  #:attributes (prop)
+  (pattern (~literal Top) #:attr prop -top)
+  (pattern (~literal Bot) #:attr prop -bot)
+  (pattern (t:expr (~describe "@" (~datum @)) pe:path-elem ... i:nat)
+           #:attr prop (-filter (parse-type #'t) (syntax-e #'i) (attribute pe.pe)))
+  (pattern ((~datum !) t:expr (~describe "@" (~datum @)) pe:path-elem ... i:nat)
+           #:attr prop (-not-filter (parse-type #'t) (syntax-e #'i) (attribute pe.pe)))
+  (pattern ((~literal and) p:prop ...)
+           #:attr prop (apply -and (attribute p.prop)))
+  (pattern ((~literal or) p:prop ...)
+           #:attr prop (apply -or (attribute p.prop)))
+  (pattern ((~literal implies) p1:prop p2:prop)
+           #:attr prop (-imp (attribute p1.prop) (attribute p2.prop))))
+
+(define-syntax-class object
+  #:attributes (object)
+  (pattern e:expr
+           #:attr object -no-obj))
+
+(define-splicing-syntax-class full-latent
+  #:description "latent propositions and object"
+  (pattern (~seq (~optional (~seq #:+ p+:prop ...))
+                 (~optional (~seq #:- p-:prop ...))
+                 (~optional (~seq #:object o:object)))
+           #:attr positive (if (attribute p+.prop)
+                               (apply -and (attribute p+.prop))
+                               -top)
+           #:attr negative (if (attribute p-.prop)
+                               (apply -and (attribute p-.prop))
+                               -top)
+           #:attr object (if (attribute o.object)
+                             (attribute o.object)
+                             -no-obj)))
+
+(define (parse-type stx)
+  (parameterize ([current-orig-stx stx])
     (syntax-parse
         stx
-      #:literals (t:Class t:Refinement t:Instance t:List t:List* cons t:pred t:-> : case-lambda
+      #:literals (t:Class t:Refinement t:Instance t:List t:List* cons t:pred t:-> : case-lambda t:case->
                           t:Rec t:U t:All t:Opaque t:Parameter t:Vector quote)
       [t
        #:declare t (3d Type?)
@@ -163,17 +199,17 @@
       [((~and kw cons) fst rst)
        (add-type-name-reference #'kw)
        (-pair (parse-type #'fst) (parse-type #'rst))]
-      [((~and kw t:pred) t) 
+      [((~and kw t:pred) t)
        (add-type-name-reference #'kw)
-       (make-pred-ty (parse-type #'t))]     
-      [((~and kw case-lambda) tys ...)
+       (make-pred-ty (parse-type #'t))]
+      [((~and kw (~or case-lambda t:case->)) tys ...)
        (add-type-name-reference #'kw)
-       (make-Function 
+       (make-Function
         (for/list ([ty (syntax->list #'(tys ...))])
           (let ([t (parse-type ty)])
             (match t
               [(Function: (list arr)) arr]
-              [_ (tc-error/stx 
+              [_ (tc-error/stx
                   ty
                   "Component of case-lambda type was not a function clause")]))))]
       #;[((~and kw t:Vectorof) t)
@@ -197,27 +233,38 @@
        (-pair (parse-type #'(quote t1)) (parse-type #'(quote t2)))]
       [((~and kw quote) t)
        (add-type-name-reference #'kw)
-       (-val (syntax->datum #'t))]     
-      [((~and kw t:All) . rest)     
+       (-val (syntax->datum #'t))]
+      [((~and kw t:All) . rest)
        (parse-all-type stx parse-type)]
-      [((~and kw t:Opaque) p?) 
+      [((~and kw t:Opaque) p?)
        (add-type-name-reference #'kw)
        (make-Opaque #'p? (syntax-local-certifier))]
-      [((~and kw t:Parameter) t) 
+      [((~and kw t:Parameter) t)
        (let ([ty (parse-type #'t)])
          (add-type-name-reference #'kw)
          (-Param ty ty))]
-      [((~and kw t:Parameter) t1 t2)      
+      [((~and kw t:Parameter) t1 t2)
        (add-type-name-reference #'kw)
        (-Param (parse-type #'t1) (parse-type #'t2))]
-      ;; function types
-      ;; handle this error first:
-      [((~or dom (~between (~and kw t:->) 2 +inf.0)) ...)
-       (for ([k (syntax->list #'(kw ...))]) (add-type-name-reference k))
-       (tc-error/stx (syntax->list #'(kw ...))
-                     "The -> type constructor may be used only once in a form")
-       Err]
-      [(dom (~and kw t:->) rng : ~! latent:latent-filter)
+      ;; curried function notation
+      [((~and dom:non-keyword-ty (~not t:->)) ...
+        (~and kw t:->)
+        (~and (~seq rest-dom ...) (~seq (~or _ (~between t:-> 1 +inf.0)) ...)))
+       (add-type-name-reference #'kw)
+       (let ([doms (for/list ([d (syntax->list #'(dom ...))])
+                    (parse-type d))])
+         (make-Function
+          (list (make-arr
+                 doms
+                 (parse-type (syntax/loc stx (rest-dom ...)))))))]
+      [(dom ... (~and kw t:->) rng : latent:full-latent)
+       (add-type-name-reference #'kw)
+       ;; use parse-type instead of parse-values-type because we need to add the filters from the pred-ty
+       (->* (map parse-type (syntax->list #'(dom ...)))
+            (parse-type #'rng)
+            : (-FS (attribute latent.positive) (attribute latent.negative))
+            : (attribute latent.object))]
+      [(dom (~and kw t:->) rng : ~! latent:simple-latent-filter)
        (add-type-name-reference #'kw)
        ;; use parse-type instead of parse-values-type because we need to add the filters from the pred-ty
        (make-pred-ty (list (parse-type #'dom)) (parse-type #'rng) (attribute latent.type) 0 (attribute latent.path))]
@@ -233,7 +280,7 @@
        (add-type-name-reference #'kw)
        (let* ([bnd (syntax-e #'bound)])
          (unless (bound-index? bnd)
-           (tc-error/stx #'bound 
+           (tc-error/stx #'bound
                          "Used a type variable (~a) not bound with ... as a bound on a ..."
                          bnd))
          (make-Function
@@ -253,7 +300,7 @@
                           (extend-tvars (list var) (parse-type #'rest))
                           var))))]
       #| ;; has to be below the previous one
-     [(dom:expr ... (~and kw t:->) rng) 
+     [(dom:expr ... (~and kw t:->) rng)
       (add-type-name-reference #'kw)
       (->* (map parse-type (syntax->list #'(dom ...)))
            (parse-values-type #'rng))]     |#
@@ -267,9 +314,9 @@
                  doms
                  (parse-values-type #'rng)
                  #:kws (attribute kws.Keyword)))))]
-      
+
       [id:identifier
-       (cond 
+       (cond
          ;; if it's a type variable, we just produce the corresponding reference (which is in the HT)
          [(bound-tvar? (syntax-e #'id))
           (make-F (syntax-e #'id))]
@@ -294,29 +341,29 @@
           (tc-error/delayed "Incorrect use of -> type constructor")
           Err]
          [else
-          (tc-error/delayed 
+          (tc-error/delayed
            "Unbound type name ~a"
            (syntax-e #'id))
-          Err])]      
+          Err])]
       [(t:Opaque . rest)
        (tc-error "Opaque: bad syntax")]
       [(t:U . rest)
        (tc-error "Union: bad syntax")]
       #;[(t:Vectorof . rest)
        (tc-error "Vectorof: bad syntax")]
-      [((~and (~datum mu) t:Rec) . rest) 
+      [((~and (~datum mu) t:Rec) . rest)
        (tc-error "mu: bad syntax")]
-      [(t:Rec . rest) 
+      [(t:Rec . rest)
        (tc-error "Rec: bad syntax")]
       [(t ... t:-> . rest)
        (tc-error "->: bad syntax")]
       [(id arg args ...)
-       (let loop 
+       (let loop
          ([rator (parse-type #'id)]
           [args (map parse-type (syntax->list #'(arg args ...)))])
          (match rator
            [(Name: n)
-            (when (and (current-poly-struct) 
+            (when (and (current-poly-struct)
                        (free-identifier=? n (poly-name (current-poly-struct)))
                        (not (or (ormap Error? args)
                                 (andmap type-equal? args (poly-vars (current-poly-struct))))))
@@ -336,7 +383,7 @@
          (unless (Poly? ty)
            (tc-error "not a polymorphic type: ~a" (syntax-e #'id)))
          (unless (= (length (syntax->list #'(arg args ...))) (Poly-n ty))
-           (tc-error "wrong number of arguments to type constructor ~a: expected ~a, got ~a" 
+           (tc-error "wrong number of arguments to type constructor ~a: expected ~a, got ~a"
                      (syntax-e #'id)
                      (Poly-n ty)
                      (length (syntax->list #'(arg args ...)))))
@@ -346,7 +393,7 @@
       [_ (tc-error "not a valid type: ~a" (syntax->datum stx))])))
 
 (define (parse-list-type stx)
-  (parameterize ([current-orig-stx stx])        
+  (parameterize ([current-orig-stx stx])
     (syntax-parse stx #:literals (t:List)
       [((~and kw t:List) tys ... dty :ddd/bound)
        (add-type-name-reference #'kw)
@@ -368,12 +415,12 @@
                      (extend-tvars (list var)
                        (parse-type #'dty))
                      var)))]
-      [((~and kw t:List) tys ...) 
+      [((~and kw t:List) tys ...)
        (add-type-name-reference #'kw)
        (-Tuple (map parse-type (syntax->list #'(tys ...))))])))
 
 (define (parse-values-type stx)
-  (parameterize ([current-orig-stx stx])        
+  (parameterize ([current-orig-stx stx])
     (syntax-parse stx #:literals (values t:All)
       [((~and kw values) tys ... dty :ddd/bound)
        (add-type-name-reference #'kw)
@@ -381,7 +428,7 @@
          (unless (bound-index? var)
            (if (bound-tvar? var)
                (tc-error/stx #'bound "Used a type variable (~a) not bound with ... as a bound on a ..." var)
-               (tc-error/stx #'bound "Type variable ~a is unbound" var)))         
+               (tc-error/stx #'bound "Type variable ~a is unbound" var)))
          (make-ValuesDots (map parse-type (syntax->list #'(tys ...)))
                           (extend-tvars (list var)
                             (parse-type #'dty))
@@ -393,7 +440,7 @@
                           (extend-tvars (list var)
                               (parse-type #'dty))
                             var))]
-      [((~and kw values) tys ...) 
+      [((~and kw values) tys ...)
        (add-type-name-reference #'kw)
        (-values (map parse-type (syntax->list #'(tys ...))))]
       [t
@@ -403,7 +450,7 @@
   (syntax-parse stx #:literals (values)
     [((~and kw values) t ...)
      (add-type-name-reference #'kw)
-     (ret (map parse-type (syntax->list #'(t ...))) 
+     (ret (map parse-type (syntax->list #'(t ...)))
           (map (lambda (x) (make-NoFilter)) (syntax->list #'(t ...)))
           (map (lambda (x) (make-NoObject)) (syntax->list #'(t ...))))]
     [t (ret (parse-type #'t) (make-NoFilter) (make-NoObject))]))

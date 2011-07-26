@@ -1,5 +1,11 @@
 #include <stdio.h>
 #include <sys/types.h>
+#ifdef __APPLE__
+#include <TargetConditionals.h>
+#endif
+#ifndef TARGET_OS_IPHONE
+#define TARGET_OS_IPHONE 0
+#endif
 #include "sgc.h"
 
 void *x;
@@ -112,7 +118,7 @@ void work2()
   }
 }
 
-#ifdef IPHONE
+#if TARGET_OS_IPHONE
 void test_main()
 #else
 main()

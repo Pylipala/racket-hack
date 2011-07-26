@@ -269,7 +269,7 @@
        ((ctype-sizeof v) . <= . 16))]))
 
 ;; Make `msgSends' access atomic, so that a thread cannot be suspended
-;; or killed during access, whcih would block other threads.
+;; or killed during access, which would block other threads.
 (define-syntax-rule (as-atomic e)
   (begin (start-atomic) (begin0 e (end-atomic))))
 
@@ -870,6 +870,8 @@
 ;; --------------------------------------------------
 
 (define-objc class_getInstanceMethod (_fun _Class _SEL -> _Method))
-(define-objc method_setImplementation (_fun _Method _IMP -> _IMP))
-
-
+(define-objc method_setImplementation (_fun _Method _IMP -> _IMP)
+  #:fail (lambda () (lambda (meth imp)
+                      (set-objc_method-method_imp! 
+                       (cast meth _Method _objc_method-pointer) 
+                       (function-ptr imp _IMP)))))

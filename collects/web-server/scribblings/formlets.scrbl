@@ -120,7 +120,7 @@ Most users will want to use the syntactic shorthand for creating @tech{formlet}s
  These forms @emph{may not} appear nested inside @racket[unquote] or @racket[unquote-splicing]. For example, this is illegal:
  @racketblock[
   (formlet (div ,@(for/list ([i (in-range 10)])
-                    `(p ,(text-input . => . name))))
+                    `(p ,((text-input) . => . name))))
            name)
   ]
 }
@@ -164,7 +164,7 @@ to be @emph{syntactically} an @|xexpr|. You may discover you want to use a more 
  @racketblock[
   (formlet* `(div ,@(for/list ([i (in-range 1 10)])
                       `(p ,(number->string i)
-                          ,(text-input . =>* . name))))
+                          ,((text-input) . =>* . name))))
             name)
   ]
  @racket[name] is bound to a list of strings, not a single string, where the first element is the string that
@@ -173,7 +173,7 @@ to be @emph{syntactically} an @|xexpr|. You may discover you want to use a more 
  In this example, it is clear that this is the desired behavior. However, sometimes the value of a formlet's
  result may be surprising. For example, in
  @racketblock[
-  (formlet* `(div (p ,(text-input . =>* . name)))
+  (formlet* `(div (p ,((text-input) . =>* . name)))
             name)
   ]
  @racket[name] is bound to a list of strings, because @racket[formlet*] cannot syntactically determine if
@@ -304,8 +304,10 @@ These @tech{formlet}s are the main combinators for form input.
  This @tech{formlet} renders using an INPUT element with the PASSWORD type and the attributes given in the arguments.
 }
                                             
-@defproc[(textarea-input [#:rows rows (or/c false/c number?) #f]
-                         [#:cols cols (or/c false/c number?) #f])
+@defproc[(textarea-input [#:value value (or/c false/c bytes?) #f]
+                         [#:rows rows (or/c false/c number?) #f]
+                         [#:cols cols (or/c false/c number?) #f]
+                         [#:attributes attrs (listof (list/c symbol? string?)) empty])
         (formlet/c (or/c false/c binding?))]{
  This @tech{formlet} renders using an TEXTAREA element with attributes given in the arguments.
 }
@@ -431,25 +433,26 @@ These @tech{formlet}s are the main combinators for form input.
 
 @section{Utilities}
 
-@(require (for-label web-server/formlets/servlet))
+@(require (for-label web-server/formlets/servlet
+                     web-server/http))
 @defmodule[web-server/formlets/servlet]{
 
 A few utilities are provided for using @tech{formlet}s in Web applications.
 
 @defproc[(send/formlet [f (formlet/c any/c ...)]
                        [#:wrap wrapper
-                               (xexpr/c . -> . response/c)
+                               (xexpr/c . -> . xexpr/c)
                                (lambda (form-xexpr)
                                  `(html (head (title "Form Entry"))
                                         (body ,form-xexpr)))])
          (values any/c ...)]{
- Uses @racket[send/suspend] to send @racket[f]'s rendering (wrapped in a FORM tag whose action is
+ Uses @racket[send/suspend] and @racket[response/xexpr] to send @racket[f]'s rendering (wrapped in a FORM tag whose action is
  the continuation URL (wrapped again by @racket[wrapper])) to the client.
  When the form is submitted, the request is passed to the
  processing stage of @racket[f].
 }
                
-@defproc[(embed-formlet [embed/url embed/url/c]
+@defproc[(embed-formlet [embed/url ((request? . -> . any) . -> . string?)]
                         [f (formlet/c any/c ...)])
          xexpr/c]{
  Like @racket[send/formlet], but for use with @racket[send/suspend/dispatch].

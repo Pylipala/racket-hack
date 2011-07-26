@@ -1,7 +1,7 @@
 #lang scribble/doc
-@(require "common.ss")
+@(require "common.rkt")
 
-@title{@bold{GUI}: Racket Graphical Interface Toolkit}
+@title{The Racket Graphical Interface Toolkit}
 
 @author["Matthew Flatt" "Robert Bruce Findler" "John Clements"]
 
@@ -10,7 +10,8 @@
 @defmodule*/no-declare[(racket/gui/base)]{The
 @racketmodname[racket/gui/base] library provides all of the class,
 interface, and procedure bindings defined in this manual, in addition
-to the bindings of @racketmodname[racket/draw].}
+to the bindings of @racketmodname[racket/draw] and 
+@racketmodname[file/resource].}
 
 @defmodulelang*/no-declare[(racket/gui)]{The
 @racketmodname[racket/gui] language combines all bindings of the
@@ -43,11 +44,14 @@ Both parts of the toolbox rely extensively on the
 @include-section["win-classes.scrbl"]
 @include-section["win-funcs.scrbl"]
 @include-section["editor-overview.scrbl"]
+@include-section["snip-classes.scrbl"]
 @include-section["editor-classes.scrbl"]
 @include-section["editor-funcs.scrbl"]
 @include-section["wxme.scrbl"]
 @include-section["prefs.scrbl"]
 @include-section["dynamic.scrbl"]
+@include-section["startup.scrbl"]
+@include-section["libs.scrbl"]
 
 @;------------------------------------------------------------------------
 

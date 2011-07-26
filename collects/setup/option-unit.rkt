@@ -1,7 +1,7 @@
 #lang scheme/base
 (require scheme/unit
          racket/future
-         "option-sig.ss")
+         "option-sig.rkt")
 
 (provide setup:option@ set-flag-params)
 
@@ -25,7 +25,7 @@
   (import)
   (export setup-option^)
 
-  (define setup-program-name (make-parameter "setup-plt"))
+  (define setup-program-name (make-parameter "raco setup"))
 
   (define-flag-param parallel-workers (min (processor-count) 8))
   (define-flag-param verbose #f)

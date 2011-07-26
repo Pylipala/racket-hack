@@ -29,7 +29,7 @@
   
   (define DrawSizeNote "")
 
-  (define MismatchExn @elem{an @scheme[exn:fail:contract] exception is raised})
+  (define MismatchExn @elem{an @racket[exn:fail:contract] exception is raised})
 
   (define (colorName name name2 r g b)
     (make-element #f
@@ -44,19 +44,10 @@
   (define (res-sym s)
     (string->symbol (string-append "GRacket:" s)))
 
-  (define (Resource s)
-    @elem{@to-element[`(quote ,(res-sym s))]
-          preference})
-  (define (ResourceFirst s) ; fixme -- add index
-    (let ([r (Resource s)])
-      (index* (list (format "~a preference" (res-sym s)))
-              (list r) 
-              r)))
-
   (define (boxisfill which what)
     @elem{The @|which| box is filled with @|what|.})
   (define (boxisfillnull which what)
-    @elem{The @|which| box is filled with @|what|, unless @|which| is @scheme[#f].})
+    @elem{The @|which| box is filled with @|what|, unless @|which| is @racket[#f].})
 
   )
 

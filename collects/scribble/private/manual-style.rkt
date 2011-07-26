@@ -1,14 +1,14 @@
 #lang racket/base
-(require "../decode.ss"
-         "../struct.ss"
-         "../base.ss"
-         (only-in "../basic.ss" aux-elem itemize)
-         "../scheme.ss"
-         (only-in "../core.ss" make-style plain
+(require "../decode.rkt"
+         "../struct.rkt"
+         "../base.rkt"
+         (only-in "../basic.rkt" aux-elem itemize)
+         "../scheme.rkt"
+         (only-in "../core.rkt" make-style plain
                   make-nested-flow
                   [element? core:element?])
-         "manual-utils.ss"
-         "on-demand.ss"
+         "manual-utils.rkt"
+         "on-demand.rkt"
          "manual-sprop.rkt"
          racket/list
          racket/contract
@@ -46,13 +46,13 @@
                         [racketparenfont schemeparenfont]
                         [racketkeywordfont schemekeywordfont]
                         [racketmetafont schememetafont])
-                 
+
 (provide void-const
          undefined-const)
 (provide/contract
  [PLaneT element?]
  [hash-lang (-> element?)]
- [etc string?]
+ [etc element?]
  [inset-flow (() () #:rest (listof pre-content?) . ->* . any/c)] ; XXX no docs and bad return contract
  [litchar (() () #:rest (listof string?) . ->* . element?)]
  [t (() () #:rest (listof pre-content?) . ->* . paragraph?)]
@@ -61,7 +61,7 @@
 
 (define PLaneT (make-element "planetName" '("PLaneT")))
 
-(define etc "etc.") ; so we can fix the latex space, one day
+(define etc (make-element #f (list "etc" ._)))
 
 (define (litchar . strs)
   (let ([s (string-append* (map (lambda (s) (regexp-replace* "\n" s " "))
@@ -171,10 +171,18 @@
    (list (racketmodfont "#lang"))
    `(part ,(doc-prefix '(lib "scribblings/guide/guide.scrbl") "hash-lang"))))
 
+(define (make-v+u-link p)
+  (make-link-element
+   module-link-color
+   p
+   `(part ,(doc-prefix '(lib "scribblings/guide/guide.scrbl") "void+undefined"))))
+
 (define-on-demand void-const
-  (racketresultfont "#<void>"))
+  (make-v+u-link
+   (racketresultfont "#<void>")))
 (define-on-demand undefined-const
-  (racketresultfont "#<undefined>"))
+  (make-v+u-link
+   (racketresultfont "#<undefined>")))
 
 (define (link url 
               #:underline? [underline? #t]

@@ -1,6 +1,5 @@
 #lang scribble/doc
-@(require "common.ss"
-          scribble/bnf)
+@(require "common.rkt" scribble/bnf)
 
 @title{Editor Functions}
 
@@ -99,7 +98,7 @@ Appends menu items to a given menu (not a popup menu) to implement a
  font face or style. The callback for each menu item uses
 @xmethod[top-level-window<%> get-edit-target-object] (finding the frame by following a chain of parents until a frame is
  reached); if the result is an @racket[editor<%>] object,
-@xmethod[editor<%> change-style] is called on the editor.
+@xmethod[text% change-style] or @xmethod[pasteboard% change-style] is called on the editor.
 
 }
 
@@ -134,7 +133,7 @@ The initializer takes a keymap object and returns nothing. The default
  initializer chains the given keymap to an internal keymap that
  implements standard text editor keyboard and mouse bindings for cut,
  copy, paste, undo, and select-all. The right mouse button is mapped
- to popup an edit menu when the button is released. Under X,
+ to popup an edit menu when the button is released. On Unix,
  start-of-line (Ctl-A) and end-of-line (Ctl-E) are also mapped.
 
 }
@@ -142,12 +141,10 @@ The initializer takes a keymap object and returns nothing. The default
 @defproc[(editor-set-x-selection-mode [on any/c])
          void?]{
 
-Under X Windows, editor selections conform to the X Windows selection
-conventions instead of a clipboard-based convention. If @racket[on] is
-@racket[#f], the behavior is switched to the clipboard-based convention
+On Unix, editor selections conform to the X11 Windows selection
+conventions. If @racket[on] is
+@racket[#f], the behavior is switched exclusively to the clipboard-based convention
 (where copy must be explicitly requested before a paste).
-
-
 
 }
 
@@ -174,7 +171,7 @@ Gets the snip class list instance for the current eventspace.
            [(map-command-as-meta-key)
             boolean?])]{
 Determines the interpretation of @litchar{m:} for a @racket[keymap%]
-mapping under Mac OS X. See also
+mapping on Mac OS X. See also
 @xmethod[keymap% map-function].
 
 
@@ -182,7 +179,7 @@ First case:
 
 
 If @racket[on?] is @racket[#t], @litchar{m:} corresponds to the Command key. If
-@racket[on?] is @racket[#f], then @litchar{m:} corresponds to no key under Mac OS
+@racket[on?] is @racket[#f], then @litchar{m:} corresponds to no key on Mac OS
 X.
 
 
@@ -196,7 +193,7 @@ Returns @racket[#t] if @litchar{m:} corresponds to Command,
 }
 
 @defproc[(open-input-graphical-file [filename string?])
-         input-port]{
+         input-port?]{
 
 Opens @racket[filename] (in @racket['binary] mode) and checks whether it looks
  like a ``graphical'' file in editor format. If the file does not
@@ -210,7 +207,7 @@ Opens @racket[filename] (in @racket['binary] mode) and checks whether it looks
 
 @defproc[(open-input-text-editor [text-editor (is-a?/c text%)]
                                  [start-position exact-nonnegative-integer? 0]
-                                 [end-position (or/c exact-nonnegative-integer? (one/of 'end)) 'end]
+                                 [end-position (or/c exact-nonnegative-integer? 'end) 'end]
                                  [snip-filter ((is-a?/c snip%) . -> . any/c) (lambda (s) s)]
                                  [port-name any/c text-editor]
                                  [expect-to-read-all? any/c #f]
@@ -254,9 +251,15 @@ The result port must not be used if @racket[text-editor] changes in any
 @method[text% get-revision-number] method can be used to detect any of these changes.
 
 To help guard against such uses, if @racket[lock-while-reading?] argument is
-a true value, then @racket[open-input-text-editor] will lock the @racket[text-editor]
-before it returns and unlock it after it is safe to use the above methods. (In some
-cases, it will not lock the editor at all, if using those methods are always safe.)
+a true value, then @racket[open-input-text-editor] will 
+@method[editor<%> lock] the @racket[text-editor] and call
+@method[editor<%> begin-edit-sequence]
+before it returns and un@method[editor<%> lock] it and
+call @method[editor<%> end-edit-sequence]
+after it is safe to use the above methods. (In some
+cases, it will not @method[editor<%> lock] the editor 
+or put it in an edit sequence at all, 
+if using those methods are always safe.)
 
 }
 
@@ -348,7 +351,7 @@ If @racket[raise-errors?] is true, then an error in reading triggers an
 }
 
 @defproc[(text-editor-load-handler [filename path string]
-                                   [expected-module-name (or/c symbol false/c)])
+                                   [expected-module-name (or/c symbol? #f)])
          any/c]{
 
 This procedure is a load handler for use with @racket[current-load].

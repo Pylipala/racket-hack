@@ -203,9 +203,9 @@
        [vp (make-object vertical-panel% f)]
        [hp0 (make-object horizontal-panel% vp)]
        [hp (make-object horizontal-panel% vp)]
+       [hp3 (make-object horizontal-panel% vp)]
        [hp2 hp]
        [hp2.5 hp0]
-       [hp3 hp]
        [hp4 (new horizontal-panel% [parent vp]
                  [stretchable-height #f])]
        [bb (make-object bitmap% (sys-path "bb.gif") 'gif)]
@@ -222,6 +222,7 @@
        [use-bad? #f]
        [depth-one? #f]
        [cyan? #f]
+       [multi-page? #f]
        [smoothing 'unsmoothed]
        [save-filename #f]
        [save-file-format #f]
@@ -660,7 +661,9 @@
 			    ; Bitmap copying:
 			    (when (and (not no-bitmaps?) last?)
 			      (let ([x 5] [y 165])
-				(let ([mred-icon (get-icon)])
+				(let ([bg (send dc get-background)]
+                                      [mred-icon (get-icon)])
+                                  (send dc set-background "YELLOW")
 				  (case mask-ex-mode
 				    [(plt plt-mask plt^plt mred^plt)
 				     (let* ([plt (get-plt)]
@@ -711,19 +714,20 @@
                                            mred-icon)]
                                     [(mred~)
                                      (send dc draw-bitmap (get-rotated) x y 'opaque)]
-                                    [(mred^mred~ opaque-mred^mred~ red-mred^mred~)
+                                    [(mred^mred~ opaque-mred^mred~ red-mred^mred~ opaque-red-mred^mred~)
                                      (send dc draw-bitmap mred-icon x y 
-                                           (if (eq? mask-ex-mode 'opaque-mred^mred~)
+                                           (if (memq mask-ex-mode '(opaque-mred^mred~ opaque-red-mred^mred~))
                                                'opaque
                                                'solid)
                                            (send the-color-database find-color 
-                                                 (if (eq? mask-ex-mode 'red-mred^mred~)
+                                                 (if (memq mask-ex-mode '(red-mred^mred~ opaque-red-mred^mred~))
                                                      "RED"
                                                      "BLACK"))
                                            (get-rotated))]
                                     [else
                                      ;; simple draw
-                                     (send dc draw-bitmap mred-icon x y 'xor)]))
+                                     (send dc draw-bitmap mred-icon x y 'xor)])
+                                  (send dc set-background bg))
 				(set! x (+ x (send (get-icon) get-width)))
 				(let ([black (send the-color-database find-color "BLACK")]
 				      [red (send the-color-database find-color "RED")]
@@ -917,6 +921,45 @@
 							 100 310)
 						   p))
 
+                              (let ([p (send dc get-pen)])
+                                (send dc set-pen (make-object color% 0 0 0 0.1) 1 'solid)
+                                (send dc set-brush (make-object color% 255 0 200 0.5) 'solid)
+                                (send dc draw-rectangle 250 320 20 20)
+                                (send dc set-brush (make-object color% 0 255 200 0.5) 'solid)
+                                (send dc draw-rectangle 260 330 20 20)
+                                (send dc set-pen p))
+
+                              (let ([p (send dc get-pen)])
+                                (send dc set-pen "white" 1 'transparent)
+                                (send dc set-brush (new brush%
+                                                        [gradient
+                                                         (make-object linear-gradient%
+                                                                      300 0 380 0
+                                                                      (list (list 0.0
+                                                                                  (make-object color% 255 0 0))
+                                                                            (list 0.5
+                                                                                  (make-object color% 0 255 0))
+                                                                            (list 1.0
+                                                                                  (make-object color% 0 0 255 0.0))))]))
+                                (send dc draw-rectangle 300 320 80 20)
+                                (send dc set-pen p))
+
+                              (let ([p (send dc get-pen)])
+                                (send dc set-pen "white" 1 'transparent)
+                                (send dc set-brush (new brush%
+                                                        [gradient
+                                                         (make-object radial-gradient%
+                                                                      360 250 5
+                                                                      365 245 25
+                                                                      (list (list 0.0
+                                                                                  (make-object color% 255 0 0))
+                                                                            (list 0.5
+                                                                                  (make-object color% 0 255 0))
+                                                                            (list 1.0
+                                                                                  (make-object color% 0 0 255 0.0))))]))
+                                (send dc draw-rectangle 338 228 44 44)
+                                (send dc set-pen p))
+
 			      (send dc draw-line 130 310 150 310)
 			      (send dc draw-line 130 312.5 150 312.5)
 			      (send dc draw-line 130 314.3 150 314.3)
@@ -953,6 +996,14 @@
 		  (let ([dc (if kind
 				(let ([dc (case kind
                                             [(print) (make-object printer-dc%)]
+                                            [(svg)
+                                             (let ([fn (put-file)])
+                                               (and fn
+                                                    (new svg-dc%
+                                                         [width (* xscale DRAW-WIDTH)]
+                                                         [height (* yscale DRAW-HEIGHT)]
+                                                         [output fn]
+                                                         [exists 'truncate])))]
                                             [(ps pdf)
                                              (let ([page?
                                                     (eq? 'yes (message-box
@@ -1002,70 +1053,71 @@
 		      ;(send dc set-clipping-region #f)
 		      (send dc clear)
 
-		      (if clock-clip?
-			  (let ([r (make-object  region% dc)])
-			    (send r set-arc 0. 60. 180. 180. clock-start clock-end)
-			       (send dc set-clipping-region r))
-			  (let ([mk-poly (lambda (mode)
-					   (let ([r (make-object region% dc)])
-					     (send r set-polygon octagon 0 0 mode) r))]
-				[mk-circle (lambda ()
-					     (let ([r (make-object region% dc)])
-					       (send r set-ellipse 0. 60. 180. 180.) r))]
-				[mk-rect (lambda ()
-					   (let ([r (make-object region% dc)])
-					     (send r set-rectangle 100 -25 10 400) r))])
-			    (case clip
-			      [(none) (void)]
-			      [(rect) (send dc set-clipping-rect 100 -25 10 400)]
-			      [(rect2) (send dc set-clipping-rect 50 -25 10 400)]
-			      [(poly) (send dc set-clipping-region (mk-poly 'odd-even))]
-			      [(circle) (send dc set-clipping-region (mk-circle))]
-			      [(wedge) (let ([r (make-object region% dc)])
-					 (send r set-arc 0. 60. 180. 180. (* 1/4 pi) (* 3/4 pi))
-					 (send dc set-clipping-region r))]
-			      [(lam) (let ([r (make-object region% dc)])
-				       (send r set-path lambda-path)
-				       (send dc set-clipping-region r))]
-			      [(rect+poly) (let ([r (mk-poly 'winding)])
-					     (send r union (mk-rect))
-                                             (send dc set-clipping-region r))]
-			      [(rect+circle) (let ([r (mk-circle)])
-					       (send r union (mk-rect))
-					       (send dc set-clipping-region r))]
-			      [(poly-rect) (let ([r (mk-poly 'odd-even)])
-					     (send r subtract (mk-rect))
-					     (send dc set-clipping-region r))]
-			      [(poly&rect) (let ([r (mk-poly 'odd-even)])
-					     (send r intersect (mk-rect))
-						(send dc set-clipping-region r))]
-			      [(poly^rect) (let ([r (mk-poly 'odd-even)])
-					     (send r xor (mk-rect))
-					     (send dc set-clipping-region r))]
-			      [(roundrect) (let ([r (make-object region% dc)])
-					     (send r set-rounded-rectangle 80 200 125 40 -0.25)
-					     (send dc set-clipping-region r))]
-			      [(empty) (let ([r (make-object region% dc)])
-					 (send dc set-clipping-region r))]
-			      [(polka) 
-			       (let ([c (send dc get-background)])
-				 (send dc set-background (send the-color-database find-color "PURPLE"))
-				 (send dc clear)
-				 (send dc set-background c))
-			       (let ([r (make-object region% dc)]
-				     [w 30]
-				     [s 10])
-				 (let xloop ([x 0])
-				   (if (> x 300)
-				       (send dc set-clipping-region r)
-				       (let yloop ([y 0])
-					 (if (> y 500)
-					     (xloop (+ x w s))
-					     (let ([r2 (make-object region% dc)])
-					       (send r2 set-ellipse x y w w)
-					       (send r union r2)
-					       (yloop (+ y w s))))))))
-			       (send dc clear)])))
+                      (let ([clip-dc dc])
+                        (if clock-clip?
+                            (let ([r (make-object  region% clip-dc)])
+                              (send r set-arc 0. 60. 180. 180. clock-start clock-end)
+                              (send dc set-clipping-region r))
+                            (let ([mk-poly (lambda (mode)
+                                             (let ([r (make-object region% clip-dc)])
+                                               (send r set-polygon octagon 0 0 mode) r))]
+                                  [mk-circle (lambda ()
+                                               (let ([r (make-object region% clip-dc)])
+                                                 (send r set-ellipse 0. 60. 180. 180.) r))]
+                                  [mk-rect (lambda ()
+                                             (let ([r (make-object region% clip-dc)])
+                                               (send r set-rectangle 100 -25 10 400) r))])
+                              (case clip
+                                [(none) (void)]
+                                [(rect) (send dc set-clipping-rect 100 -25 10 400)]
+                                [(rect2) (send dc set-clipping-rect 50 -25 10 400)]
+                                [(poly) (send dc set-clipping-region (mk-poly 'odd-even))]
+                                [(circle) (send dc set-clipping-region (mk-circle))]
+                                [(wedge) (let ([r (make-object region% clip-dc)])
+                                           (send r set-arc 0. 60. 180. 180. (* 1/4 pi) (* 3/4 pi))
+                                           (send dc set-clipping-region r))]
+                                [(lam) (let ([r (make-object region% clip-dc)])
+                                         (send r set-path lambda-path)
+                                         (send dc set-clipping-region r))]
+                                [(rect+poly) (let ([r (mk-poly 'winding)])
+                                               (send r union (mk-rect))
+                                               (send dc set-clipping-region r))]
+                                [(rect+circle) (let ([r (mk-circle)])
+                                                 (send r union (mk-rect))
+                                                 (send dc set-clipping-region r))]
+                                [(poly-rect) (let ([r (mk-poly 'odd-even)])
+                                               (send r subtract (mk-rect))
+                                               (send dc set-clipping-region r))]
+                                [(poly&rect) (let ([r (mk-poly 'odd-even)])
+                                               (send r intersect (mk-rect))
+                                               (send dc set-clipping-region r))]
+                                [(poly^rect) (let ([r (mk-poly 'odd-even)])
+                                               (send r xor (mk-rect))
+                                               (send dc set-clipping-region r))]
+                                [(roundrect) (let ([r (make-object region% clip-dc)])
+                                               (send r set-rounded-rectangle 80 200 125 40 -0.25)
+                                               (send dc set-clipping-region r))]
+                                [(empty) (let ([r (make-object region% clip-dc)])
+                                           (send dc set-clipping-region r))]
+                                [(polka) 
+                                 (let ([c (send dc get-background)])
+                                   (send dc set-background (send the-color-database find-color "PURPLE"))
+                                   (send dc clear)
+                                   (send dc set-background c))
+                                 (let ([r (make-object region% clip-dc)]
+                                       [w 30]
+                                       [s 10])
+                                   (let xloop ([x 0])
+                                     (if (> x 300)
+                                         (send dc set-clipping-region r)
+                                         (let yloop ([y 0])
+                                           (if (> y 500)
+                                               (xloop (+ x w s))
+                                               (let ([r2 (make-object region% clip-dc)])
+                                                 (send r2 set-ellipse x y w w)
+                                                 (send r union r2)
+                                                 (yloop (+ y w s))))))))
+                                 (send dc clear)]))))
 
 		      (when clip-pre-scale?
 			(send dc set-scale xscale yscale)
@@ -1080,6 +1132,13 @@
 				(send r2 xor r)
 				(send dc set-clipping-region r2))
 			      (send dc set-clipping-region #f))))
+
+                      (unless clock-clip?
+                        (let ([r (send dc get-clipping-region)])
+                          (when r
+                            (when (send r get-dc)
+                              (unless (eq? (send r is-empty?) (eq? clip 'empty))
+                                (show-error 'draw-text "region `is-empty?' mismatch"))))))
 		      
 		      ;; check default pen/brush:
 		      (send dc draw-rectangle 0 0 5 5)
@@ -1136,7 +1195,12 @@
 
 		      (send dc set-clipping-region #f)
 
-		      (send dc end-page)
+
+                      (send dc end-page)
+                      (when (and kind multi-page?)
+                        (send dc start-page)
+                        (send dc draw-text "Page 2" 0 0)
+                        (send dc end-page))
 		      (send dc end-doc)))
 		  
 		  (when save-filename
@@ -1160,6 +1224,28 @@
     (make-object button% "PDF" hp
 		 (lambda (self event)
 		   (send canvas on-paint 'pdf)))
+    (make-object button% "SVG" hp
+		 (lambda (self event)
+		   (send canvas on-paint 'svg)))
+    (make-object check-box% "Multiple Pages" hp
+                 (lambda (self event)
+                   (set! multi-page? (send self get-value))))
+    (make-object button% "Save" hp
+		 (lambda (b e)
+		   (unless use-bitmap?
+		     (error 'save-file "only available for pixmap/bitmap mode"))
+		   (let ([f (put-file)])
+		     (when f
+		       (let ([format
+			      (cond 
+			       [(regexp-match "[.]xbm$" f) 'xbm]
+			       [(regexp-match "[.]xpm$" f) 'xpm]
+			       [(regexp-match "[.]jpe?g$" f) 'jpeg]
+			       [(regexp-match "[.]png$" f) 'png]
+			       [else (error 'save-file "unknown suffix: ~e" f)])])
+			 (set! save-filename f)
+			 (set! save-file-format format)
+			 (send canvas refresh))))))
     (make-object choice% #f '("1" "*2" "/2" "1,*2" "*2,1") hp
 		 (lambda (self event)
 		   (send canvas set-scale 
@@ -1191,34 +1277,19 @@
     (make-object button% "Clock" hp2.5 (lambda (b e) (do-clock #f)))
     (make-object choice% #f
 		 '("MrEd XOR" "PLT Middle" "PLT ^ MrEd" "MrEd ^ PLT" "MrEd ^ MrEd" 
-		   "MrEd~" "MrEd ^ MrEd~" "M^M~ Opaque" "M^M~ Red"
+		   "MrEd~ Opaque" "MrEd ^ MrEd~" "M^M~ Opaque" "M^M~ Red" "M^M~ Rd Opq"
 		   "PLT^PLT")
 		 hp2.5
 		 (lambda (self event)
 		   (send canvas set-mask-ex-mode 
 			 (list-ref '(mred plt plt-mask mred^plt mred^mred 
-					  mred~ mred^mred~ opaque-mred^mred~ red-mred^mred~
+					  mred~ mred^mred~ opaque-mred^mred~ 
+                                          red-mred^mred~ opaque-red-mred^mred~
 					  plt^plt)
 				   (send self get-selection)))))
     (make-object check-box% "Kern" hp2.5
 		 (lambda (self event)
 		   (send canvas set-kern (send self get-value))))
-    (make-object button% "Save" hp0
-		 (lambda (b e)
-		   (unless use-bitmap?
-		     (error 'save-file "only available for pixmap/bitmap mode"))
-		   (let ([f (put-file)])
-		     (when f
-		       (let ([format
-			      (cond 
-			       [(regexp-match "[.]xbm$" f) 'xbm]
-			       [(regexp-match "[.]xpm$" f) 'xpm]
-			       [(regexp-match "[.]jpe?g$" f) 'jpeg]
-			       [(regexp-match "[.]png$" f) 'png]
-			       [else (error 'save-file "unknown suffix: ~e" f)])])
-			 (set! save-filename f)
-			 (set! save-file-format format)
-			 (send canvas refresh))))))
     (make-object choice% "Clip" 
 		 '("None" "Rectangle" "Rectangle2" "Octagon" 
 		   "Circle" "Wedge" "Round Rectangle" "Lambda"

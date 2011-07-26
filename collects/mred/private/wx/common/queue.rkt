@@ -3,6 +3,7 @@
          racket/draw/private/utils
          ffi/unsafe/atomic
          racket/class
+         racket/port
          "rbtree.rkt"
          "../../lock.rkt"
          "handlers.rkt"
@@ -19,19 +20,23 @@
               pre-event-sync
               boundary-tasks-ready-evt
               sometimes-delay-msec
+              set-platform-queue-sync!
 
               eventspace?
               current-eventspace
               queue-event
               queue-refresh-event
               yield
+              yield/no-sync
               yield-refresh
+              eventspace-event-evt
               (rename-out [make-new-eventspace make-eventspace])
 
               event-dispatch-handler
               eventspace-shutdown?
               main-eventspace?
               eventspace-handler-thread
+              eventspace-event-evt
               eventspace-wait-cursor-count
               eventspace-extra-table
               eventspace-adjust-external-modal!
@@ -66,7 +71,7 @@
 
 (define-mz scheme_add_evt (_fun _Scheme_Type
                                 (_fun #:atomic? #t _scheme -> _int)
-                                (_fun #:atomic? #t _scheme _pointer -> _void)
+                                (_fun #:atomic? #t _scheme _gcpointer -> _void)
                                 _pointer
                                 _int
                                 -> _void))
@@ -189,7 +194,7 @@
                                           _racket _racket -> _void)
                                     _racket ; data
                                     _int ; strong?
-                                    -> _pointer))
+                                    -> _gcpointer))
 
 (define (shutdown-eventspace! e ignored)
   ;; atomic mode
@@ -199,6 +204,10 @@
     (for ([f (in-list (get-top-level-windows e))])
       (send f destroy))
     (hash-remove! active-eventspaces (eventspace-handler-thread e))))
+
+(define platform-queue-sync void)
+(define (set-platform-queue-sync! proc)
+  (set! platform-queue-sync proc))
 
 (define (make-eventspace* th)
   (let ([done-sema (make-semaphore 1)]
@@ -235,27 +244,73 @@
                                                         (set-mcdr! (mcdr q) p)
                                                         (set-mcar! q p))
                                                     (set-mcdr! q p)))]
-                                       [first (lambda (q)
+                                       [first (lambda (q peek?)
                                                 (and (mcar q)
-                                                     (wrap-evt
-                                                      always-evt
-                                                      (lambda (_)
-                                                        (start-atomic)
-                                                        (set! count (sub1 count))
-                                                        (check-done)
-                                                        (let ([result (mcar (mcar q))])
-                                                          (set-mcar! q (mcdr (mcar q)))
-                                                          (unless (mcar q)
-                                                            (set-mcdr! q #f))
-                                                          (end-atomic)
-                                                          result)))))]
+                                                     (if peek?
+                                                         always-evt
+                                                         (wrap-evt
+                                                          always-evt
+                                                          (lambda (_)
+                                                            (start-atomic)
+                                                            (set! count (sub1 count))
+                                                            (check-done)
+                                                            (let ([result (mcar (mcar q))])
+                                                              (set-mcar! q (mcdr (mcar q)))
+                                                              (unless (mcar q)
+                                                                (set-mcdr! q #f))
+                                                              (end-atomic)
+                                                              result))))))]
                                        [remove-timer
                                         (lambda (v timer)
                                           (set-box! timer (rbtree-remove 
                                                            timed-compare
                                                            v
                                                            (unbox timer)))
-                                          (check-done))])
+                                          (check-done))]
+                                       [timer-first-ready
+                                        (lambda (timer peek?)
+                                          (let ([rb (unbox timer)])
+                                            (and (not (null? rb))
+                                                 (let* ([v (rbtree-min (unbox timer))]
+                                                        [evt (timed-alarm-evt v)])
+                                                   (and (sync/timeout 0 evt)
+                                                        ;; It's ready
+                                                        (if peek?
+                                                            always-evt
+                                                            (wrap-evt
+                                                             always-evt
+                                                             (lambda (_)
+                                                               (start-atomic)
+                                                               (remove-timer v timer)
+                                                               (end-atomic)
+                                                               (timed-val v)))))))))]
+                                       [timer-first-wait
+                                        (lambda (timer peek?)
+                                          (let ([rb (unbox timer)])
+                                            (and (not (null? rb))
+                                                 (wrap-evt
+                                                  (timed-alarm-evt (rbtree-min (unbox timer)))
+                                                  (lambda (_) #f)))))]
+                                       [make-event-choice
+                                        (lambda (peek? sync?)
+                                          (choice-evt
+                                           (wrap-evt (semaphore-peek-evt newly-posted-sema)
+                                                     (lambda (_) #f))
+                                           (or (first hi peek?)
+                                               (timer-first-ready timer peek?)
+                                               (first refresh peek?)
+                                               (first med peek?)
+                                               (and (not peek?)
+                                                    sync?
+                                                    ;; before going with low-priority events,
+                                                    ;; make sure we're sync'ed up with the
+                                                    ;; GUI platform's event queue:
+                                                    (platform-queue-sync)
+                                                    (first med peek?))
+                                               (first lo peek?)
+                                               (timer-first-wait timer peek?)
+                                               ;; nothing else ready...
+                                               never-evt)))])
                                   (case-lambda
                                    [(v)
                                     ;; Enqueue
@@ -285,46 +340,18 @@
                                    [()
                                     ;; Dequeue as evt
                                     (start-atomic)
-                                    (let ([timer-first-ready
-                                           (lambda (timer)
-                                             (let ([rb (unbox timer)])
-                                               (and (not (null? rb))
-                                                    (let* ([v (rbtree-min (unbox timer))]
-                                                           [evt (timed-alarm-evt v)])
-                                                      (and (sync/timeout 0 evt)
-                                                           ;; It's ready
-                                                           (wrap-evt
-                                                            always-evt
-                                                            (lambda (_)
-                                                              (start-atomic)
-                                                              (remove-timer v timer)
-                                                              (end-atomic)
-                                                              (timed-val v))))))))]
-                                          [timer-first-wait
-                                           (lambda (timer)
-                                             (let ([rb (unbox timer)])
-                                               (and (not (null? rb))
-                                                    (wrap-evt
-                                                     (timed-alarm-evt (rbtree-min (unbox timer)))
-                                                     (lambda (_) #f)))))])
-                                      (let ([e (choice-evt
-                                                (wrap-evt (semaphore-peek-evt newly-posted-sema)
-                                                          (lambda (_) #f))
-                                                (or (first hi)
-                                                    (timer-first-ready timer)
-                                                    (first refresh)
-                                                    (first med)
-                                                    (first lo)
-                                                    (timer-first-wait timer)
-                                                    ;; nothing else ready...
-                                                    never-evt))])
-                                        (end-atomic)
-                                        e))]
-                                   [(_1 _2)
-                                    ;; Dequeue only refresh event
+                                    (begin0 
+                                     (make-event-choice #f #t)
+                                     (end-atomic))]
+                                   [(only-refresh? peek? sync?)
                                     (start-atomic)
                                     (begin0
-                                     (or (first refresh) never-evt)
+                                     (cond
+                                      [only-refresh?
+                                       ;; Dequeue only refresh event
+                                       (or (first refresh peek?) never-evt)]
+                                      [else
+                                       (make-event-choice peek? sync?)])
                                      (end-atomic))]))))
                             frames
                             (semaphore-peek-evt done-sema)
@@ -339,11 +366,17 @@
                             e
                             shutdown-eventspace!
                             cb-box ; retain callback until it's called
-                            1))
+                            0))
       e)))
 
 (define main-eventspace (make-eventspace* (current-thread)))
 (define current-eventspace (make-parameter main-eventspace))
+
+;; So we can get from a thread to the eventspace that
+;;  it handles (independent of the `current-eventspace'
+;;  parameter):
+(define handler-thread-of (make-thread-cell #f))
+(thread-cell-set! handler-thread-of main-eventspace)
 
 (define make-new-eventspace
   (let ([make-eventspace
@@ -354,8 +387,9 @@
                       (thread
                        (lambda ()
                          (sync pause)
-                         (parameterize ([current-eventspace es])
-                           (yield (make-semaphore))))))])
+                         (thread-cell-set! handler-thread-of es)
+                         (current-eventspace es)
+                         (yield (make-semaphore)))))])
              (semaphore-post pause)
              es))])
     make-eventspace))
@@ -366,18 +400,45 @@
 (define (queue-refresh-event eventspace thunk)
   ((eventspace-queue-proc eventspace) (cons 'refresh thunk)))
 
-(define (handle-event thunk)
-  (let/ec esc
-    (let ([done? #f])
-      (dynamic-wind
-       void
-       (lambda ()
-         (call-with-continuation-barrier
-          (lambda ()
-            (call-with-continuation-prompt thunk)))
-         (set! done? #t))
-       (lambda ()
-         (unless done? (esc (void))))))))
+(define dispatch-event-prompt (make-continuation-prompt-tag))
+(define dispatch-event-key (gensym))
+
+(define (really-dispatch-event e)
+  (let ([b (continuation-mark-set-first
+            #f
+            dispatch-event-key
+            #f
+            dispatch-event-prompt)])
+    (unless b
+      (error 'default-event-dispatch-handler
+             "not in an event-dispatch context"))
+    (let ([thunk (atomically
+                  (begin0
+                   (unbox b)
+                   (set-box! b #f)))])
+      (unless thunk
+        (error 'default-event-dispatch-handler
+               "event in current context was already dispatched"))
+      (thunk))))
+
+(define event-dispatch-handler (make-parameter really-dispatch-event))
+
+(define (handle-event thunk e)
+  (call-with-continuation-prompt ; to delimit continuations
+   (lambda ()
+     (call-with-continuation-prompt ; to delimit search for dispatch-event-key
+      (lambda ()
+        ;; communicate the thunk to `really-dispatch-event':
+        (let ([b (box thunk)])
+          ;; use the event-dispatch handler:
+          (with-continuation-mark dispatch-event-key b
+            ((event-dispatch-handler) e))
+          ;; if the event-dispatch handler doesn't chain
+          ;; to the original one, then do so now:
+          (when (unbox b)
+            (set-box! b #f)
+            (thunk))))
+      dispatch-event-prompt))))
 
 (define yield
   (case-lambda
@@ -386,7 +447,7 @@
       (if (eq? (current-thread) (eventspace-handler-thread e))
           (let ([v (sync/timeout 0 ((eventspace-queue-proc e)))])
             (if v
-                (begin (handle-event v) #t)
+                (begin (handle-event v e) #t)
                 #f))
           #f))]
    [(evt)
@@ -399,34 +460,49 @@
        [(and (eq? evt 'wait)
              (not handler?))
         #t]
-       ;; `yield' is supposed to return immediately if the
-       ;; event is already ready:
-       [(and (evt? evt) (sync/timeout 0 (wrap-evt evt (lambda (v) (list v)))))
-        => (lambda (v) (car v))]
-       [handler?
-        (sync (if (eq? evt 'wait) 
-                  (wrap-evt e (lambda (_) #t))
-                  evt)
-              (handle-evt ((eventspace-queue-proc e))
-                          (lambda (v)
-                            (when v (handle-event v))
-                            (yield evt))))]
        [else
-        (sync evt)]))]))
+        (define (wait-now)
+          (if handler?
+              (sync (if (eq? evt 'wait) 
+                        (wrap-evt e (lambda (_) #t))
+                        evt)
+                    (handle-evt ((eventspace-queue-proc e))
+                                (lambda (v)
+                                  (when v (handle-event v e))
+                                  (yield evt))))
+              (sync evt)))
+        (if (evt? evt)
+            ;; `yield' is supposed to return immediately if the
+            ;; event is already ready:
+            (sync/timeout wait-now evt)
+            (wait-now))]))]))
+
+(define (yield/no-sync)
+  (let ([e (current-eventspace)])
+    (when (eq? (current-thread) (eventspace-handler-thread e))
+      (let ([v (sync/timeout 0 ((eventspace-queue-proc e) #f #f #f))])
+        (if v
+            (begin (handle-event v e) #t)
+            #f)))))
 
 (define yield-refresh
   (lambda ()
     (let ([e (current-eventspace)])
       (and (eq? (current-thread) (eventspace-handler-thread e))
            (let loop ([result #f])
-             (let ([v (sync/timeout 0 ((eventspace-queue-proc e) #f #f))])
+             (let ([v (sync/timeout 0 ((eventspace-queue-proc e) #t #f #t))])
                (if v
                    (begin
-                     (handle-event v)
+                     (handle-event v e)
                      (loop #t))
                    result)))))))
 
-(define event-dispatch-handler (make-parameter void))
+(define (eventspace-event-evt [e (current-eventspace)])
+  (unless (eventspace? e)
+    (raise-type-error 'eventspace-event-evt "eventspace" e))
+  (wrap-evt ((eventspace-queue-proc e) #f #t #t)
+            (lambda (_) e)))
+
 (define (main-eventspace? e)
   (eq? e main-eventspace))
 
@@ -451,26 +527,35 @@
     (queue-event es cb 'timer-remove)))
 
 (define (register-frame-shown f on?)
-  (queue-event (current-eventspace) f (if on?
-                                          'frame-add
-                                          'frame-remove)))
+  (queue-event (send f get-eventspace) f (if on?
+                                             'frame-add
+                                             'frame-remove)))
 
 (define (get-top-level-windows [e (current-eventspace)])
   ;; called in event-pump thread
   (hash-map (eventspace-frames-hash e)
             (lambda (k v) k)))
 
-(define (other-modal? win)
+(define (other-modal? win [e #f])
   ;; called in atomic mode in eventspace's thread
-  (let ([es (send win get-eventspace)])
-    (or (positive? (eventspace-external-modal es))
-        (let loop ([frames (get-top-level-windows es)]) 
-          (and (pair? frames)
-               (let ([status (send (car frames) frame-relative-dialog-status win)])
-                 (case status
-                   [(#f) (loop (cdr frames))]
-                   [(same) #f]
-                   [(other) #t])))))))
+  (and
+   ;; deliver mouse-motion events even if a modal window
+   ;; is open
+   (or (not e)
+       (not (or (send e leaving?)
+                (send e entering?)
+                (send e moving?))))
+   ;; for any other kind of mouse or key event, deliver only
+   ;; if no model dialog is open
+   (let ([es (send win get-eventspace)])
+     (or (positive? (eventspace-external-modal es))
+         (let loop ([frames (get-top-level-windows es)]) 
+           (and (pair? frames)
+                (let ([status (send (car frames) frame-relative-dialog-status win)])
+                  (case status
+                    [(#f) (loop (cdr frames))]
+                    [(same) (loop (cdr frames))]
+                    [(other) #t]))))))))
 
 (define (eventspace-adjust-external-modal! es amt)
   (atomically
@@ -522,3 +607,28 @@
    (lambda (v)
      (yield main-eventspace)
      (old-eyh v))))
+
+;; When using a REPL in a thread that has an eventspace,
+;; yield to events when the port would block.
+(current-get-interaction-input-port
+ (let ([orig (current-get-interaction-input-port)])
+   (lambda ()
+     (let ([e (thread-cell-ref handler-thread-of)])
+       (if e
+           (let ([filter (lambda (v)
+                           (cond
+                            [(eq? v 0) (yield) 0]
+                            [(evt? v)
+                             (parameterize ([current-eventspace e])
+                               (yield))
+                             (choice-evt v
+                                         (wrap-evt (eventspace-event-evt e)
+                                                   (lambda (_) 0)))]
+                            [else v]))])
+             (filter-read-input-port
+              (orig)
+              (lambda (str v)
+                (filter v))
+              (lambda (s skip evt v)
+                (filter v))))
+           (orig))))))

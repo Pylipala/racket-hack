@@ -1,5 +1,5 @@
 #lang scribble/doc
-@(require "mz.ss")
+@(require "mz.rkt")
 
 @title[#:tag "cont"]{Continuations}
 
@@ -36,8 +36,7 @@ evaluation context protected by the barrier:
 ]
 
 In addition, extensions of Racket may install barriers in
-additional contexts. In particular, GRacket installs a continuation
-barrier around most every callback. Finally,
+additional contexts. Finally,
 @racket[call-with-continuation-barrier] applies a thunk barrier
 between the application and the current continuation.
 
@@ -59,7 +58,7 @@ the result of the @racket[call-with-continuation-prompt] call.
 The @racket[handler] argument specifies a handler procedure to be
 called in tail position with respect to the
 @racket[call-with-continuation-prompt] call when the installed prompt
-is the target of a @racket[abort-current-continuation] call with
+is the target of an @racket[abort-current-continuation] call with
 @racket[prompt-tag]; the remaining arguments of
 @racket[abort-current-continuation] are supplied to the handler
 procedure. If @racket[handler] is @racket[#f], the default handler
@@ -80,7 +79,7 @@ as arguments to the target prompt's handler procedure.
 
 The protocol for @racket[v]s supplied to an abort is specific to the
 @racket[prompt-tag]. When @racket[abort-current-continuation] is used with
-@racket[(default-continuation-prompt-tag)], generally a single thunk
+@racket[(default-continuation-prompt-tag)], generally, a single thunk
 should be supplied that is suitable for use with the default prompt
 handler. Similarly, when @racket[call-with-continuation-prompt] is
 used with @racket[(default-continuation-prompt-tag)], the associated
@@ -99,7 +98,7 @@ argument, if supplied, is used when printing the prompt tag.}
 Returns a constant prompt tag for which a prompt is installed at the
 start of every thread's continuation; the handler for each thread's
 initial prompt accepts any number of values and returns. The result of
-@racket[default-continuation-prompt-tag] is the default tag for more
+@racket[default-continuation-prompt-tag] is the default tag for
 any procedure that accepts a prompt tag.}
 
 @defproc[(call-with-current-continuation 
@@ -157,7 +156,7 @@ Similar to @racket[call-with-current-continuation], but applying
 the resulting continuation procedure does not remove any portion of
 the current continuation. Instead, application always extends the
 current continuation with the captured continuation (without
-installing any prompts other than those be captured in the
+installing any prompts other than those captured in the
 continuation).
 
 When @racket[call-with-composable-continuation] is called, if a
@@ -181,7 +180,7 @@ than @racket[call-with-current-continuation].
 
 A continuation obtained from @racket[call-with-escape-continuation] is
 actually a kind of prompt. Escape continuations are provided mainly
-for backward compatibility, since they pre-date general prompts in
+for backwards compatibility, since they pre-date general prompts in
 Racket, and because @racket[call/ec] is often an easy replacement
 for @racket[call/cc] to improve performance.}
 

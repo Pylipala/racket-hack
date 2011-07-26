@@ -202,3 +202,314 @@ We should also test deep continuations.
             (future (lambda ()
                       (and (eq? (touch f) f)
                            (current-future)))))))
+
+;Future semaphore tests 
+(let* ([m1 (make-fsemaphore 1)] 
+       [m2 (make-fsemaphore 0)] 
+       [x 2] 
+       [lst '()] 
+       [rack-sema (make-semaphore 1)]
+       [f (future (λ () 
+                   (fsemaphore? m2)))]) 
+  (check-equal? #t (fsemaphore? m1)) 
+  (check-equal? #t (fsemaphore? m2)) 
+  (check-equal? #f (fsemaphore? x)) 
+  (check-equal? #f (fsemaphore? lst)) 
+  (check-equal? #f (fsemaphore? rack-sema)) 
+  (check-equal? #t (touch f)))
+
+(let ([m (make-fsemaphore 1)]) 
+  (fsemaphore-wait m) 
+  (check-equal? 0 (fsemaphore-count m)))
+
+(let ([m (make-fsemaphore 0)]) 
+  (fsemaphore-post m) 
+  (fsemaphore-wait m)
+  (check-equal? 0 (fsemaphore-count m)))
+
+(let ([m (make-fsemaphore 37)]) 
+  (check-equal? 37 (fsemaphore-count m))) 
+
+(let ([m (make-fsemaphore 37)]) 
+  (fsemaphore-wait m) 
+  (fsemaphore-wait m)
+  (fsemaphore-post m) 
+  (fsemaphore-wait m) 
+  (check-equal? 35 (fsemaphore-count m)))
+
+(let ([m1 (make-fsemaphore 38)] 
+      [m2 (make-fsemaphore 0)]) 
+  (check-equal? #t (fsemaphore-try-wait? m1)) 
+  (check-equal? #f (fsemaphore-try-wait? m2)))
+
+;Test for errors when passing bad arguments 
+(check-exn exn:fail:contract? (λ () (make-fsemaphore -1)))
+(check-exn exn:fail:contract? (λ () (make-fsemaphore (cons "a" "b"))))
+(check-exn exn:fail:contract? (λ () (fsemaphore-count (cons "foo" "goo"))))
+(check-exn exn:fail:contract? (λ () (fsemaphore-post (cons 1 2))))
+(check-exn exn:fail:contract? (λ () (fsemaphore-wait (cons 1 2)))) 
+(check-exn exn:fail:contract? (λ () (fsemaphore-try-wait? (cons 1 2))))
+
+(check-exn exn:fail:contract? (λ () 
+                                (let ([f (future (λ () 
+                                                   (make-fsemaphore (cons "go" 
+                                                                          "mavs"))))]) 
+                                  (sleep 0.5) 
+                                  (touch f))))
+
+(check-exn exn:fail:contract? (λ () 
+                                (let ([f (future (λ () 
+                                                   (make-fsemaphore -1)))]) 
+                                  (sleep 0.5) 
+                                  (touch f))))
+
+(let ([f (future (λ () 
+                   (fsemaphore-post 33)))]) 
+  (sleep 0.5) 
+  (check-exn exn:fail? (λ () (touch f))))
+
+(let ([f (future (λ () 
+                   (fsemaphore-count 33)))]) 
+  (sleep 0.5) 
+  (check-exn exn:fail? (λ () (touch f))))
+
+(let ([f (future (λ () 
+                   (fsemaphore-wait 33)))]) 
+  (sleep 0.5) 
+  (check-exn exn:fail? (λ () (touch f))))
+
+(let ([f (future (λ () 
+                   (fsemaphore-try-wait? 33)))]) 
+  (sleep 0.5) 
+  (check-exn exn:fail? (λ () (touch f))))
+
+;try-wait
+(let ([m1 (make-fsemaphore 20)] 
+      [m2 (make-fsemaphore 0)]) 
+  (check-equal? #t (fsemaphore-try-wait? m1)) 
+  (check-equal? #f (fsemaphore-try-wait? m2)))
+
+(let* ([m1 (make-fsemaphore 20)] 
+       [m2 (make-fsemaphore 0)] 
+       [f1 (future (λ () 
+                    (fsemaphore-try-wait? m2)))] 
+       [f2 (future (λ () 
+                    (fsemaphore-try-wait? m1)))]) 
+  (sleep 0.5)
+  (check-equal? #f (touch f1)) 
+  (check-equal? #t (touch f2)))
+
+(let ([m (make-fsemaphore 3)]) 
+  (fsemaphore-try-wait? m) 
+  (check-equal? 2 (fsemaphore-count m))) 
+
+(let* ([m (make-fsemaphore 0)] 
+       [f (future (λ () 
+                    (fsemaphore-post m) 
+                    42))]) 
+  (sleep 0.5) 
+  (fsemaphore-try-wait? m) 
+  (check-equal? 0 (fsemaphore-count m)))
+
+;Test fsemaphore wait on a future thread 
+;(here the future thread should be able to capture the cont. locally)
+(let* ([m (make-fsemaphore 0)] 
+       [f (future (λ () 
+                    (let ([l (cons 1 2)]) 
+                      (for ([i (in-range 0 10000)]) 
+                        (set! l (cons i l))) 
+                      (fsemaphore-wait m) 
+                      l)))]) 
+  (sleep 3) 
+  (fsemaphore-post m) 
+  (touch f)
+  (check-equal? 0 (fsemaphore-count m)))
+
+(let* ([m (make-fsemaphore 0)]
+       [dummy 5]
+       [f1 (future (λ () (fsemaphore-wait m) (set! dummy 42)))] 
+       [f2 (future (λ () 88))]) 
+  (check-equal? 88 (touch f2)) 
+  (sleep 1)
+  (check-equal? 0 (fsemaphore-count m))
+  (check-equal? 5 dummy)
+  (fsemaphore-post m) 
+  (touch f1)
+  (check-equal? 42 dummy))
+
+(let* ([m (make-fsemaphore 0)]
+       [dummy 5]
+       [f1 (future (λ () 
+                     (fsemaphore-wait m) 
+                     (set! dummy 42) 
+                     dummy))]
+       [f2 (future (λ () 
+                     (fsemaphore-post m) 
+                     #t))])
+  (sleep 1) 
+  (check-equal? #t (touch f2))
+  (check-equal? 42 (touch f1)) 
+  (check-equal? 0 (fsemaphore-count m)))
+
+(let* ([m1 (make-fsemaphore 0)] 
+       [m2 (make-fsemaphore 0)] 
+       [dummy 8]
+       [f1 (future (λ () 
+                     (fsemaphore-wait m2)
+                     (set! dummy 10)
+                     (fsemaphore-post m1) 
+                     #t))] 
+       [f2 (future (λ () 
+                     (fsemaphore-post m2) 
+                     (touch f1)
+                     (fsemaphore-wait m1) 
+                     (set! dummy (add1 dummy)) 
+                     dummy))]) 
+  (check-equal? 11 (touch f2)))
+
+(let* ([m (make-fsemaphore 0)] 
+       [f1 (future (λ () 
+                     (sleep 1) 
+                     (fsemaphore-wait m) 
+                     5))]) 
+  (fsemaphore-post m)
+  (check-equal? 5 (touch f1)))
+
+;Test fsemaphore ops after blocking runtime call 
+;Here one future will invoke fsemaphore-wait within the context 
+;of a touch.  Meanwhile, another future is allocating (requiring 
+;the help of the runtime thread which is also "blocked" waiting 
+;for the semaphore to become ready.
+(let* ([m (make-fsemaphore 0)] 
+       [f1 (future (λ () 
+                     (sleep 1) ;Currently a blocking RT call 
+                     (fsemaphore-wait m)))] 
+       [f2 (future (λ () 
+                     (let* ([lst '()]
+                            [retval (let loop ([index 10000] [l lst]) 
+                                      (cond 
+                                        [(zero? index) l] 
+                                        [else 
+                                         (loop (sub1 index) (cons index l))]))]) 
+                       (fsemaphore-post m) 
+                       (car retval))))])    
+  (sleep 1)
+  (thread (lambda () (touch f1)))
+  (check-equal? 1 (touch f2)))
+
+(let* ([m (make-fsemaphore 0)] 
+       [f1 (future (λ () 
+                     (fsemaphore-wait m)
+                     42))] 
+       [f2 (future (λ () 
+                     (fsemaphore-wait m) 
+                     99))]) 
+  ;sleep to ensure that both futures will queue up waiting for the fsema 
+  (sleep 1) 
+  (fsemaphore-post m) 
+  (fsemaphore-post m)
+  (check-equal? 42 (touch f1)) 
+  (check-equal? 99 (touch f2)))
+
+(let* ([m (make-fsemaphore 0)]
+       [fs (for/list ([i (in-range 0 19)]) 
+             (future (λ () 
+                       (fsemaphore-wait m) 
+                       i)))]) 
+  (sleep 1)
+  (for ([i (in-range 0 19)]) 
+    (fsemaphore-post m)) 
+  (check-equal? 171 (foldl (λ (f acc) 
+                             (+ (touch f) acc)) 
+                           0 
+                           fs)))
+
+;; Make sure that `future' doesn't mishandle functions
+;; that aren't be JITted:
+(check-equal?
+ (for/list ([i (in-range 10)]) (void))
+ (map
+  touch
+  (for/list ([i (in-range 10)])
+    (if (even? i)
+        (future void)
+        (future (parameterize ([eval-jit-enabled #f])
+                  (eval #'(lambda () (void)))))))))
+
+;; A future shouldn't use up a background thread if its
+;; starting thread's custodian is shut down:
+(let ()
+  (define f #f)
+  (define c (make-custodian))
+  (parameterize ([current-custodian c])
+    (sync (thread (lambda ()
+                    (set! f (future (lambda ()
+                                      (let loop () (loop)))))))))
+  (sleep 0.1)
+  (custodian-shutdown-all c))
+
+;; If a future is suspended via a custodian, it should still
+;; work to touch it:
+(let ()
+  (define f #f)
+  (define s (make-fsemaphore 0))
+  (define c (make-custodian))
+  (parameterize ([current-custodian c])
+    (sync (thread (lambda ()
+                    (set! f (future (lambda ()
+                                      (fsemaphore-wait s)
+                                      10)))))))
+  (sleep 0.1)
+  (custodian-shutdown-all c)
+  (fsemaphore-post s)
+  (check-equal? 10 (touch f)))
+
+
+;; Start a future in a custodian-suspended future:
+(let ()
+  (define f #f)
+  (define s (make-fsemaphore 0))
+  (define c (make-custodian))
+  (parameterize ([current-custodian c])
+    (sync (thread (lambda ()
+                    (set! f (future (lambda ()
+                                      (fsemaphore-wait s)
+                                      (future
+                                       (lambda ()
+                                         11)))))))))
+  (sleep 0.1)
+  (custodian-shutdown-all c)
+  (fsemaphore-post s)
+  (check-equal? 11 (touch (touch f))))
+
+;; Don't get stuck on a bunch of futures that
+;; have been disabled:
+(let ()
+  (define c (make-custodian))
+  (define (loop) (loop))
+  (parameterize ([current-custodian c])
+    (sync (thread (lambda ()
+                    (for ([i (in-range 100)])
+                      (future loop))))))
+  (sleep 0.1)
+  (custodian-shutdown-all c)
+  (sleep 0.1))
+
+;; Stress test:
+(for-each
+ (lambda (v) (check-equal? 10 (touch (touch v))))
+ (for/list ([i (in-range 10000)])
+   (future (lambda () (future (lambda () 10))))))
+
+;; Stress test:
+(check-equal?
+ 0
+ (touch
+  (for/fold ([t (future (lambda () 0))]) ([i (in-range 10000)])
+    (future (lambda () (touch t))))))
+
+
+
+
+
+ 

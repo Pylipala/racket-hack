@@ -1,9 +1,13 @@
 #lang scheme/base
 (require scheme/class
-         "color.ss"
-         "syntax.ss"
-         "local.ss"
-         "bitmap.ss")
+         ffi/unsafe/atomic
+         "color.rkt"
+         "syntax.rkt"
+         "local.rkt"
+         "bitmap.rkt"
+         "gradient.rkt"
+         "transform.rkt"
+         "dc-intf.rkt")
 
 (provide brush%
          brush-list% the-brush-list
@@ -30,7 +34,9 @@
 
   (init [(_color color) black]
         [(_style style) 'solid]
-        [(_stipple stipple) #f])
+        [(_stipple stipple) #f]
+        [(_gradient gradient) #f]
+        [(_transformation transformation) #f])
 
   (set! color
         (cond
@@ -52,6 +58,16 @@
   (define immutable? #f)
   (define lock-count 0)
   (define stipple #f)
+  (define gradient #f)
+  (define transformation #f)
+
+  (when _gradient
+    (unless (or (_gradient . is-a? . linear-gradient%)
+                (_gradient . is-a? . radial-gradient%))
+      (raise-type-error (init-name 'brush%)
+                        "linear-gradient% object, radial-gradient% object, or #f"
+                        _gradient))
+    (set! gradient _gradient))
 
   (when _stipple
     (unless (_stipple . is-a? . bitmap%)
@@ -59,6 +75,15 @@
                         "bitmap% or #f"
                         _stipple))
     (set-stipple _stipple))
+
+  (when _transformation
+    (unless (transformation-vector? _transformation)
+      (raise-type-error (init-name 'brush%)
+                        "transformation-vector"
+                        _transformation))
+    (when _gradient
+      (set! transformation (transformation-vector->immutable
+                            _transformation))))
 
   (super-new)
 
@@ -86,14 +111,12 @@
      (method-name 'brush% 'set-color)))
 
   (define/public (get-color) color)
+  (define/public (get-gradient) gradient)
+  (define/public (get-transformation) transformation)
 
   (def/public (get-stipple) stipple)
   (def/public (set-stipple [(make-or-false bitmap%) s]) 
     (check-immutable 'set-stipple)
-    (let ([old-s stipple])
-      (set! stipple #f)
-      (when old-s (send old-s adjust-lock -1)))
-    (when s (send s adjust-lock 1))
     (set! stipple s)))
 
 ;; ----------------------------------------
@@ -115,15 +138,19 @@
                             _style)]
                    (method-name 'find-or-create-brush 'brush-list%))])
       (let ([key (vector (send col red) (send col green) (send col blue)
+                         (send col alpha)
                          s)])
-        (let ([e (hash-ref brushes key #f)])
-          (or (and e
-                   (ephemeron-value e))
-              (let* ([f (make-object brush% col s)]
-                     [e (make-ephemeron key f)])
-                (send f s-set-key key)
-                (hash-set! brushes key e)
-                f)))))))
+        (start-atomic)
+        (begin0
+          (let ([e (hash-ref brushes key #f)])
+            (or (and e
+                     (ephemeron-value e))
+                (let* ([f (make-object brush% col s)]
+                       [e (make-ephemeron key f)])
+                  (send f s-set-key key)
+                  (hash-set! brushes key e)
+                  f)))
+          (end-atomic))))))
 
 (define the-brush-list (new brush-list%))
 

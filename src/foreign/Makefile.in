@@ -3,22 +3,26 @@
 srcdir = @srcdir@
 builddir = @builddir@
 CC = @CC@
+
+LIBFFI_LOCAL_INCLUDE_ON = -I@LIBFFI@/include
+LIBFFI_LOCAL_INCLUDE_OFF =
 CFLAGS = @CFLAGS@ @COMPFLAGS@ @PREFLAGS@ @PROFFLAGS@ @OPTIONS@ @MZOPTIONS@ \
          -I$(builddir)/../racket \
          -I$(srcdir)/../racket/include -I$(srcdir)/../racket/src \
-         -Ilibffi/include
+         $(LIBFFI_LOCAL_INCLUDE_@OWN_LIBFFI@)
 ARFLAGS = @ARFLAGS@
-
-IPHONE = @IPHONE@
-
-ifneq ($(IPHONE),)
-CFLAGS += -Ilibffi-ios/include
-endif
+NOOP = :
 
 # compile sub-libraries & foreign.c
 all:
 	$(MAKE) foreign.@LTO@
+	$(MAKE) libffi_@OWN_LIBFFI@
+
+libffi_ON:
 	$(MAKE) libffi/libffi@FOREIGN_CONVENIENCE@.la
+
+libffi_OFF:
+	$(NOOP)
 
 # just foreign.c, which will generate a stub module:
 stub:
@@ -27,11 +31,7 @@ stub:
 # Causes objects to be generated in libffi/src/
 #  in inconvenience mode:
 libffi/libffi@FOREIGN_CONVENIENCE@.la:
-ifeq ($(IPHONE),)
-	cd libffi; $(MAKE) libffi@FOREIGN_CONVENIENCE@.la
-else
-	cd libffi-ios; $(MAKE) libffi@FOREIGN_CONVENIENCE@.la
-endif
+	cd @LIBFFI@; $(MAKE) libffi@FOREIGN_CONVENIENCE@.la
 
 foreign.@LTO@: $(srcdir)/foreign.c \
            $(srcdir)/../racket/include/scheme.h \
@@ -41,8 +41,4 @@ foreign.@LTO@: $(srcdir)/foreign.c \
 
 clean:
 	rm -f foreign.@LTO@
-ifeq ($(IPHONE),)
-	cd libffi; $(MAKE) clean
-else
-	cd libffi-ios; $(MAKE) clean
-endif
+	if [ -d @LIBFFI@ ] ; then cd @LIBFFI@ ; $(MAKE) clean ; fi

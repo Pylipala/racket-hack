@@ -14,10 +14,14 @@
 ;;  read/write (the opposite direction) didn't finish, and so that
 ;;  opposite must be completed, first.
 
-(module mzssl scheme
-  (require mzlib/foreign
-	   mzlib/port
-           mzlib/runtime-path)
+(module mzssl racket/base
+  (require ffi/unsafe
+           ffi/unsafe/define
+           ffi/unsafe/atomic
+           racket/port
+           racket/tcp
+           "libcrypto.rkt"
+           "libssl.rkt")
 
   (provide ssl-available?
 	   ssl-load-fail-reason
@@ -32,9 +36,20 @@
 	   ssl-load-private-key!
 	   ssl-load-verify-root-certificates!
 	   ssl-load-suggested-certificate-authorities!
-	   ssl-set-verify!
 
-	   ports->ssl-ports
+     ssl-set-verify!
+           
+     ;sets the ssl server to try an verify certificates
+     ;it does not require verification though.
+     ssl-try-verify!
+
+     ;call on an ssl port, this will return true if the peer
+     ;presented a valid certificate and was verified
+     ssl-peer-verified?
+     ssl-peer-subject-name
+     ssl-peer-issuer-name
+
+     ports->ssl-ports
 
 	   ssl-listen
 	   ssl-close
@@ -49,57 +64,22 @@
 
            ssl-port?)
 
-  (unsafe!)
-
-  ;; We need to declare because they might be distributed with PLT Scheme
-  ;; in which case they should get bundled with stand-alone executables:
-  (define-runtime-path libcrypto-so
-    (case (system-type)
-      [(windows) '(so "libeay32")]
-      [else '(so "libcrypto")]))
-  (define-runtime-path libssl-so
-    (case (system-type)
-      [(windows) '(so "ssleay32")]
-      [else '(so "libssl")]))
-
-  (define ssl-load-fail-reason #f)
+  (define ssl-load-fail-reason
+    (or libssl-load-fail-reason
+        libcrypto-load-fail-reason))
 
   (define 3m? (eq? '3m (system-type 'gc)))
-
-  (define libcrypto
-    (with-handlers ([exn:fail? (lambda (x)
-                                 (set! ssl-load-fail-reason (exn-message x))
-                                 #f)])
-      (ffi-lib libcrypto-so '("" "0.9.8b" "0.9.8" "0.9.7"))))
-
-  (define libssl
-    (and libcrypto
-	 (with-handlers ([exn:fail?
-                          (lambda (x)
-                            (set! ssl-load-fail-reason (exn-message x))
-                            #f)])
-           (ffi-lib libssl-so '("" "0.9.8b" "0.9.8" "0.9.7")))))
 
   (define libmz (ffi-lib #f))
 
   ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
   ;; SSL bindings and constants
 
-  (define-syntax define-define-X
-    (syntax-rules ()
-      [(_ id chk lib)
-       (define-syntax (id stx)
-	 (syntax-case stx ()
-	   [(_ id type)
-	    (with-syntax ([str (symbol->string (syntax-e #'id))])
-	      #'(define id
-		  (if chk
-		      (get-ffi-obj str lib (_fun . type))
-		      (lambda args (raise-not-available)))))]))]))
-
-  (define-define-X define-crypto libcrypto libcrypto)
-  (define-define-X define-ssl libssl libssl)
-  (define-define-X define-mzscheme #t libmz)
+  (define-ffi-definer define-crypto libcrypto
+    #:default-make-fail make-not-available)
+  (define-ffi-definer define-ssl libssl
+    #:default-make-fail make-not-available)
+  (define-ffi-definer define-mzscheme libmz)
 
   (define-syntax typedef
     (syntax-rules ()
@@ -112,56 +92,66 @@
   (typedef _SSL_CTX* _pointer)
   (typedef _SSL* _pointer)
   (typedef _X509_NAME* _pointer)
+  (typedef _X509* _pointer)
 
-  (define-ssl SSLv2_client_method (-> _SSL_METHOD*))
-  (define-ssl SSLv2_server_method (-> _SSL_METHOD*))
-  (define-ssl SSLv3_client_method (-> _SSL_METHOD*))
-  (define-ssl SSLv3_server_method (-> _SSL_METHOD*))
-  (define-ssl SSLv23_client_method (-> _SSL_METHOD*))
-  (define-ssl SSLv23_server_method (-> _SSL_METHOD*))
-  (define-ssl TLSv1_client_method (-> _SSL_METHOD*))
-  (define-ssl TLSv1_server_method (-> _SSL_METHOD*))
+  (define-ssl SSLv2_client_method (_fun -> _SSL_METHOD*))
+  (define-ssl SSLv2_server_method (_fun -> _SSL_METHOD*))
+  (define-ssl SSLv3_client_method (_fun -> _SSL_METHOD*))
+  (define-ssl SSLv3_server_method (_fun -> _SSL_METHOD*))
+  (define-ssl SSLv23_client_method (_fun -> _SSL_METHOD*))
+  (define-ssl SSLv23_server_method (_fun -> _SSL_METHOD*))
+  (define-ssl TLSv1_client_method (_fun -> _SSL_METHOD*))
+  (define-ssl TLSv1_server_method (_fun -> _SSL_METHOD*))
 
-  (define-crypto BIO_s_mem (-> _BIO_METHOD*))
-  (define-crypto BIO_new (_BIO_METHOD* -> _BIO*))
-  (define-crypto BIO_free (_BIO* -> _void))
+  (define-crypto BIO_s_mem (_fun -> _BIO_METHOD*))
+  (define-crypto BIO_new (_fun _BIO_METHOD* -> _BIO*))
+  (define-crypto BIO_free (_fun _BIO* -> _void))
 
-  (define-crypto BIO_read (_BIO* _bytes _int -> _int))
-  (define-crypto BIO_write (_BIO* _bytes _int -> _int))
-  (define-crypto BIO_ctrl (_BIO* _int _long _long -> _long))
+  (define-crypto BIO_read (_fun _BIO* _bytes _int -> _int))
+  (define-crypto BIO_write (_fun _BIO* _bytes _int -> _int))
+  (define-crypto BIO_ctrl (_fun _BIO* _int _long _long -> _long))
   (define (BIO_set_mem_eof_return b v)
     (BIO_ctrl b BIO_C_SET_BUF_MEM_EOF_RETURN v 0))
 
-  (define-ssl SSL_CTX_new (_SSL_METHOD* -> _SSL_CTX*))
-  (define-ssl SSL_CTX_free (_SSL_CTX* -> _void))
-  (define-ssl SSL_CTX_ctrl (_SSL_CTX* _int _long _pointer -> _long))
+  (define-ssl SSL_CTX_new (_fun _SSL_METHOD* -> _SSL_CTX*))
+  (define-ssl SSL_CTX_free (_fun _SSL_CTX* -> _void))
+  (define-ssl SSL_CTX_ctrl (_fun _SSL_CTX* _int _long _pointer -> _long))
   (define (SSL_CTX_set_mode ctx m)
     (SSL_CTX_ctrl ctx SSL_CTRL_MODE m #f))
 
-  (define-ssl SSL_CTX_set_verify (_SSL_CTX* _int _pointer -> _void))
-  (define-ssl SSL_CTX_use_certificate_chain_file (_SSL_CTX* _bytes -> _int))
-  (define-ssl SSL_CTX_load_verify_locations (_SSL_CTX* _bytes _pointer -> _int))
-  (define-ssl SSL_CTX_set_client_CA_list (_SSL_CTX* _X509_NAME* -> _int))
-  (define-ssl SSL_CTX_use_RSAPrivateKey_file (_SSL_CTX* _bytes _int -> _int))
-  (define-ssl SSL_CTX_use_PrivateKey_file (_SSL_CTX* _bytes _int -> _int))
-  (define-ssl SSL_load_client_CA_file (_bytes -> _X509_NAME*))
+  (define-ssl SSL_CTX_set_verify (_fun _SSL_CTX* _int _pointer -> _void))
+  (define-ssl SSL_CTX_use_certificate_chain_file (_fun _SSL_CTX* _bytes -> _int))
+  (define-ssl SSL_CTX_load_verify_locations (_fun _SSL_CTX* _bytes _pointer -> _int))
+  (define-ssl SSL_CTX_set_client_CA_list (_fun _SSL_CTX* _X509_NAME* -> _int))
+  (define-ssl SSL_CTX_set_session_id_context (_fun _SSL_CTX* _bytes _int -> _int))
+  (define-ssl SSL_CTX_use_RSAPrivateKey_file (_fun _SSL_CTX* _bytes _int -> _int))
+  (define-ssl SSL_CTX_use_PrivateKey_file (_fun _SSL_CTX* _bytes _int -> _int))
+  (define-ssl SSL_load_client_CA_file (_fun _bytes -> _X509_NAME*))
 
-  (define-ssl SSL_new (_SSL_CTX* -> _SSL*))
-  (define-ssl SSL_set_bio (_SSL* _BIO* _BIO* -> _void))
-  (define-ssl SSL_connect (_SSL* -> _int))
-  (define-ssl SSL_accept (_SSL* -> _int))
-  (define-ssl SSL_free (_SSL* -> _void))
-  (define-ssl SSL_read (_SSL* _bytes _int -> _int))
-  (define-ssl SSL_write (_SSL* _bytes _int -> _int))
-  (define-ssl SSL_shutdown (_SSL* -> _int))
+  (define-ssl SSL_new (_fun _SSL_CTX* -> _SSL*))
+  (define-ssl SSL_set_bio (_fun _SSL* _BIO* _BIO* -> _void))
+  (define-ssl SSL_connect (_fun _SSL* -> _int))
+  (define-ssl SSL_accept (_fun _SSL* -> _int))
+  (define-ssl SSL_free (_fun _SSL* -> _void))
+  (define-ssl SSL_read (_fun _SSL* _bytes _int -> _int))
+  (define-ssl SSL_write (_fun _SSL* _bytes _int -> _int))
+  (define-ssl SSL_shutdown (_fun _SSL* -> _int))
+  (define-ssl SSL_get_verify_result (_fun _SSL* -> _long))
+  (define-ssl SSL_get_peer_certificate (_fun _SSL* -> _X509*))
+  
+  (define-crypto X509_get_subject_name (_fun _X509* -> _X509_NAME*))
+  (define-crypto X509_get_issuer_name (_fun _X509* -> _X509_NAME*))
+  (define-crypto X509_NAME_oneline (_fun _X509_NAME* _bytes _int -> _bytes))
 
-  (define-ssl SSL_get_error (_SSL* _int -> _int))
+  (define-ssl SSL_get_error (_fun _SSL* _int -> _int))
 
-  (define-crypto ERR_get_error (-> _long))
-  (define-crypto ERR_error_string_n (_long _bytes _long -> _void))
+  (define-crypto ERR_get_error (_fun -> _long))
+  (define-crypto ERR_error_string_n (_fun _long _bytes _long -> _void))
 
-  (define-ssl SSL_library_init (-> _void))
-  (define-ssl SSL_load_error_strings (-> _void))
+  (define-ssl SSL_library_init (_fun -> _void))
+  (define-ssl SSL_load_error_strings (_fun -> _void))
+  
+  (define X509_V_OK 0)
 
   (define SSL_ERROR_WANT_READ 2)
   (define SSL_ERROR_WANT_WRITE 3)
@@ -181,11 +171,11 @@
   (define SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER #x02)
   (define SSL_CTRL_MODE 33)
 
-  (define-mzscheme scheme_start_atomic (-> _void))
-  (define-mzscheme scheme_end_atomic (-> _void))
-  (define-mzscheme scheme_make_custodian (_pointer -> _scheme))
+  (define-mzscheme scheme_start_atomic (_fun -> _void))
+  (define-mzscheme scheme_end_atomic (_fun -> _void))
+  (define-mzscheme scheme_make_custodian (_fun _pointer -> _scheme))
 
-  ;; Make this bigger than 4096 to accomodate at least
+  ;; Make this bigger than 4096 to accommodate at least
   ;; 4096 of unencrypted data
   (define BUFFER-SIZE 8000)
 
@@ -200,9 +190,6 @@
 
   ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
   ;; Error handling
-
-  (define (raise-not-available)
-    (error 'openssl "OpenSSL shared library not found"))
 
   (define-syntax with-failure
     (syntax-rules ()
@@ -412,7 +399,23 @@
 					   SSL_VERIFY_FAIL_IF_NO_PEER_CERT)
 			      SSL_VERIFY_NONE)
 			  #f)))
-
+   
+  (define (ssl-try-verify! ssl-context-or-listener on?)
+    (let ([ctx (get-context/listener 'ssl-set-verify!
+				     ssl-context-or-listener)])
+      
+      ;required by openssl. This is more for when calling i2d_SSL_SESSION/d2i_SSL_SESSION
+      ;for instance if we were saving sessions in a database etc... We aren't using that
+      ;so a generic session name should be fine.
+      (let ([bytes #"racket"])
+        (SSL_CTX_set_session_id_context ctx bytes (bytes-length bytes)))
+      
+      (SSL_CTX_set_verify ctx
+                          (if on?
+                              SSL_VERIFY_PEER
+                              SSL_VERIFY_NONE)
+                          #f)))
+  
   ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
   ;; SSL ports
 
@@ -954,6 +957,28 @@
       (when input?
 	(raise-type-error 'ssl-abandon-port "SSL output port" p))
       (set-mzssl-shutdown-on-close?! mzssl #f)))
+  
+  (define (ssl-peer-verified? p)
+    (let-values ([(mzssl input?) (lookup 'ssl-peer-verified? "SSL port" p)])
+      (and (eq? X509_V_OK (SSL_get_verify_result (mzssl-ssl mzssl)))
+           (SSL_get_peer_certificate (mzssl-ssl mzssl))
+           #t)))
+  
+  (define (ssl-peer-subject-name p)
+    (let-values ([(mzssl input?) (lookup 'ssl-peer-subject-name "SSL port" p)])
+      (let ([cert (SSL_get_peer_certificate (mzssl-ssl mzssl))])
+        (if cert
+            (let ([bytes (make-bytes 1024 0)])
+              (X509_NAME_oneline (X509_get_subject_name cert) bytes (bytes-length bytes)))
+            #f))))
+  
+  (define (ssl-peer-issuer-name p)
+    (let-values ([(mzssl input?) (lookup 'ssl-peer-subject-name "SSL port" p)])
+      (let ([cert (SSL_get_peer_certificate (mzssl-ssl mzssl))])
+        (if cert
+            (let ([bytes (make-bytes 1024 0)])
+              (X509_NAME_oneline (X509_get_issuer_name cert) bytes (bytes-length bytes)))
+            #f))))
 
   (define (ssl-port? v)
     (and (hash-ref ssl-ports v #f) #t))
@@ -999,7 +1024,7 @@
 
   (define (ssl-accept/enable-break ssl-listener)
     (do-ssl-accept 'ssl-accept/enable-break tcp-accept/enable-break ssl-listener))
-
+  
   ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
   ;; SSL connect
 
@@ -1035,8 +1060,30 @@
 
   (define ssl-available? (and libssl #t))
 
-  (when ssl-available?
-    (SSL_library_init)
-    (SSL_load_error_strings))
 
-  )
+  (define scheme_register_process_global
+    (and ssl-available?
+         (get-ffi-obj 'scheme_register_process_global #f (_fun _string _pointer -> _pointer))))
+
+  (when ssl-available?
+    ;; Make sure only one place tries to initialize OpenSSL,
+    ;; and wait in case some other place is currently initializing
+    ;; it.
+    (begin
+      (start-atomic)
+      (let* ([done (cast 1 _scheme _pointer)]
+             [v (scheme_register_process_global "OpenSSL-support-initializing" done)])
+        (if v
+            ;; Some other place is initializing:
+            (begin
+              (end-atomic)
+              (let loop ()
+                (unless (scheme_register_process_global "OpenSSL-support-initialized" #f)
+                  (sleep 0.01) ;; busy wait! --- this should be rare
+                  (loop))))
+            ;; This place must initialize:
+            (begin
+              (SSL_library_init)
+              (SSL_load_error_strings)
+              (scheme_register_process_global "OpenSSL-support-initialized" done)
+              (end-atomic)))))))

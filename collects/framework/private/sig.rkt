@@ -1,4 +1,4 @@
-#lang scheme/base
+#lang racket/base
   
   (require scheme/unit)
   
@@ -12,9 +12,9 @@
      make-fraction-snip))
   
   (define-signature comment-box-class^
-    (snipclass snip%))
+    (snip%))
   (define-signature comment-box^ extends comment-box-class^
-    ())
+    (snipclass))
   
   (define-signature menu-class^
     (can-restore<%>
@@ -57,10 +57,14 @@
      
      horizontal-dragable<%>
      horizontal-dragable-mixin
-     horizontal-dragable%))
+     horizontal-dragable%
+
+     splitter<%>
+     splitter-mixin))
   (define-signature panel^ extends panel-class^
-    ())
-  
+    (dragable-container-size
+     dragable-place-children))
+
   (define-signature application-class^
     ())
   (define-signature application^ extends application-class^
@@ -70,6 +74,7 @@
     ())
   (define-signature preferences^ extends preferences-class^
     (put-preferences/gui
+     get-preference/gui
      add-panel
      add-font-panel
      
@@ -450,6 +455,8 @@
      rgb-color-distance
      rgb->xyz
      xyz->rgb))
+  
+  (define-signature early-init^ ())
   
   (define-signature framework^
     ((open (prefix application: application^))

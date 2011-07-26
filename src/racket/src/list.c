@@ -1,6 +1,6 @@
 /*
   Racket
-  Copyright (c) 2004-2010 PLT Scheme Inc.
+  Copyright (c) 2004-2011 PLT Scheme Inc.
   Copyright (c) 1995-2001 Matthew Flatt
 
     This library is free software; you can redistribute it and/or
@@ -33,6 +33,7 @@ READ_ONLY Scheme_Object *scheme_mcons_proc;
 READ_ONLY Scheme_Object *scheme_list_proc;
 READ_ONLY Scheme_Object *scheme_list_star_proc;
 READ_ONLY Scheme_Object *scheme_box_proc;
+READ_ONLY Scheme_Object *scheme_hash_ref_proc;
 /* read only locals */
 ROSYM static Scheme_Object *weak_symbol;
 ROSYM static Scheme_Object *equal_symbol;
@@ -50,8 +51,6 @@ static Scheme_Object *immutablep (int argc, Scheme_Object *argv[]);
 static Scheme_Object *length_prim (int argc, Scheme_Object *argv[]);
 static Scheme_Object *append_prim (int argc, Scheme_Object *argv[]);
 static Scheme_Object *reverse_prim (int argc, Scheme_Object *argv[]);
-static Scheme_Object *list_tail_prim (int argc, Scheme_Object *argv[]);
-static Scheme_Object *list_ref_prim (int argc, Scheme_Object *argv[]);
 static Scheme_Object *memv (int argc, Scheme_Object *argv[]);
 static Scheme_Object *memq (int argc, Scheme_Object *argv[]);
 static Scheme_Object *member (int argc, Scheme_Object *argv[]);
@@ -149,6 +148,8 @@ static Scheme_Object *table_placeholder_p(int argc, Scheme_Object *argv[]);
 
 static Scheme_Object *unsafe_car (int argc, Scheme_Object *argv[]);
 static Scheme_Object *unsafe_cdr (int argc, Scheme_Object *argv[]);
+static Scheme_Object *unsafe_list_ref (int argc, Scheme_Object *argv[]);
+static Scheme_Object *unsafe_list_tail (int argc, Scheme_Object *argv[]);
 static Scheme_Object *unsafe_mcar (int argc, Scheme_Object *argv[]);
 static Scheme_Object *unsafe_mcdr (int argc, Scheme_Object *argv[]);
 static Scheme_Object *unsafe_set_mcar (int argc, Scheme_Object *argv[]);
@@ -223,11 +224,9 @@ scheme_init_list (Scheme_Env *env)
   SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_UNARY_INLINED;
   scheme_add_global_constant ("null?", p, env);
 
-  scheme_add_global_constant ("list?",
-			      scheme_make_immed_prim(list_p_prim,
-						     "list?",
-						     1, 1),
-			      env);
+  p = scheme_make_folding_prim(list_p_prim, "list?", 1, 1, 1);
+  SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_UNARY_INLINED;
+  scheme_add_global_constant ("list?", p, env);
 
   REGISTER_SO(scheme_list_proc);
   p = scheme_make_immed_prim(list_prim, "list", 0, -1);
@@ -250,11 +249,11 @@ scheme_init_list (Scheme_Env *env)
 						      "immutable?",
 						      1, 1, 1),
 			     env);
-  scheme_add_global_constant ("length",
-			      scheme_make_immed_prim(length_prim,
-						     "length",
-						     1, 1),
-			      env);
+
+  p = scheme_make_immed_prim(length_prim, "length", 1, 1);
+  SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_UNARY_INLINED;
+  scheme_add_global_constant("length", p, env);
+
   scheme_add_global_constant ("append",
 			      scheme_make_immed_prim(append_prim,
 						     "append",
@@ -265,16 +264,15 @@ scheme_init_list (Scheme_Env *env)
 						     "reverse",
 						     1, 1),
 			      env);
-  scheme_add_global_constant ("list-tail",
-			      scheme_make_immed_prim(list_tail_prim,
-						     "list-tail",
-						     2, 2),
-			      env);
-  scheme_add_global_constant ("list-ref",
-			      scheme_make_immed_prim(list_ref_prim,
-						     "list-ref",
-						     2, 2),
-			      env);
+
+  p = scheme_make_immed_prim(scheme_checked_list_tail, "list-tail", 2, 2);
+  SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_BINARY_INLINED;
+  scheme_add_global_constant ("list-tail", p, env);
+
+  p = scheme_make_immed_prim(scheme_checked_list_ref, "list-ref", 2, 2);
+  SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_BINARY_INLINED;
+  scheme_add_global_constant ("list-ref",p, env);
+
   scheme_add_global_constant ("memq",
 			      scheme_make_immed_prim(memq,
 						     "memq",
@@ -322,127 +320,101 @@ scheme_init_list (Scheme_Env *env)
   SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_UNARY_INLINED;
   scheme_add_global_constant ("cddr", p, env);
 
-  scheme_add_global_constant ("caaar",
-			      scheme_make_folding_prim(caaar_prim,
-                                                       "caaar",
-                                                       1, 1, 1),
-			      env);
-  scheme_add_global_constant ("caadr",
-			      scheme_make_folding_prim(caadr_prim,
-                                                       "caadr",
-                                                       1, 1, 1),
-			      env);
-  scheme_add_global_constant ("cadar",
-			      scheme_make_folding_prim(cadar_prim,
-                                                       "cadar",
-                                                       1, 1, 1),
-			      env);
-  scheme_add_global_constant ("cdaar",
-			      scheme_make_folding_prim(cdaar_prim,
-                                                       "cdaar",
-                                                       1, 1, 1),
-			      env);
-  scheme_add_global_constant ("cdadr",
-			      scheme_make_folding_prim(cdadr_prim,
-                                                       "cdadr",
-                                                       1, 1, 1),
-			      env);
-  scheme_add_global_constant ("cddar",
-			      scheme_make_folding_prim(cddar_prim,
-                                                       "cddar",
-                                                       1, 1, 1),
-			      env);
-  scheme_add_global_constant ("caddr",
-			      scheme_make_folding_prim(caddr_prim,
-                                                       "caddr",
-                                                       1, 1, 1),
-			      env);
-  scheme_add_global_constant ("cdddr",
-			      scheme_make_folding_prim(cdddr_prim,
-                                                       "cdddr",
-                                                       1, 1, 1),
-			      env);
-  scheme_add_global_constant ("cddddr",
-			      scheme_make_folding_prim(cddddr_prim,
-                                                       "cddddr",
-                                                       1, 1, 1),
-			      env);
+  p = scheme_make_folding_prim(caaar_prim, "caaar", 1, 1, 1);
+  SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_UNARY_INLINED;
+  scheme_add_global_constant ("caaar", p, env);
 
-  scheme_add_global_constant ("cadddr",
-			      scheme_make_folding_prim(cadddr_prim,
-                                                       "cadddr",
-                                                       1, 1, 1),
-			      env);
-  scheme_add_global_constant ("cdaddr",
-			      scheme_make_folding_prim(cdaddr_prim,
-                                                       "cdaddr",
-                                                       1, 1, 1),
-			      env);
-  scheme_add_global_constant ("cddadr",
-			      scheme_make_folding_prim(cddadr_prim,
-                                                       "cddadr",
-                                                       1, 1, 1),
-			      env);
-  scheme_add_global_constant ("cdddar",
-			      scheme_make_folding_prim(cdddar_prim,
-                                                       "cdddar",
-                                                       1, 1, 1),
-			      env);
-  scheme_add_global_constant ("caaddr",
-			      scheme_make_folding_prim(caaddr_prim,
-                                                       "caaddr",
-                                                       1, 1, 1),
-			      env);
-  scheme_add_global_constant ("cadadr",
-			      scheme_make_folding_prim(cadadr_prim,
-                                                       "cadadr",
-                                                       1, 1, 1),
-			      env);
-  scheme_add_global_constant ("caddar",
-			      scheme_make_folding_prim(caddar_prim,
-                                                       "caddar",
-                                                       1, 1, 1),
-			      env);
-  scheme_add_global_constant ("cdaadr",
-			      scheme_make_folding_prim(cdaadr_prim,
-                                                       "cdaadr",
-                                                       1, 1, 1),
-			      env);
-  scheme_add_global_constant ("cdadar",
-			      scheme_make_folding_prim(cdadar_prim,
-                                                       "cdadar",
-                                                       1, 1, 1),
-			      env);
-  scheme_add_global_constant ("cddaar",
-			      scheme_make_folding_prim(cddaar_prim,
-                                                       "cddaar",
-                                                       1, 1, 1),
-			      env);
-  scheme_add_global_constant ("cdaaar",
-			      scheme_make_folding_prim(cdaaar_prim,
-                                                       "cdaaar",
-                                                       1, 1, 1),
-			      env);
-  scheme_add_global_constant ("cadaar",
-			      scheme_make_folding_prim(cadaar_prim,
-                                                       "cadaar",
-                                                       1, 1, 1),
-			      env);
-  scheme_add_global_constant ("caadar",
-			      scheme_make_folding_prim(caadar_prim,
-                                                       "caadar",
-                                                       1, 1, 1),
-			      env);
-  scheme_add_global_constant ("caaadr",
-			      scheme_make_folding_prim(caaadr_prim,
-                                                       "caaadr",
-                                                       1, 1, 1),
-			      env);
-  scheme_add_global_constant ("caaaar",
-			      scheme_make_folding_prim(caaaar_prim,
-                                                       "caaaar",
-                                                       1, 1, 1),
-			      env);
+  p = scheme_make_folding_prim(caadr_prim, "caadr", 1, 1, 1);
+  SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_UNARY_INLINED;
+  scheme_add_global_constant ("caadr", p, env);
+
+  p = scheme_make_folding_prim(cadar_prim, "cadar", 1, 1, 1);
+  SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_UNARY_INLINED;
+  scheme_add_global_constant ("cadar", p, env);
+
+  p = scheme_make_folding_prim(cdaar_prim, "cdaar", 1, 1, 1);
+  SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_UNARY_INLINED;
+  scheme_add_global_constant ("cdaar", p, env);
+
+  p = scheme_make_folding_prim(cdadr_prim, "cdadr", 1, 1, 1);
+  SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_UNARY_INLINED;
+  scheme_add_global_constant ("cdadr", p, env);
+
+  p = scheme_make_folding_prim(cddar_prim, "cddar", 1, 1, 1);
+  SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_UNARY_INLINED;
+  scheme_add_global_constant ("cddar", p, env);
+
+  p = scheme_make_folding_prim(caddr_prim, "caddr", 1, 1, 1);
+  SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_UNARY_INLINED;
+  scheme_add_global_constant ("caddr", p, env);
+
+  p = scheme_make_folding_prim(cdddr_prim, "cdddr", 1, 1, 1);
+  SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_UNARY_INLINED;
+  scheme_add_global_constant ("cdddr", p, env);
+
+  p = scheme_make_folding_prim(cddddr_prim, "cddddr", 1, 1, 1);
+  SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_UNARY_INLINED;
+  scheme_add_global_constant ("cddddr", p, env);
+
+  p = scheme_make_folding_prim(cadddr_prim, "cadddr", 1, 1, 1);
+  SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_UNARY_INLINED;
+  scheme_add_global_constant ("cadddr", p, env);
+
+  p = scheme_make_folding_prim(cdaddr_prim, "cdaddr", 1, 1, 1);
+  SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_UNARY_INLINED;
+  scheme_add_global_constant ("cdaddr", p, env);
+
+  p = scheme_make_folding_prim(cddadr_prim, "cddadr", 1, 1, 1);
+  SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_UNARY_INLINED;
+  scheme_add_global_constant ("cddadr", p, env);
+
+  p = scheme_make_folding_prim(cdddar_prim, "cdddar", 1, 1, 1);
+  SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_UNARY_INLINED;
+  scheme_add_global_constant ("cdddar", p, env);
+
+  p = scheme_make_folding_prim(caaddr_prim, "caaddr", 1, 1, 1);
+  SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_UNARY_INLINED;
+  scheme_add_global_constant ("caaddr", p, env);
+
+  p = scheme_make_folding_prim(cadadr_prim, "cadadr", 1, 1, 1);
+  SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_UNARY_INLINED;
+  scheme_add_global_constant ("cadadr", p, env);
+
+  p = scheme_make_folding_prim(caddar_prim, "caddar", 1, 1, 1);
+  SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_UNARY_INLINED;
+  scheme_add_global_constant ("caddar", p, env);
+
+  p = scheme_make_folding_prim(cdaadr_prim, "cdaadr", 1, 1, 1);
+  SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_UNARY_INLINED;
+  scheme_add_global_constant ("cdaadr", p, env);
+
+  p = scheme_make_folding_prim(cdadar_prim, "cdadar", 1, 1, 1);
+  SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_UNARY_INLINED;
+  scheme_add_global_constant ("cdadar", p, env);
+
+  p = scheme_make_folding_prim(cddaar_prim, "cddaar", 1, 1, 1);
+  SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_UNARY_INLINED;
+  scheme_add_global_constant ("cddaar", p, env);
+
+  p = scheme_make_folding_prim(cdaaar_prim, "cdaaar", 1, 1, 1);
+  SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_UNARY_INLINED;
+  scheme_add_global_constant ("cdaaar", p, env);
+
+  p = scheme_make_folding_prim(cadaar_prim, "cadaar", 1, 1, 1);
+  SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_UNARY_INLINED;
+  scheme_add_global_constant ("cadaar", p, env);
+
+  p = scheme_make_folding_prim(caadar_prim, "caadar", 1, 1, 1);
+  SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_UNARY_INLINED;
+  scheme_add_global_constant ("caadar", p, env);
+  
+  p = scheme_make_folding_prim(caaadr_prim, "caaadr", 1, 1, 1);
+  SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_UNARY_INLINED;
+  scheme_add_global_constant ("caaadr", p, env);
+
+  p = scheme_make_folding_prim(caaaar_prim, "caaaar", 1, 1, 1);
+  SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_UNARY_INLINED;
+  scheme_add_global_constant ("caaaar", p, env);
 
   REGISTER_SO(scheme_box_proc);
   p = scheme_make_immed_prim(box, BOX, 1, 1);
@@ -512,17 +484,17 @@ scheme_init_list (Scheme_Env *env)
   scheme_add_global_constant("make-immutable-hash",
 			     scheme_make_immed_prim(make_immutable_hash,
 						    "make-immutable-hash",
-						    1, 1),
+						    0, 1),
 			     env);
   scheme_add_global_constant("make-immutable-hasheq",
 			     scheme_make_immed_prim(make_immutable_hasheq,
 						    "make-immutable-hasheq",
-						    1, 1),
+						    0, 1),
 			     env);
   scheme_add_global_constant("make-immutable-hasheqv",
 			     scheme_make_immed_prim(make_immutable_hasheqv,
 						    "make-immutable-hasheqv",
-						    1, 1),
+						    0, 1),
 			     env);
   scheme_add_global_constant("hash",
 			     scheme_make_immed_prim(direct_hash,
@@ -584,11 +556,9 @@ scheme_init_list (Scheme_Env *env)
 						    "hash-set",
 						    3, 3),
 			     env);
-  scheme_add_global_constant("hash-ref",
-			     scheme_make_prim_w_arity(hash_table_get,
-						      "hash-ref",
-						      2, 3),
-			     env);
+  REGISTER_SO(scheme_hash_ref_proc);
+  scheme_hash_ref_proc = scheme_make_prim_w_arity(hash_table_get, "hash-ref", 2, 3);
+  scheme_add_global_constant("hash-ref", scheme_hash_ref_proc, env);
   scheme_add_global_constant("hash-remove!",
 			     scheme_make_noncm_prim(hash_table_remove_bang,
 						    "hash-remove!",
@@ -756,12 +726,24 @@ scheme_init_unsafe_list (Scheme_Env *env)
   scheme_null->type = scheme_null_type;
 
   p = scheme_make_folding_prim(unsafe_car, "unsafe-car", 1, 1, 1);
-  SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_UNARY_INLINED;
+  SCHEME_PRIM_PROC_FLAGS(p) |= (SCHEME_PRIM_IS_UNARY_INLINED
+                                | SCHEME_PRIM_IS_UNSAFE_FUNCTIONAL);
   scheme_add_global_constant ("unsafe-car", p, env);
 
   p = scheme_make_folding_prim(unsafe_cdr, "unsafe-cdr", 1, 1, 1);
-  SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_UNARY_INLINED;
+  SCHEME_PRIM_PROC_FLAGS(p) |= (SCHEME_PRIM_IS_UNARY_INLINED
+                                | SCHEME_PRIM_IS_UNSAFE_FUNCTIONAL);
   scheme_add_global_constant ("unsafe-cdr", p, env);
+
+  p = scheme_make_folding_prim(unsafe_list_ref, "unsafe-list-tail", 2, 2, 1);
+  SCHEME_PRIM_PROC_FLAGS(p) |= (SCHEME_PRIM_IS_UNARY_INLINED
+                                | SCHEME_PRIM_IS_UNSAFE_FUNCTIONAL);
+  scheme_add_global_constant ("unsafe-list-ref", p, env);
+
+  p = scheme_make_folding_prim(unsafe_list_tail, "unsafe-list-tail", 2, 2, 1);
+  SCHEME_PRIM_PROC_FLAGS(p) |= (SCHEME_PRIM_IS_UNARY_INLINED
+                                | SCHEME_PRIM_IS_UNSAFE_FUNCTIONAL);
+  scheme_add_global_constant ("unsafe-list-tail", p, env);
 
   p = scheme_make_immed_prim(unsafe_mcar, "unsafe-mcar", 1, 1);
   SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_UNARY_INLINED;
@@ -780,7 +762,7 @@ scheme_init_unsafe_list (Scheme_Env *env)
   scheme_add_global_constant ("unsafe-set-mcdr!", p, env);
   
   p = scheme_make_immed_prim(unsafe_unbox, "unsafe-unbox", 1, 1);
-  SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_UNARY_INLINED;  
+  SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_UNARY_INLINED;
   scheme_add_global_constant("unsafe-unbox", p, env);
 
   p = scheme_make_immed_prim(unsafe_unbox_star, "unsafe-unbox*", 1, 1);
@@ -850,12 +832,22 @@ Scheme_Object *scheme_build_list(int size, Scheme_Object **argv)
 }
 
 Scheme_Object *scheme_build_list_offset(int size, Scheme_Object **argv, int delta)
+/* clears originals in argv for space safety! */
 {
   Scheme_Object *pair = scheme_null;
   int i;
 
-  for (i = size; i-- > delta; ) {
-    pair = cons(argv[i], pair);
+  if (size < 0) {
+    /* clearing mode: */
+    size = -size;
+    for (i = size; i-- > delta; ) {
+      pair = cons(argv[i], pair);
+      argv[i] = NULL;
+    }
+  } else {
+    for (i = size; i-- > delta; ) {
+      pair = cons(argv[i], pair);
+    }
   }
 
   return pair;
@@ -1076,6 +1068,10 @@ int scheme_is_list(Scheme_Object *obj1)
 
   obj2 = obj1;
 
+  /* There's no fuel check in this loop. Checking a very long list
+     could interfere with thread switching --- but only once, because
+     another query on the same list will take half as long. */
+  
   while (1) {
     obj1 = SCHEME_CDR(obj1);
 
@@ -1183,6 +1179,11 @@ length_prim (int argc, Scheme_Object *argv[])
   l = scheme_list_length(argv[0]);
 
   return scheme_make_integer(l);
+}
+
+Scheme_Object *scheme_checked_length(Scheme_Object *v)
+{
+  return length_prim(1, &v);
 }
 
 Scheme_Object *
@@ -1340,14 +1341,14 @@ do_list_ref(char *name, int takecar, int argc, Scheme_Object *argv[])
     return lst;
 }
 
-static Scheme_Object *
-list_tail_prim(int argc, Scheme_Object *argv[])
+Scheme_Object *
+scheme_checked_list_tail(int argc, Scheme_Object *argv[])
 {
   return do_list_ref("list-tail", 0, argc, argv);
 }
 
-static Scheme_Object *
-list_ref_prim(int argc, Scheme_Object *argv[])
+Scheme_Object *
+scheme_checked_list_ref(int argc, Scheme_Object *argv[])
 {
   return do_list_ref("list-ref", 1, argc, argv);
 }
@@ -1831,7 +1832,7 @@ static Scheme_Object *make_weak_hasheqv(int argc, Scheme_Object *argv[])
 
 static Scheme_Object *make_immutable_table(const char *who, int kind, int argc, Scheme_Object *argv[])
 {
-  Scheme_Object *l = argv[0], *a;
+  Scheme_Object *l = (argc ? argv[0] : scheme_null), *a;
   Scheme_Hash_Tree *ht;
 
   if (scheme_proper_list_length(l) >= 0) {
@@ -1843,11 +1844,11 @@ static Scheme_Object *make_immutable_table(const char *who, int kind, int argc, 
   }
 
   if (!SCHEME_NULLP(l))
-    scheme_wrong_type("make-immutable-hash", "list of pairs", 0, argc, argv);
+    scheme_wrong_type(who, "list of pairs", 0, argc, argv);
 
   ht = scheme_make_hash_tree(kind);
 
-  for (l = argv[0]; SCHEME_PAIRP(l); l = SCHEME_CDR(l)) {
+  for (l = (argc ? argv[0] : scheme_null); SCHEME_PAIRP(l); l = SCHEME_CDR(l)) {
     a = SCHEME_CAR(l);
     ht = scheme_hash_tree_set(ht, SCHEME_CAR(a), SCHEME_CDR(a));
   }
@@ -1955,6 +1956,8 @@ static Scheme_Object *hash_table_count(int argc, Scheme_Object *argv[])
     Scheme_Bucket **buckets, *bucket;
     const char *key;
 
+    if (t->mutex) scheme_wait_sema(t->mutex,0);
+
     buckets = t->buckets;
     weak = t->weak;
 
@@ -1971,6 +1974,8 @@ static Scheme_Object *hash_table_count(int argc, Scheme_Object *argv[])
       }
       SCHEME_USE_FUEL(1);
     }
+
+    if (t->mutex) scheme_post_sema(t->mutex);
 
     return scheme_make_integer(count);
   } else {
@@ -2196,38 +2201,11 @@ static Scheme_Object *hash_table_put(int argc, Scheme_Object *argv[])
   return (Scheme_Object *)scheme_hash_tree_set((Scheme_Hash_Tree *)v, argv[1], argv[2]);
 }
 
-static Scheme_Object *hash_table_get(int argc, Scheme_Object *argv[])
+static Scheme_Object *hash_failed(int argc, Scheme_Object *argv[])
 {
   Scheme_Object *v;
 
-  v = argv[0];
-
-  if (SCHEME_NP_CHAPERONEP(v) && (SCHEME_HASHTP(SCHEME_CHAPERONE_VAL(v))
-                                  || SCHEME_HASHTRP(SCHEME_CHAPERONE_VAL(v))
-                                  || SCHEME_BUCKTP(SCHEME_CHAPERONE_VAL(v))))
-    v = scheme_chaperone_hash_get(v, argv[1]);
-  else if (SCHEME_BUCKTP(v)) {
-    Scheme_Bucket_Table *t = (Scheme_Bucket_Table *)v;
-    if (t->mutex) scheme_wait_sema(t->mutex, 0);
-    v = (Scheme_Object *)scheme_lookup_in_table(t, (char *)argv[1]);
-    if (t->mutex) scheme_post_sema(t->mutex);
-  } else if (SCHEME_HASHTRP(v)) {
-    v = scheme_hash_tree_get((Scheme_Hash_Tree *)v, argv[1]);
-  } else if (!SCHEME_HASHTP(v)) {
-    scheme_wrong_type("hash-ref", "hash", 0, argc, argv);
-    return NULL;
-  } else if (((Scheme_Hash_Table *)v)->mutex) {
-    Scheme_Hash_Table *t = (Scheme_Hash_Table *)v;
-    scheme_wait_sema(t->mutex, 0);
-    v = scheme_hash_get(t, argv[1]);
-    scheme_post_sema(t->mutex);
-  } else {
-    v = scheme_hash_get((Scheme_Hash_Table *)v, argv[1]);
-  }
-
-  if (v)
-    return v;
-  else if (argc == 3) {
+  if (argc == 3) {
     v = argv[2];
     if (SCHEME_PROCP(v))
       return _scheme_tail_apply(v, 0, NULL);
@@ -2239,6 +2217,70 @@ static Scheme_Object *hash_table_get(int argc, Scheme_Object *argv[])
 		     argv[1]);
     return scheme_void;
   }
+}
+
+static Scheme_Object *gen_hash_table_get(int argc, Scheme_Object *argv[])
+{
+  Scheme_Object *v;
+
+  v = argv[0];
+  
+  if (SCHEME_HASHTP(v)) {
+    if (((Scheme_Hash_Table *)v)->mutex) {
+      Scheme_Hash_Table *t = (Scheme_Hash_Table *)v;
+      scheme_wait_sema(t->mutex, 0);
+      v = scheme_hash_get(t, argv[1]);
+      scheme_post_sema(t->mutex);
+    } else {
+      v = scheme_hash_get((Scheme_Hash_Table *)v, argv[1]);
+    }
+  } else if (SCHEME_HASHTRP(v)) {
+    v = scheme_hash_tree_get((Scheme_Hash_Tree *)v, argv[1]);
+  } else if (SCHEME_NP_CHAPERONEP(v) && (SCHEME_HASHTP(SCHEME_CHAPERONE_VAL(v))
+                                         || SCHEME_HASHTRP(SCHEME_CHAPERONE_VAL(v))
+                                         || SCHEME_BUCKTP(SCHEME_CHAPERONE_VAL(v))))
+    v = scheme_chaperone_hash_get(v, argv[1]);
+  else if (SCHEME_BUCKTP(v)) {
+    Scheme_Bucket_Table *t = (Scheme_Bucket_Table *)v;
+    if (t->mutex) scheme_wait_sema(t->mutex, 0);
+    v = (Scheme_Object *)scheme_lookup_in_table(t, (char *)argv[1]);
+    if (t->mutex) scheme_post_sema(t->mutex);
+  } else {
+    scheme_wrong_type("hash-ref", "hash", 0, argc, argv);
+    return NULL;
+  }
+
+  if (v)
+    return v;
+  else 
+    return hash_failed(argc, argv);
+}
+
+static Scheme_Object *hash_table_get(int argc, Scheme_Object *argv[])
+{
+  Scheme_Object *v;
+
+  /* fast path is designed to avoid need for XFORM */
+  v = argv[0];
+  if (SCHEME_HASHTP(v)) {
+    if (!((Scheme_Hash_Table *)v)->make_hash_indices) {
+      v = scheme_eq_hash_get((Scheme_Hash_Table *)v, argv[1]);
+      if (v)
+        return v;
+      else
+        return hash_failed(argc, argv);
+    }
+  } else if (SCHEME_HASHTRP(v)) {
+    if (!(SCHEME_HASHTR_FLAGS(((Scheme_Hash_Tree *)v)) & 0x3)) {
+      v = scheme_eq_hash_tree_get((Scheme_Hash_Tree *)v, argv[1]);
+      if (v)
+        return v;
+      else
+        return hash_failed(argc, argv);
+    }
+  }
+
+  return gen_hash_table_get(argc, argv);
 }
 
 static Scheme_Object *hash_table_remove_bang(int argc, Scheme_Object *argv[])
@@ -3252,7 +3294,7 @@ Scheme_Object *scheme_make_ephemeron(Scheme_Object *key, Scheme_Object *val)
   Scheme_Ephemeron *e;
   int can_gc = 1;
 
-  if (SCHEME_INTP(val) || !GC_base(val)) 
+  if (SCHEME_INTP(key) || !GC_base(key))
     can_gc = 0;
 
   if (can_gc) {
@@ -3261,12 +3303,12 @@ Scheme_Object *scheme_make_ephemeron(Scheme_Object *key, Scheme_Object *val)
     e = (Scheme_Ephemeron *)scheme_malloc(sizeof(Scheme_Ephemeron));
   }
   e->so.type = scheme_ephemeron_type;
+  e->key = key;
+  e->val = val;
   if (can_gc) {
     e->next = ephemerons;
     ephemerons = e;
   }
-  e->key = key;
-  e->val = val;
 
   return (Scheme_Object *)e;
 #endif
@@ -3425,6 +3467,38 @@ static Scheme_Object *unsafe_cdr (int argc, Scheme_Object *argv[])
 {
   if (scheme_current_thread->constant_folding) return scheme_checked_cdr(argc, argv);
   return SCHEME_CDR(argv[0]);
+}
+
+static Scheme_Object *unsafe_list_ref (int argc, Scheme_Object *argv[])
+{
+  int i;
+  Scheme_Object *v;
+
+  if (scheme_current_thread->constant_folding) return scheme_checked_list_ref(argc, argv);
+  
+  v = argv[0];
+  i = SCHEME_INT_VAL(argv[1]);
+  while (i--) {
+    v = SCHEME_CDR(v);
+  }
+  
+  return SCHEME_CAR(v);
+}
+
+static Scheme_Object *unsafe_list_tail (int argc, Scheme_Object *argv[])
+{
+  int i;
+  Scheme_Object *v;
+
+  if (scheme_current_thread->constant_folding) return scheme_checked_list_tail(argc, argv);
+  
+  v = argv[0];
+  i = SCHEME_INT_VAL(argv[1]);
+  while (i--) {
+    v = SCHEME_CDR(v);
+  }
+  
+  return v;
 }
 
 static Scheme_Object *unsafe_mcar (int argc, Scheme_Object *argv[])

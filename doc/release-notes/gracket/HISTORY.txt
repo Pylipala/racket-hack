@@ -1,3 +1,12 @@
+Version 5.1, February 2011
+
+The GRacket executable is now a thin wrapper on the Racket executable,
+with the drawing and GUI libraries re-implemented as plain Racket
+libraries. See "Draw_and_GUI_5_1.txt" in the Racket release-notes
+directory. These notes will be discontinued.
+
+----------------------------------------------------------------------
+
 Version 5.0.2, October 2010
 
 Minor bug fixes
@@ -364,7 +373,7 @@ Version 206p1, February 2004
  Fixed printing scale for Windows NT/2000/XP
 
 
-Version 206, Janurary 2004
+Version 206, January 2004
 
 Drawing:
  Changed get-argb-pixels and set-argb-pixels to row-major order:
@@ -1276,7 +1285,7 @@ System:
 
   Changed force-redraw to ignore refresh requests when the
   redraw-requesting window is not shown. Redraw requests are now
-  propogated to the top-level frame or dialog via child-redraw-request.
+  propagated to the top-level frame or dialog via child-redraw-request.
 - if your application is unititized, then you need to change the
   startup procedure. See the application startup section in the
   toolbox manual.
@@ -1646,7 +1655,7 @@ Bug fixes, especially Motif and memory bugs
 Rewrote editor line-maintenance
 Faster caret updating
 Upgraded garbage collector
-File format changed to accomodate nested buffers with
+File format changed to accommodate nested buffers with
   separate style lists
 Standard system standardized
 Code changes for compiling on MSWindows (almost works...)

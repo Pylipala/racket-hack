@@ -1,8 +1,7 @@
-
-(module start "slideshow.ss"
-  (require "start-param.ss"
+(module start "slideshow.rkt"
+  (require "start-param.rkt"
            planet/config
-	   mred
+           mred
            mzlib/class)
 
   ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -65,8 +64,7 @@
 			    (lambda (who where-name where-port-num mode)
 			      (error 'slideshow
 				     "slide program attempted to make a network connection")))))
-    (dynamic-require (path->complete-path content) #f)
-    (done-making-slides))
+    (dynamic-require (path->complete-path content) #f))
 
   (when (file-to-load)
     (load-content (string->path (file-to-load))))
@@ -94,7 +92,7 @@
 			     (retract-most-recent-slide)
 			     (load-content
 			      (build-path (collection-path "slideshow")
-					  "tutorial-show.ss")))))
+                                          "tutorial-show.rkt")))))
 	 (page-para* (link "Open File..."
 			   (lambda ()
 			     (let ([file (get-file)])

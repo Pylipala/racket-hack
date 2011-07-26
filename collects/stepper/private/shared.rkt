@@ -1,40 +1,38 @@
-#lang scheme
+#lang racket
 
-(require "my-macros.ss"
-         srfi/26
-         scheme/class)
+(require rackunit)
 
-#;(require (for-syntax mzlib/list))
+; CONTRACTS
 
-  ; CONTRACTS
-  
-  (define varref-set? (listof identifier?))
-  (define binding-set? (or/c varref-set? (symbols 'all)))
-  (define (arglist? v)
-    (or (null? v)
-        (identifier? v)
-        (and (pair? v)
-             ((flat-contract-predicate (cons/c identifier? arglist?)) v))        
-        (and (syntax? v) (null? (syntax-e v)))
-        (and (syntax? v) 
-             ((flat-contract-predicate (cons/c identifier? arglist?)) (syntax-e v)))))
-  
-  #;(provide/contract
+(define varref-set? (listof identifier?))
+(define binding-set? (or/c varref-set? (symbols 'all)))
+(define (arglist? v)
+  (or (null? v)
+      (identifier? v)
+      (and (pair? v)
+           ((flat-contract-predicate (cons/c identifier? arglist?)) v))        
+      (and (syntax? v) (null? (syntax-e v)))
+      (and (syntax? v) 
+           ((flat-contract-predicate (cons/c identifier? arglist?)) (syntax-e v)))))
+
+#;(provide/contract
    [varref-set-remove-bindings (-> varref-set? varref-set? varref-set?)]
    [binding-set-varref-set-intersect (-> binding-set? varref-set? binding-set?)]
    [binding-set-union (-> (listof binding-set?) binding-set?)]
    [varref-set-union (-> (listof varref-set?) varref-set?)]
-   [skipto/auto (syntax? (symbols 'rebuild 'discard) (syntax? . -> . syntax?) . -> . syntax?)]
+   [skipto/auto (syntax? (symbols 'rebuild 'discard) 
+                         (syntax? . -> . syntax?)
+                         . -> . 
+                         syntax?)]
    [in-closure-table (-> any/c boolean?)]
    [sublist (-> number? number? list? list?)]
    [attach-info (-> syntax? syntax? syntax?)]
    [transfer-info (-> syntax? syntax? syntax?)]
    [arglist->ilist (-> arglist? any)]
    [arglist-flatten (-> arglist? (listof identifier?))])
-  
+
 (provide
  skipto/auto
- in-closure-table
  sublist
  attach-info
  transfer-info
@@ -58,8 +56,6 @@
  struct-flag
  multiple-highlight
  flatten-take
- closure-table-put!
- closure-table-lookup
  get-lifted-var
  get-arg-var
  begin0-temp
@@ -97,26 +93,65 @@
  skipto/third
  skipto/fourth
  skipto/firstarg
-
+ 
+ (struct-out annotated-proc)
+ 
  view-controller^
  stepper-frame^
  )
-  
-  ;; stepper-syntax-property : like syntax property, but adds properties to an association
-  ;; list associated with the syntax property 'stepper-properties
-  (define stepper-syntax-property
-    (case-lambda 
-      [(stx tag) (let ([stepper-props (syntax-property stx 'stepper-properties)])
-                   (if stepper-props
-                       (let ([table-lookup (assq tag stepper-props)])
-                         (if table-lookup
-                             (cadr table-lookup)
-                             #f))
-                       #f))]
-      [(stx tag new-val) (syntax-property stx 'stepper-properties
-                                          (cons (list tag new-val)
-                                                (or (syntax-property stx 'stepper-properties)
-                                                    null)))]))
+
+;; stepper-syntax-property : like syntax property, but adds properties to an association
+;; list associated with the syntax property 'stepper-properties
+
+(define stepper-syntax-property
+  (case-lambda 
+    [(stx tag)
+     (unless (member tag known-stepper-syntax-property-names)
+       (raise-type-error 'stepper-syntax-property "known stepper property symbol" 1 stx tag))
+     (let ([stepper-props (syntax-property stx 'stepper-properties)])
+       (if stepper-props
+           (let ([table-lookup (assq tag stepper-props)])
+             (if table-lookup
+                 (cadr table-lookup)
+                 #f))
+           #f))]
+    [(stx tag new-val) 
+     (unless (member tag known-stepper-syntax-property-names)
+       (raise-type-error 'stepper-syntax-property "known stepper property symbol" 1 
+                         stx tag new-val))
+     (syntax-property stx 'stepper-properties
+                      (cons (list tag new-val)
+                            (or (syntax-property stx 'stepper-properties)
+                                null)))]))
+
+;; if the given property name isn't in this list, signal an error...
+(define known-stepper-syntax-property-names 
+  '(stepper-skip-completely
+    stepper-hint
+    stepper-define-type
+    stepper-xml-hint
+    stepper-xml-value-hint
+    stepper-proc-define-name
+    stepper-orig-name
+    stepper-prim-name
+    stepper-binding-type
+    stepper-no-lifting-info
+    stepper-and/or-clauses-consumed
+    stepper-skipto
+    stepper-skipto/discard
+    stepper-replace
+    stepper-else
+    stepper-black-box-expr
+    stepper-test-suite-hint
+    stepper-highlight
+    stepper-fake-exp
+    stepper-args-of-call
+    stepper-hide-completed
+    stepper-hide-reduction
+    stepper-use-val-as-final
+    stepper-lifted-name
+    lazy-op
+    ))
   
   ;; with-stepper-syntax-properties : like stepper-syntax-property, but in a "let"-like form
   (define-syntax (with-stepper-syntax-properties stx)
@@ -280,11 +315,11 @@
   
   (define (list-partition lst n)
     (if (= n 0)
-        (2vals null lst)
+        (vector null lst)
         (if (null? lst)
             (list-ref lst 0) ; cheap way to generate exception
-            (let*-2vals ([(first rest) (list-partition (cdr lst) (- n 1))])
-              (2vals (cons (car lst) first) rest)))))
+            (match-let* ([(vector first rest) (list-partition (cdr lst) (- n 1))])
+              (vector (cons (car lst) first) rest)))))
   
 ;  (define expr-read read-getter)
 ;  (define set-expr-read! read-setter)
@@ -389,10 +424,7 @@
   (define saved-code-inspector (current-code-inspector))
   
   (define (rebuild-stx new old)
-    (syntax-recertify (datum->syntax old new old old)
-                      old
-                      saved-code-inspector
-                      #f))
+    (datum->syntax old new old old))
 
   (define break-kind?
     (symbols 'normal-break 'normal-break/values 'result-exp-break
@@ -479,7 +511,7 @@
     (cond [(or (stepper-syntax-property stx 'stepper-skipto)
 	       (stepper-syntax-property stx 'stepper-skipto/discard))
            =>
-           (cut update <> stx (cut skipto/auto <> traversal transformer) traversal)]
+           (lambda (x) (update x stx (lambda (y) (skipto/auto y traversal transformer)) traversal))]
           [else (transformer stx)]))
 
   ;  small test case:
@@ -521,7 +553,7 @@
   ;; (equal? (get-set-pair-union-stats)
   ;         `(((2 . 3) 1) ((2 . 1) 2) ((1 . 2) 2)))
 
-  ;; until this remove* goes into list.ss?
+  ;; until this remove* goes into list.rkt?
 
   (define (set-pair-union a-set b-set comparator)
     (cond [(null? b-set) a-set]
@@ -584,7 +616,8 @@
                                                                          (or (syntax-property to-exp 'stepper-properties)
                                                                              null)))]
            [attached (syntax-property attached 'user-source (syntax-source from-exp))]
-           [attached (syntax-property attached 'user-position (syntax-position from-exp))])
+           [attached (syntax-property attached 'user-position (syntax-position from-exp))]
+           [attached (syntax-property attached 'user-origin (syntax-property from-exp 'origin))])
       attached))
 
   ;; transfer info from reconstructed expressions to other reconstructed
@@ -596,7 +629,8 @@
                                                                          (or (syntax-property to-exp 'stepper-properties)
                                                                              null)))]
            [attached (syntax-property attached 'user-source (syntax-property from-exp 'user-source))]
-           [attached (syntax-property attached 'user-position (syntax-property from-exp 'user-position))])
+           [attached (syntax-property attached 'user-position (syntax-property from-exp 'user-position))]
+           [attached (syntax-property attached 'user-origin (syntax-property from-exp 'user-origin))])
       attached))
 
   (define (values-map fn . lsts)
@@ -678,8 +712,8 @@
                 stx)]))
   
   
-  ;; the xml-snip-creation@ unit accepts the xml-snip% and scheme-snip% classes and provides
-  ;; functions which map a "spec" to an xml-snip.
+  ;; the xml-snip-creation@ unit accepts the xml-snip% and scheme-snip% classes and
+  ;; provides functions which map a "spec" to an xml-snip.
   ;; An xml-spec is (listof xml-spec-elt)
   ;; An xml-spec-elt is either
   ;;  - a string,
@@ -720,68 +754,22 @@
     (car (last-pair (send language get-language-position))))
   
   
+  ;; per Robby's suggestion: rather than using a hash table for 
+  ;; lambdas, just use an applicable structure instead.
+  
+  ;; An annotated procedure is represented at runtime by
+  ;; an applicable structure that stores stepper information.
+  (struct annotated-proc (base info)
+    #:property prop:procedure
+    (struct-field-index base))
+  
   
   (define-signature view-controller^ (go))
   (define-signature stepper-frame^ (stepper-frame%))
   
+ 
+  
 
   
-; test cases
-;(require shared)
-;(write (collection-path "tests" "mzscheme"))
-;(load (build-path (collection-path "tests" "mzscheme") "testing.ss"))
-;
-;(define (a sym) 
-;  (syntax->datum (get-lifted-var sym)))
-;(define cd-stx 
-;  (datum->syntax #f 'cd))
-;(test 'lifter-ab-0  a (datum->syntax #f 'ab))
-;(test 'lifter-cd-1 a cd-stx)
-;(test 'lifter-ef-2 a (datum->syntax #f 'ef))
-;(test 'lifter-cd-1 a cd-stx)
-;
-;(test '(a b c) map syntax-e (arglist->ilist #'(a b c)))
-;(test '(a b c) map syntax-e (arglist->ilist #'(a . (b c))))
-;(test 'a syntax-e (arglist->ilist #'a))
-;(let ([result (arglist->ilist #' (a b . c))])
-;  (test 'a syntax-e (car result))
-;  (test 'b syntax-e (cadr result))
-;  (test 'c syntax-e (cddr result)))
-;(test '(a b c) map syntax-e (arglist-flatten #'(a b c)))
-;(test '(a b c) map syntax-e (arglist-flatten #'(a . (b c))))
-;(test '(a b c) map syntax-e (arglist-flatten #'(a b . c)))
-;(test '(a) map syntax-e (arglist-flatten #'a))
-;
-;(define (add1 x) (+ x 1))
-;(test '(3 4 5) ilist-map add1 '(2 3 4))
-;(test '(3 4 . 5) ilist-map add1 '(2 3 . 4))
-;
-;(test '(2 3 4) ilist-flatten '(2 3 4))
-;(test '(2 3 4) ilist-flatten '(2 3 . 4))
-;
-;(define new-queue (make-queue))
-;(test (void) queue-push new-queue 1)
-;(test (void) queue-push new-queue 2)
-;(test 1 queue-pop new-queue)
-;(test (void) queue-push new-queue 3)
-;(test 2 queue-pop new-queue)
-;(test 3 queue-pop new-queue)
-;(err/rt-test (queue-pop new-queue) exn:user?)
-
-;(equal?
-; (call-with-values (lambda ()
-;                     (values-map (lambda (a b) (values (+ a b) (- a b)))
-;                                 `(1 2 3 4 5)
-;                                 `(9 8 7 6 5)))
-;                   (lambda (sums diffs)
-;                     (list sums diffs)))
-; `((10 10 10 10 10)
-;   (-8 -6 -4 -2 0)))
-
-;(test #f stepper-syntax-property #`13 'abc)
-;(test 'yes stepper-syntax-property (stepper-syntax-property #`13 'abc 'yes) 'abc)
-;(test 'yes stepper-syntax-property (stepper-syntax-property (stepper-syntax-property #`13 'abc 'no) 'abc 'yes) 'abc)
-;(test 'yes stepper-syntax-property (stepper-syntax-property (stepper-syntax-property #`13 'abc 'yes) 'def 'arg) 'abc)
-;(test 13 syntax->datum (stepper-syntax-property (stepper-syntax-property #`13 'abc 'yes) 'def 'arg))
 
 

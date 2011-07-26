@@ -1,7 +1,5 @@
 #lang scribble/doc
-@(require scribble/manual
-          scribble/eval
-          "guide-utils.ss"
+@(require scribble/manual scribble/eval "guide-utils.rkt"
           (for-label racket/match))
 
 @(begin
@@ -61,7 +59,7 @@ can be used to create patterns that match pairs, lists, and vectors:
   [(vector 1 2) 'vector])
 ]
 
-A constructor bound with @scheme[struct] also can be used as a pattern
+A constructor bound with @racket[struct] also can be used as a pattern
 constructor:
 
 @interaction[
@@ -84,15 +82,15 @@ variables} that are bound in the result expressions:
 (match '(1 2)
   [(list x) (+ x 1)]
   [(list x y) (+ x y)])
-(match (make-hat 23 'bowler)
-  [(struct shoe (sz col)) sz] 
-  [(struct hat (sz stl)) sz])
+(match (hat 23 'bowler)
+  [(shoe sz col) sz] 
+  [(hat sz stl) sz])
 ]
 
-An ellipsis, written @litchar{...}, act like a Kleene star within a
+An ellipsis, written @litchar{...}, acts like a Kleene star within a
 list or vector pattern: the preceding sub-pattern can be used to match
 any number of times for any number of consecutive elements of the list
-of vector. If a sub-pattern followed by an ellipsis includes a pattern
+or vector. If a sub-pattern followed by an ellipsis includes a pattern
 variable, the variable matches multiple times, and it is bound in the
 result expression to a list of matches:
 
@@ -117,6 +115,22 @@ pattern variables can be bound to lists of lists of matches:
 #:eval match-eval
 (match '((! 1) (! 2 2) (! 3 3 3))
   [(list (list '! x ...) ...) x])
+]
+
+
+The @racket[quasiquote] form  (see @secref["qq"] for more about it) can also be used to build patterns.
+While unquoted portions of a normal quasiquoted form mean regular racket evaluation, here unquoted
+portions mean go back to regular pattern matching.
+
+So, in the example below, the with expression is the pattern and it gets rewritten into the
+application expression, using quasiquote as a pattern in the first instance and quasiquote
+to build an expression in the second.
+
+@interaction[
+#:eval match-eval
+(match `{with {x 1} {+ x 1}}
+  [`{with {,id ,rhs} ,body}
+   `{{lambda {,id} ,body} ,rhs}])
 ]
 
 For information on many more pattern forms, see @racketmodname[racket/match].

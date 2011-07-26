@@ -1,9 +1,9 @@
 (module racket racket/base
-  (require "core.ss"
-           "basic.ss"
-           "search.ss"
-           "private/manual-sprop.ss"
-           "private/on-demand.ss"
+  (require "core.rkt"
+           "basic.rkt"
+           "search.rkt"
+           "private/manual-sprop.rkt"
+           "private/on-demand.rkt"
            mzlib/class
            mzlib/for
            syntax/modresolve
@@ -94,17 +94,32 @@
 
   (define-struct (spaces element) (cnt))
 
-  (define (literalize-spaces i)
+  ;; We really don't want leading hypens (or minus signs) to
+  ;; create a line break after the hyphen. For interior hyphens,
+  ;; line breaking is usually fine.
+  (define (nonbreak-leading-hyphens s)
+    (let ([m (regexp-match-positions #rx"^-+" s)])
+      (if m
+          (if (= (cdar m) (string-length s))
+              (make-element 'no-break s)
+              (let ([len (add1 (cdar m))])
+                (make-element #f (list (make-element 'no-break (substring s 0 len))
+                                       (substring s len)))))
+          s)))
+
+  (define (literalize-spaces i [leading? #f])
     (let ([m (regexp-match-positions #rx"  +" i)])
       (if m
           (let ([cnt (- (cdar m) (caar m))])
             (make-spaces #f
                          (list
-                          (literalize-spaces (substring i 0 (caar m)))
+                          (literalize-spaces (substring i 0 (caar m)) #t)
                           (hspace cnt)
                           (literalize-spaces (substring i (cdar m))))
                          cnt))
-          i)))
+          (if leading?
+              (nonbreak-leading-hyphens i)
+              i))))
 
 
   (define line-breakable-space (make-element 'tt " "))
@@ -127,7 +142,8 @@
                        (vector (syntax-e c)
                                (module-path-index->taglet (caddr b))
                                (cadddr b)
-                               (list-ref b 5))))])
+                               (list-ref b 5)
+                               (syntax-property c 'display-string))))])
       (or (and key
                (let ([b (hash-ref id-element-cache key #f)])
                  (and b
@@ -139,9 +155,9 @@
                             (list
                              (case (car tag)
                                [(form)
-                                (make-link-element syntax-link-color (list s) tag)]
+                                (make-link-element syntax-link-color (nonbreak-leading-hyphens s) tag)]
                                [else
-                                (make-link-element value-link-color (list s) tag)]))
+                                (make-link-element value-link-color (nonbreak-leading-hyphens s) tag)]))
                             (list 
                              (make-element "badlink"
                                            (make-element value-link-color s))))))
@@ -193,12 +209,19 @@
                                       (memq (syntax-e c) (current-variable-list)))]
                       [(s it? sub?)
                        (let ([sc (syntax-e c)])
-                         (let ([s (or (syntax-property c 'display-string)
-                                      (format "~s" (if (literal-syntax? sc)
-                                                       (literal-syntax-stx sc)
-                                                       (if (var-id? sc)
-                                                           (var-id-sym sc)
-                                                           sc))))])
+                         (let ([s (cond
+                                    [(syntax-property c 'display-string) => values]
+                                    [(literal-syntax? sc) (format "~s" (literal-syntax-stx sc))]
+                                    [(var-id? sc) (format "~s" (var-id-sym sc))]
+                                    [(eq? sc #t) 
+                                     (if (equal? (syntax-span c) 5)
+                                         "#true"
+                                         "#t")]
+                                    [(eq? sc #f) 
+                                     (if (equal? (syntax-span c) 6)
+                                         "#false"
+                                         "#f")]
+                                    [else (format "~s" sc)])])
                            (if (and (symbol? sc)
                                     ((string-length s) . > . 1)
                                     (char=? (string-ref s 0) #\_)
@@ -225,8 +248,8 @@
                               (not (or it? is-var?)))
                          (if (pair? (identifier-label-binding c))
                              (make-id-element c s)
-                             s)
-                         (literalize-spaces s))
+                             (nonbreak-leading-hyphens s))
+                         (literalize-spaces s #t))
                      (cond
                       [(positive? quote-depth) value-color]
                       [(let ([v (syntax-e c)])

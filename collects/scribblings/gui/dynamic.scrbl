@@ -1,6 +1,5 @@
 #lang scribble/doc
-@(require "common.ss"
-          (for-label racket/gui/dynamic))
+@(require "common.rkt" (for-label racket/gui/dynamic))
 
 @title{Dynamic Loading}
 
@@ -21,4 +20,4 @@ instantiated.}
 @defproc[(gui-dynamic-require [sym symbol?]) any]{
 
 Like @racket[dynamic-require], but specifically to access exports of
-@racket[racket/gui/base].}
+@racketmodname[racket/gui/base].}

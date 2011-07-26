@@ -1,6 +1,5 @@
 #lang scribble/doc
-@(require "mz.ss"
-          (for-label racket/package))
+@(require "mz.rkt" (for-label racket/package))
 
 @(define pack-eval (make-base-eval))
 @interaction-eval[#:eval pack-eval (require racket/package)]
@@ -136,7 +135,7 @@ package value as obtained by @racket[syntax-local-value] on an
 identifier that is bound to a package.
 
 Given such an identifier, the @racket[package-exported-identifiers]
-function returns a list of identifiers that corresponding to the
+function returns a list of identifiers that correspond to the
 bindings that would be introduced by opening the package in the
 lexical context being expanded. The
 @racket[package-original-identifiers] function returns a parallel list

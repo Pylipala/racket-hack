@@ -1,12 +1,13 @@
 #lang racket/base
 (require (for-syntax racket/base
                      syntax/stx
-                     unstable/syntax
+                     racket/syntax
                      "rep-data.rkt"
                      "rep.rkt")
          "parse.rkt"
          "keywords.rkt"
-         "runtime.rkt")
+         "runtime.rkt"
+         "runtime-report.rkt")
 
 (provide define-syntax-class
          define-splicing-syntax-class
@@ -15,7 +16,6 @@
          syntax-parser
 
          (except-out (all-from-out "keywords.rkt")
-                     ~do
                      ~reflect
                      ~splicing-reflect
                      ~eh-var)
@@ -23,23 +23,27 @@
          attribute
          this-syntax
 
+         define/syntax-parse
+
          ;;----
+         syntax-parser/template
          parser/rhs)
 
 (begin-for-syntax
- (define (defstxclass stx name formals rhss splicing?)
+ (define (defstxclass stx header rhss splicing?)
    (parameterize ((current-syntax-context stx))
-     (with-syntax ([name name]
-                   [formals formals]
-                   [rhss rhss])
-       (let* ([the-rhs (parse-rhs #'rhss #f splicing? #:context stx)]
-              [arity (parse-kw-formals #'formals #:context stx)]
+     (let-values ([(name formals arity)
+                   (let ([p (check-stxclass-header header stx)])
+                     (values (car p) (cadr p) (caddr p)))])
+       (let* ([the-rhs (parse-rhs rhss #f splicing? #:context stx)]
               [opt-rhs+def
-               (and (stx-list? #'formals) (andmap identifier? (syntax->list #'formals))
-                    (optimize-rhs the-rhs (syntax->list #'formals)))]
+               (and (andmap identifier? (syntax->list formals))
+                    (optimize-rhs the-rhs (syntax->list formals)))]
               [the-rhs (if opt-rhs+def (car opt-rhs+def) the-rhs)])
-         (with-syntax ([parser (generate-temporary
-                                (format-symbol "parse-~a" (syntax-e #'name)))]
+         (with-syntax ([name name]
+                       [formals formals]
+                       [rhss rhss]
+                       [parser (generate-temporary (format-symbol "parse-~a" name))]
                        [arity arity]
                        [attrs (rhs-attrs the-rhs)]
                        [(opt-def ...)
@@ -77,21 +81,13 @@
 
 (define-syntax (define-syntax-class stx)
   (syntax-case stx ()
-    [(define-syntax-class name . rhss)
-     (identifier? #'name)
-     (defstxclass stx #'name #'() #'rhss #f)]
-    [(define-syntax-class (name . formals) . rhss)
-     (identifier? #'name)
-     (defstxclass stx #'name #'formals #'rhss #f)]))
+    [(dsc header . rhss)
+     (defstxclass stx #'header #'rhss #f)]))
 
 (define-syntax (define-splicing-syntax-class stx)
   (syntax-case stx ()
-    [(define-splicing-syntax-class name . rhss)
-     (identifier? #'name)
-     (defstxclass stx #'name #'() #'rhss #t)]
-    [(define-splicing-syntax-class (name . formals) . rhss)
-     (identifier? #'name)
-     (defstxclass stx #'name #'formals #'rhss #t)]))
+    [(dssc header . rhss)
+     (defstxclass stx #'header #'rhss #t)]))
 
 ;; ----
 
@@ -127,7 +123,7 @@
     [(syntax-parse stx-expr . clauses)
      (quasisyntax/loc stx
        (let ([x (datum->syntax #f stx-expr)])
-         (parse:clauses x clauses #,((make-syntax-introducer) stx))))]))
+         (parse:clauses x clauses body-sequence #,((make-syntax-introducer) stx))))]))
 
 (define-syntax (syntax-parser stx)
   (syntax-case stx ()
@@ -135,4 +131,46 @@
      (quasisyntax/loc stx
        (lambda (x)
          (let ([x (datum->syntax #f x)])
-           (parse:clauses x clauses #,((make-syntax-introducer) stx)))))]))
+           (parse:clauses x clauses body-sequence #,((make-syntax-introducer) stx)))))]))
+
+(define-syntax (syntax-parser/template stx)
+  (syntax-case stx ()
+    [(syntax-parser/template ctx . clauses)
+     (quasisyntax/loc stx
+       (lambda (x)
+         (let ([x (datum->syntax #f x)])
+           (parse:clauses x clauses one-template ctx))))]))
+
+;; ====
+
+(define-syntax (define/syntax-parse stx)
+  (syntax-case stx ()
+    [(define/syntax-parse pattern . rest)
+     (let-values ([(rest pattern defs)
+                   (parse-pattern+sides #'pattern
+                                        #'rest
+                                        #:splicing? #f
+                                        #:decls (new-declenv null)
+                                        #:context stx)])
+       (let ([expr
+              (syntax-case rest ()
+                [( expr ) #'expr]
+                [_ (raise-syntax-error #f "bad syntax" stx)])]
+             [attrs (pattern-attrs pattern)])
+         (with-syntax ([(a ...) attrs]
+                       [(#s(attr name _ _) ...) attrs]
+                       [pattern pattern]
+                       [(def ...) defs]
+                       [expr expr])
+           #'(defattrs/unpack (a ...)
+               (let* ([x expr]
+                      [cx x]
+                      [pr (ps-empty x x)]
+                      [es null]
+                      [fh0 (syntax-patterns-fail x)])
+                 def ...
+                 (#%expression
+                  (with ([fail-handler fh0]
+                         [cut-prompt fh0])
+                    (parse:S x cx pattern pr es
+                             (list (attribute name) ...)))))))))]))

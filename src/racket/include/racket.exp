@@ -51,6 +51,7 @@ scheme_in_main_thread
 scheme_cancel_sleep
 scheme_start_sleeper_thread
 scheme_end_sleeper_thread
+scheme_set_place_sleep
 scheme_notify_sleep_progress
 scheme_make_thread_cell
 scheme_thread_cell_get
@@ -95,9 +96,11 @@ scheme_warning
 scheme_raise
 scheme_log_level_p
 scheme_log
+scheme_log_w_data
 scheme_log_message
 scheme_log_abort
 scheme_log_warning
+scheme_glib_log_message
 scheme_out_of_memory_abort
 scheme_wrong_count
 scheme_wrong_count_m
@@ -131,6 +134,7 @@ scheme_uchar_downs
 scheme_uchar_titles
 scheme_uchar_folds
 scheme_uchar_combining_classes
+scheme_on_demand_jit_code
 scheme_eval
 scheme_eval_multi
 scheme_eval_with_prompt
@@ -194,6 +198,7 @@ GC_malloc_atomic
 GC_malloc_stubborn
 GC_malloc_uncollectable
 scheme_malloc_code
+scheme_malloc_permanent_code
 scheme_free_code
 scheme_malloc_gcable_code
 scheme_malloc_eternal
@@ -217,6 +222,7 @@ scheme_remove_all_finalization
 scheme_dont_gc_ptr
 scheme_gc_ptr_ok
 scheme_collect_garbage
+scheme_enable_garbage_collection
 GC_register_traversers
 GC_resolve
 GC_mark
@@ -248,6 +254,7 @@ scheme_clone_hash_table
 scheme_make_hash_tree
 scheme_hash_tree_set
 scheme_hash_tree_get
+scheme_eq_hash_tree_get
 scheme_hash_tree_next
 scheme_hash_tree_index
 scheme_hash_tree_equal
@@ -418,6 +425,7 @@ scheme_output_tell
 scheme_tell_line
 scheme_tell_column
 scheme_tell_all
+scheme_set_port_location
 scheme_count_lines
 scheme_close_input_port
 scheme_close_output_port
@@ -435,6 +443,7 @@ scheme_make_output_port
 scheme_set_next_port_custodian
 scheme_set_port_location_fun
 scheme_set_port_count_lines_fun
+scheme_port_count_lines
 scheme_progress_evt_via_get
 scheme_peeked_read_via_get
 scheme_write_evt_via_write
@@ -609,3 +618,5 @@ scheme_char_strlen
 scheme_stx_extract_marks
 scheme_get_place_table
 scheme_register_process_global
+scheme_malloc_key
+scheme_free_key

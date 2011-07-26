@@ -1,19 +1,19 @@
 (module messagebox mzscheme
   (require mzlib/class
-	   mzlib/class100
-	   mzlib/etc
+           mzlib/class100
+           mzlib/etc
            mzlib/string
-	   (prefix wx: "kernel.ss")
-	   "const.ss"
-	   "check.ss"
-	   "helper.ss"
-	   "editor.ss"
-	   "mrtop.ss"
-	   "mrcanvas.ss"
-	   "mrpopup.ss"
-	   "mrmenu.ss"
-	   "mritem.ss"
-	   "mrpanel.ss")
+           (prefix wx: "kernel.rkt")
+           "const.rkt"
+           "check.rkt"
+           "helper.rkt"
+           "editor.rkt"
+           "mrtop.rkt"
+           "mrcanvas.rkt"
+           "mrpopup.rkt"
+           "mrmenu.rkt"
+           "mritem.rkt"
+           "mrpanel.rkt")
 
   (provide message-box
 	   message-box/custom
@@ -41,6 +41,31 @@
 			 l))
 		   style)
 
+      (let ([go (lambda ()
+                  (create-message-box/custom
+                   who title message
+                   button1 button2 button3
+                   parent style close-result
+                   check? two-results? check-message))]
+	    [es (if parent
+		    (send parent get-eventspace)
+		    (wx:current-eventspace))])
+        (if (eq? (current-thread) (wx:eventspace-handler-thread es))
+            ;; In the right thread:
+            (go)
+            ;; Not in the right thread:
+            (let ([ch (make-channel)])
+	      (parameterize ([wx:current-eventspace es])
+                (wx:queue-callback
+                 (lambda ()
+                   (channel-put ch (call-with-values go list)))))
+              (apply values (channel-get ch)))))))
+
+  (define create-message-box/custom
+    (lambda (who title message
+		 button1 button2 button3
+		 parent style close-result
+		 check? two-results? check-message)
       (let* ([strings (regexp-split #rx"\n" message)]
 	     [single? (and (< (length strings) 10) 
 			   (andmap (lambda (s) (< (string-length s) 60)) strings))]
@@ -212,7 +237,7 @@
 			     #f #f #f)))
 
   (define do-message-box
-    (opt-lambda (who title message parent style check? check-message)
+    (lambda (who title message parent style check? check-message)
       (check-label-string who title)
       (check-string/false who message)
       (when check?

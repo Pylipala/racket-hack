@@ -50,7 +50,7 @@
 ;;     clauses.  Instead of a single <tag>, you can use a list of tags.  The
 ;;     tags are expanded using definitions made with :=tag, and the result is
 ;;     added to current tag list -- this expansion is a little different from
-;;     the normal one in that the result contains all of the defintion it went
+;;     the normal one in that the result contains all of the definition it went
 ;;     through (so if x expands to y which expands to z, expanding x will
 ;;     result in x, y, and z).
 ;; Finally, it is possible to define `macro' constructs by using a lambda spec:
@@ -92,22 +92,27 @@ i386-linux-f7     :=tag unix
 x86_64-linux-f7   :=tag unix
 i386-linux-f9     :=tag unix
 i386-linux-f12    :=tag unix
+x86_64-linux-f14  :=tag unix
 i386-linux-debian :=tag unix
-i386-linux-debian-testing  :=tag unix
-i386-linux-debian-unstable :=tag unix
-i386-linux-ubuntu          :=tag unix
-i386-linux-ubuntu-dapper   :=tag unix
-i386-linux-ubuntu-edgy     :=tag unix
-i386-linux-ubuntu-feisty   :=tag unix
-i386-linux-ubuntu-hardy    :=tag unix
-i386-linux-ubuntu-intrepid :=tag unix
-i386-linux-ubuntu-jaunty   :=tag unix
+i386-linux-debian-testing   :=tag unix
+i386-linux-debian-unstable  :=tag unix
+x86_64-linux-debian-lenny   :=tag unix
+x86_64-linux-debian-squeeze :=tag unix
+i386-linux-ubuntu           :=tag unix
+i386-linux-ubuntu-dapper    :=tag unix
+i386-linux-ubuntu-edgy      :=tag unix
+i386-linux-ubuntu-feisty    :=tag unix
+i386-linux-ubuntu-hardy     :=tag unix
+i386-linux-ubuntu-intrepid  :=tag unix
+i386-linux-ubuntu-jaunty    :=tag unix
 i386-freebsd      :=tag unix
 i386-win32        :=tag win
+x86_64-win32      :=tag win
 ppc-darwin        :=tag unix
 i386-darwin       :=tag unix
 ppc-osx-mac       :=tag mac
 i386-osx-mac      :=tag mac
+x86_64-osx-mac    :=tag mac
 sparc-solaris     :=tag unix
 
 ;; tag specs to make each distribution a proper superset of the previous
@@ -162,7 +167,7 @@ gui-filter      := (- (+ (collects: "**/gui/") (srcfile: "gui.rkt"))
                       (srcfile: "racket/gui/dynamic.rkt"))
 tools-filter    := (+ (collects: "**/tools/") (srcfile: "tools.rkt"))
 
-;; these are in the doc directory, but are comitted in git and should be
+;; these are in the doc directory, but are committed in git and should be
 ;; considered like sources
 std-docs        := (doc: "doc-license.txt" "*-std/")
 
@@ -355,7 +360,7 @@ mz-base := "/racket/README"
 mz-manuals := (scribblings: "main/") ; generates main pages (next line)
               (doc: "license/" "release/" "acks/" "search/"
                     "getting-started/")
-              (notes: "COPYING.LIB" "COPYING-libscheme.txt")
+              (notes: "COPYING.txt" "COPYING-libscheme.txt")
               (doc: "doc-license.txt") ; needed (when docs are included)
               (doc+src: "reference/" "guide/" "quick/" "more/"
                         "foreign/" "inside/" ;; "places/" <- not ready yet
@@ -392,17 +397,12 @@ mz-src := (+ (- (src: "README" "configure" "Makefile.in" "lt/" "racket/"
                 (cond (not mr) => (src: "worksp/starters/mrstart.ico")))
              foreign-src)
 
-mr-src := (src: "gracket/" "mred/" "wxcommon/"
-                (cond unix => "wxxt/"
-                      mac  => "mac/" "a-list/" "wxmac/"
-                      win  => "wxwindow/"
-                              "worksp/{jpeg|libgracket|gracket|mrstart}/"
-                              "worksp/{png|wxme|wxs|wxutils|wxwin|zlib}/"))
+mr-src := (src: "gracket/" (cond mac => "mac/"
+                                 win => "worksp/{gracket|mrstart}/"))
 
 foreign-src := (src: "foreign/{Makefile.in|README}"
                      "foreign/{foreign.*|rktc-utils.rkt}"
-                     (cond win  => "foreign/libffi_msvc"
-                           else => "foreign/libffi"))
+                     "foreign/libffi")
 
 ;; ============================================================================
 ;; Binary definitions (`in-binary-tree' is used with binary trees, these
@@ -511,6 +511,9 @@ mz-extras :+= (collects: "rnrs/")
 ;; -------------------- readline
 mz-extras :+= (package: "readline/")
 
+;; -------------------- readline
+mz-extras :+= (package: "xrepl/")
+
 ;; -------------------- wxme
 mz-extras :+= (collects: "wxme/")
 
@@ -563,8 +566,7 @@ plt-extras :+= (package: "lang/" #:docs "htdp-langs/")
 
 ;; -------------------- htdp, tests, teachpacks
 plt-extras :+=
-  (collects: "htdp/")
-  (doc: "htdp-lib")
+  (package: "htdp/")
   (- (package: "teachpack/") (collects: "teachpack/deinprogramm/"))
   (- (package: "2htdp/")
      "uchat/") ; Matthias doesn't want this in now
@@ -606,6 +608,9 @@ plt-extras :+= (package: "embedded-gui/")
 
 ;; -------------------- eopl
 plt-extras :+= (package: "eopl/")
+
+;; -------------------- picturing-programs
+plt-extras :+= (package: "picturing-programs/")
 
 ;; -------------------- algol60
 plt-extras :+= (package: "algol60/")
@@ -703,23 +708,28 @@ platform
          x86_64-linux-f7   => "Linux x86_64, built on Fedora 7"
          i386-linux-f9     => "Linux i386, built on Fedora 9"
          i386-linux-f12    => "Linux i386, built on Fedora 12"
+         x86_64-linux-f14  => "Linux x86_64, built on Fedora 14"
          i386-linux-debian => "Linux i386, built on Debian Stable"
-         i386-linux-debian-testing  => "Linux i386, built on Debian Testing"
-         i386-linux-debian-unstable => "Linux i386, built on Debian Unstable"
-         i386-linux-ubuntu          => "Linux i386, built on Ubuntu"
-         i386-linux-ubuntu-dapper   => "Linux i386, built on Ubuntu Dapper"
-         i386-linux-ubuntu-edgy     => "Linux i386, built on Ubuntu Edgy"
-         i386-linux-ubuntu-feisty   => "Linux i386, built on Ubuntu Feisty"
-         i386-linux-ubuntu-hardy    => "Linux i386, built on Ubuntu Hardy"
-         i386-linux-ubuntu-intrepid => "Linux i386, built on Ubuntu Intrepid"
-         i386-linux-ubuntu-jaunty   => "Linux i386, built on Ubuntu Jaunty"
+         i386-linux-debian-testing   => "Linux i386, built on Debian Testing"
+         i386-linux-debian-unstable  => "Linux i386, built on Debian Unstable"
+         x86_64-linux-debian-lenny   => "Linux x86_64, built on Debian Lenny"
+         x86_64-linux-debian-squeeze => "Linux x86_64, built on Debian Squeeze"
+         i386-linux-ubuntu           => "Linux i386, built on Ubuntu"
+         i386-linux-ubuntu-dapper    => "Linux i386, built on Ubuntu Dapper"
+         i386-linux-ubuntu-edgy      => "Linux i386, built on Ubuntu Edgy"
+         i386-linux-ubuntu-feisty    => "Linux i386, built on Ubuntu Feisty"
+         i386-linux-ubuntu-hardy     => "Linux i386, built on Ubuntu Hardy"
+         i386-linux-ubuntu-intrepid  => "Linux i386, built on Ubuntu Intrepid"
+         i386-linux-ubuntu-jaunty    => "Linux i386, built on Ubuntu Jaunty"
          i386-freebsd      => "FreeBSD (i386)"
          sparc-solaris     => "Solaris"
          ppc-osx-mac       => "Mac OS X (PPC)"
          i386-osx-mac      => "Mac OS X (Intel)"
+         i386-osx-mac      => "Mac OS X (x86_64)"
          ppc-darwin        => "Mac OS X using X11 (PPC)"
          i386-darwin       => "Mac OS X using X11 (Intel)"
          i386-win32        => "Windows"
+         x86_64-win32      => "Windows x64"
          ;; generic platforms for source distributions
          unix => "Unix"
          mac  => "Macintosh"

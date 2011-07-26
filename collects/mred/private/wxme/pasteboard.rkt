@@ -2,20 +2,23 @@
 (require scheme/class
          scheme/port
          scheme/file
-         "../syntax.ss"
-         "const.ss"
-         "private.ss"
-         "editor.ss"
-         "undo.ss"
-         "style.ss"
-         "snip.ss"
-         "snip-flags.ss"
-         "snip-admin.ss"
-         "keymap.ss"
-         (only-in "cycle.ss" set-pasteboard%!)
-         "wordbreak.ss"
-         "stream.ss"
-         "wx.ss")
+         "../syntax.rkt"
+         "const.rkt"
+         "private.rkt"
+         racket/snip/private/private
+         "editor.rkt"
+         "editor-data.rkt"
+         "undo.rkt"
+         racket/snip
+         racket/snip/private/snip-flags
+         "standard-snip-admin.rkt"
+         "keymap.rkt"
+         (only-in "cycle.rkt"
+                  printer-dc%
+                  set-pasteboard%!)
+         "wordbreak.rkt"
+         "stream.rkt"
+         "wx.rkt")
 
 (provide pasteboard%
          add-pasteboard-keymap-functions)
@@ -726,7 +729,10 @@
     (case-args
      args
      [()
-      (delete-some (lambda (s) (loc-selected? (snip-loc s))))]
+      (delete-some (lambda (s) 
+                     (let ([l (snip-loc s)])
+                       (and l ;; deleted already!
+                            (loc-selected? l)))))]
      [([snip% s])
       (unless (or s-user-locked?
                   (not (zero? write-locked)))
@@ -1292,7 +1298,7 @@
 
   ;; called by the administrator to trigger a redraw
   (def/override (refresh [real? left] [real? top] [nonnegative-real? width] [nonnegative-real? height]
-                         [(symbol-in no-caret show-inactive-caret show-caret) show-caret]
+                         [caret-status? show-caret]
                          [(make-or-false color%) bg-color])
 
     (cond
@@ -1726,10 +1732,10 @@
               (set-box! h total-height))
             (send s-admin get-view x y w h #t))
       (let ([w (if (w . > . 1000.0)
-                   500.0 ; don't belive it
+                   500.0 ; don't believe it
                    w)]
             [h (if (h . > . 1000.0)
-                   500.0 ; don't belive it
+                   500.0 ; don't believe it
                    h)])
         (values (/ w 2)
                 (/ h 2)))))
@@ -1750,7 +1756,7 @@
     (copy extend? time)
     (clear))
 
-  (def/override (do-copy [exact-integer? time] [bool? extend?])
+  (def/public (do-copy [exact-integer? time] [bool? extend?])
     (set-common-copy-region-data! #f)
     (let ([sl (if (and extend?
                        copy-style-list)
@@ -1813,10 +1819,10 @@
                 (add-selected snip)
                 (loop (snip->next snip))))))))
 
-  (def/override (do-paste [exact-integer? time])
+  (def/public (do-paste [exact-integer? time])
     (do-generic-paste the-clipboard time))
 
-  (def/override (do-paste-x-selection [exact-integer? time])
+  (def/public (do-paste-x-selection [exact-integer? time])
     (do-generic-paste the-x-selection-clipboard time))
   
   (define/private (generic-paste x-sel? time)
@@ -1906,7 +1912,7 @@
                              [any? [replace-styles? #f]])
     (if (or s-user-locked? 
             (not (zero? write-locked)))
-        'guess ;; FIXME: docs say that this is more specific
+        'standard
         (do-insert-file (method-name 'pasteboard% 'insert-file) f replace-styles?)))
   
   (define/private (do-insert-file who f clear-styles?)
@@ -2115,36 +2121,41 @@
             (when (or (zero? (unbox w))
                       (zero? (unbox h)))
               (get-default-print-size w h))
-            (send (current-ps-setup) get-editor-margin hm vm))
+            (unless (zero? page)
+              (send (current-ps-setup) get-editor-margin hm vm)))
         (let ([W (- w (* 2 hm))]
-              [H (- h (* 2 vm))])
+              [H (- h (* 2 vm))]
+              [eps? (zero? page)])
           (let-boxes ([w 0.0]
                       [h 0.0])
               (get-extent w h)
 
-            (let ([hcount (->long (ceiling (/ w W)))]
-                  [vcount (->long (ceiling (/ h H)))])
+            (let ([hcount (if eps? 1 (->long (ceiling (/ w W))))]
+                  [vcount (if eps? 1 (->long (ceiling (/ h H))))])
 
               (if (not print?)
                   (page . <= . (* hcount vcount))
                   (let-values ([(start end)
-                                (if (negative? page)
-                                    (values 1 (* hcount vcount))
-                                    (values page page))])
+                                (cond
+                                 [(zero? page) (values 1 1)]
+                                 [(negative? page)
+                                  (values 1 (* hcount vcount))]
+                                 [else
+                                  (values page page)])])
                     (for ([p (in-range start (add1 end))])
                       (let ([vpos (quotient (- p 1) hcount)]
                             [hpos (modulo (- p 1) hcount)])
-                        (let ([x (* hpos w)]
-                              [y (* vpos h)])
-                          (when (negative? page)
+                        (let ([x (* hpos W)]
+                              [y (* vpos H)])
+                          (when (page . <= . 0)
                             (send dc start-page))
                             
                           (draw dc (+ (- x) hm) (+ (- y) vm)
-                                x y (+ x w) (+ y h)
+                                x y (+ x (if eps? w W)) (+ y (if eps? h H))
                                 'no-caret
                                 #f)
 
-                          (when (negative? page)
+                          (when (page . <= . 0)
                             (send dc end-page)))))))))))))
 
   ;; ----------------------------------------

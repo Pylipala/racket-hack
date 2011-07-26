@@ -1,7 +1,7 @@
-#lang scheme/unit
-(require mzlib/class
-         "sig.ss"
-         "../preferences.ss"
+#lang racket/unit
+(require racket/class
+         "sig.rkt"
+         "../preferences.rkt"
          mred/mred-sig)
 
 (import mred^
@@ -11,14 +11,19 @@
         [prefix handler: framework:handler^]
         [prefix editor: framework:editor^]
         [prefix color-prefs: framework:color-prefs^]
-        [prefix scheme: framework:scheme^])
+        [prefix scheme: framework:scheme^]
+        [prefix early-init: framework:early-init^])
 (export framework:main^)
 (init-depend framework:preferences^ framework:exit^ framework:editor^
-             framework:color-prefs^ framework:scheme^)
+             framework:color-prefs^ framework:scheme^ framework:early-init^)
 
+(preferences:low-level-get-preference preferences:get-preference/gui)
 (preferences:low-level-put-preferences preferences:put-preferences/gui)
 
 (application-preferences-handler (λ () (preferences:show-dialog)))
+
+;; used to time how long it takes to set a preference; the value is not actually used.
+(preferences:set-default 'drracket:prefs-debug #f (λ (x) #t))
 
 (preferences:set-default 'framework:overwrite-mode-keybindings #f boolean?)
 
@@ -52,15 +57,19 @@
                              values)
 
 (preferences:set-default 'framework:paren-color-scheme 'basic-grey symbol?)
-
+  
 (preferences:set-default 'framework:square-bracket:cond/offset
                          '(("case-lambda" 0)
+                           ("match-lambda" 0)
+                           ("match-lambda*" 0)
                            ("cond" 0)
                            ("field" 0)
                            ("provide/contract" 0)
                            ("match" 1)
                            ("new" 1)
                            ("case" 1)
+                           ("match" 1)
+                           ("match*" 1)
                            ("syntax-rules" 1)
                            ("syntax-case" 2)
                            ("syntax-case*" 3)
@@ -83,6 +92,7 @@
                                    '("let" 
                                      "let*" "let-values" "let*-values"
                                      "let-syntax" "let-struct" "let-syntaxes"
+                                     "match-let" "match-let*" "match-letrec"
                                      "letrec"
                                      "letrec-syntaxes" "letrec-syntaxes+values" "letrec-values"
                                      "parameterize"
@@ -211,10 +221,13 @@
             '(struct
               local
                      
-              define-type))
+              struct: define-struct: define-typed-struct define-struct/exec:
+              define: pdefine:
+              define-type define-predicate
+              match-define))
   (for-each (λ (x) 
               (hash-set! hash-table x 'begin))
-            '(case-lambda
+            '(case-lambda case-lambda: pcase-lambda:
                match-lambda match-lambda*
                cond
                delay
@@ -227,7 +240,7 @@
               cases
                  instantiate super-instantiate
                syntax/loc quasisyntax/loc
-               
+               match match* match-let match-let* match-letrec
                
                λ lambda let let* letrec recur
                lambda/kw
@@ -239,10 +252,22 @@
                let/cc let/ec letcc catch
                let-syntax letrec-syntax fluid-let-syntax letrec-syntaxes+values
                
-               for for/list for/hash for/hasheq for/and for/or 
-               for/lists for/first for/last for/fold
-               for* for*/list for*/hash for*/hasheq for*/and for*/or 
-               for*/lists for*/first for*/last for*/fold                 
+               let: letrec: let*:
+               let-values: letrec-values: let*-values:
+               let/cc: let/ec:
+               lambda: λ:
+               plambda: opt-lambda: popt-lambda:
+
+               for for/list for/hash for/hasheq for/hasheqv for/and for/or 
+               for/lists for/first for/last for/fold for/vector for/flvector
+               for* for*/list for*/hash for*/hasheq for*/hasheqv for*/and for*/or 
+               for*/lists for*/first for*/last for*/fold for*/vector for*/flvector
+
+               for: for/list: for/hash: for/hasheq: for/hasheqv: for/and: for/or:
+               for/lists: for/first: for/last: for/fold: for/vector: for/flvector:
+               for*: for*/list: for*/hash: for*/hasheq: for*/hasheqv: for*/and: for*/or:
+               for*/lists: for*/first: for*/last: for*/fold: for*/vector: for*/flvector:
+               do:
                
                kernel-syntax-case
                syntax-case syntax-case* syntax-rules syntax-id-rules

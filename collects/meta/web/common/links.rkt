@@ -16,7 +16,8 @@
 
 (define-syntax-rule (define-doc-link id desc)
   (define* id @make-link[`(,doc-url id "/")]{
-                @strong{@(string-titlecase (symbol->string 'id))}: @desc}))
+                @strong{@(string-titlecase (symbol->string 'id))}: @desc @;
+                @nbsp @small{@a[href: `(,doc-url "pdf/" id ".pdf")]{[pdf]}}}))
 
 @define-doc-link[quick]{An Introduction to Racket with Pictures}
 @define-doc-link[more ]{Systems Programming with Racket}
@@ -32,7 +33,7 @@
   @make-link["http://htdp.org/"]{@i{How to Design Programs}})
 
 (define* -redex
-  @make-link["http://redex.plt-scheme.org/"]{Redex})
+  @make-link["http://redex.racket-lang.org/"]{Redex})
 
 (define* -pbd
   @make-link["http://programbydesign.org/"]{Program by Design})

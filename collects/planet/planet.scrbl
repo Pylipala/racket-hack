@@ -1,18 +1,21 @@
-#lang scribble/doc
+#lang scribble/manual
 
-@(require scribble/manual
-          scribble/bnf
-	  scribble/eval
-          (for-label racket)
-          (for-label planet/config)
-          (for-label planet/util))
+@(require
+   (for-label
+     racket/base
+     scribble/manual
+     planet/config
+     planet/util
+     planet/version
+     planet/syntax
+     planet/scribble))
 
 @(define-syntax-rule (eg (code resl) ...)
    (interaction
      (eval:alts code resl)
      ...))
 
-@title{@bold{PLaneT}: Automatic Package Distribution}
+@title{PLaneT: Automatic Package Distribution}
 
 @author["Jacob Matthews" "Robert Bruce Findler"]
 
@@ -397,9 +400,12 @@ package specifier and the specified directory name.
 @subsection[#:tag "unlink"]{@exec{unlink}}
 
 Usage:
-@commandline{raco planet unlink <owner> <pkg> <maj> <min>}
+@commandline{raco planet unlink [ <option> ] <owner> <pkg> <maj> <min>}
 Remove any development link (see @secref{devlinks}) associated with
 the given package.
+
+@exec{<option>} can only be:
+@itemize[@item{@exec{-q, --quiet}: don't signal an error on nonexistent links}]
 
 @subsection[#:tag "fetch"]{@exec{fetch}}
 
@@ -458,310 +464,7 @@ reader.
 The @racketmodname[planet] module (as opposed to the reader used with
 @hash-lang[]) implements the @exec{raco planet} command-line tool.
 
-@section{Utility Libraries}
-
-The planet collection provides configuration and utilities for using PLaneT. 
-
-@subsection{Resolver}
-
-@defmodule[planet/resolver]
-
-The primary purpose of this library to for @racket[require] to find
-@PLaneT packages. It also, however, provides some utilities for manipulating
-the resolvers behavior.
-
-@defproc[(resolve-planet-path [planet-path any/c]) path?]{
-  Returns the path where the file named by the require spec @racket[planet-path] is located in the current installation.
-}
-
-@defparam[download? dl? boolean?]{
-  A parameter that controls if @PLaneT attempts to download a planet package that isn't already present.
-  If the package isn't present, the resolver will raise the @racket[exn:fail:planet?] exception
-  instead of downloading it.
-}
-
-@defparam[install? inst? boolean?]{
-  A parameter that controls if @PLaneT attempts to install a planet package that isn't already installed.                                  
-  If the package isn't installed, the resolver will raise the @racket[exn:fail:planet?] exception
-  instead of installing it.
-}
-
-@subsection{Client Configuration}
-
-@defmodule[planet/config]
-
-The @racketmodname[planet/config] library provides several parameters
-useful for configuring how PLaneT works.
-
-Note that while these parameters can be useful to modify
-programmatically, PLaneT code runs at module-expansion time, so
-most user programs cannot set them until PLaneT has already
-run. Therefore, to meaningfully change these settings, it is best to
-manually edit the config.rkt file.
-
-@defparam[PLANET-DIR dir path-string?]{
-The root PLaneT directory. If the environment variable 
-@indexed-envvar{PLTPLANETDIR} is
-set, default is its value; otherwise the default is the directory in
-which @filepath{config.rkt} is found.}
-
-@defparam[CACHE-DIR dir path-string?]{
-The root of the PLaneT client's cache directory.}
-
-@defparam[UNINSTALLED-PACKAGE-CACHE dir path-string?]{
-The root of the PLaneT client's uninstalled-packages cache. PLaneT
-stores package distribution files in this directory, and searches for
-them in this directory for them if necessary. Unlike the main PLaneT
-cache, which contains compiled files and is specific to each
-particular version of Racket, the uninstalled package cache is
-shared by all versions of Racket that use the same package
-repository, and it is searched if a package is not installed in the
-primary cache and cannot be downloaded from the central PLaneT repository
-(for instance due to a loss of Internet connectivity). This behavior
-is intended to primarily benefit users who upgrade their Racket
-installations frequently.}
-
-@defparam[LINKAGE-FILE file path-string?]{
-The file to use as the first place PLaneT looks to determine how a
-particular PLaneT dependence in a file should be satisfied. The
-contents of this file are used to ensure that no "magic upgrades"
-occur after a package is installed. The default is the file @filepath{LINKAGE}
-in the root PLaneT directory.}
-
-@defparam[LOG-FILE file (or/c path-string? false?)]{
-If @racket[#f], indicates that no logging should take place. Otherwise
-specifies the file into which logging should be written. The default
-is the file @filepath{INSTALL-LOG} in the root PLaneT directory.}
-
-@defboolparam[USE-HTTP-DOWNLOADS? bool]{
-PLaneT can use two different protocols to retrieve packages. If @racket[#t],
-PLaneT will use the HTTP protocol; if @racket[#f] it will use the custom-built
-PLaneT protocol. The default value for this parameter is @racket[#t] and setting
-this parameter to @racket[#f] is not recommended.}
-
-@defparam[HTTP-DOWNLOAD-SERVLET-URL url string?]{
-The URL  for the servlet that will provide PLaneT packages if 
-@racket[USE-HTTP-DOWNLOADS?] is @racket[#t], represented as a string.  
-This defaults to the value of the @indexed-envvar{PLTPLANETURL} environment
-variable if it is set and otherwise is
-@racket["http://planet.racket-lang.org/servlets/planet-servlet.rkt"].}
-
-@defparam[PLANET-SERVER-NAME host string?]{
-The name of the PLaneT server to which the client should connect if
-@racket[USE-HTTP-DOWNLOADS?] is @racket[#f]. The default value for this parameter is
-@racket["planet.racket-lang.org"].}
-
-@defparam[PLANET-SERVER-PORT port natural-number?]{
-The port on the server the client should connect to if
-@racket[USE-HTTP-DOWNLOADS?] is @racket[#f]. The default value for this parameter is
-@racket[270].}
-
-@subsection[#:tag "util.rkt"]{Utilities}
-
-@defmodule[planet/util]
-
-The @racketmodname[planet/util] library supports examination of the pieces of
-PLaneT. It is meant primarily to support debugging and to allow easier
-development of higher-level package-management tools. The
-functionality exposed by @seclink["cmdline"]{the @exec{raco planet} command-line tool} is
-also available programmatically through this library.
-
-@defproc[(download/install-pkg [owner string?]
-			       [pkg string?]
-			       [maj natural-number/c]
-			       [min natural-number/c])
-         (or/c pkg? #f)]{
-Downloads and installs the package specifed by the given owner name,
-package name, major and minor version number. Returns false if no such
-package is available; otherwise returns a package structure for the
-installed package.}
-
-@defproc[(install-pkg [pkg pkg-spec?]
-                      [file path-string?]
-                      [maj natural-number/c]
-                      [min natural-number/c])
-         (or/c pkg? #f)]{
- Installs the package represented by the arguments, using
- only the @racket[pkg-spec-path] and @racket[pkg-spec-name]
- fields of @racket[pkg].
- 
- Returns a new @racket[pkg-spec?] corresponding to the package
- that was actually installed.
-}
-
-@defproc[(get-package-spec [owner string?]
-                           [pkg string?]
-                           [maj (or/c #f natural-number/c) #f]
-                           [min (or/c #f natural-number/c) #f])
-         pkg-spec?]{
-  Builds a @racket[pkg-spec?] corresponding to the package specified by 
-  @racket[owner], @racket[pkg], @racket[maj], and @racket[min].
-}
-
-@defproc[(pkg-spec? [v any/c]) boolean?]{
-  Recognizes the result of @racket[get-package-spec].                                        
-}
-                   
-@defparam[current-cache-contents contents
-          (listof
-           (list/c string? 
-                   (listof 
-                    (list/c string? 
-                            (cons/c natural-number/c 
-                                    (listof natural-number/c))))))]{
-Holds a listing of all package names and versions installed in the
-local cache.}
-
-@defproc[(current-linkage)
-         (listof (list/c path-string? 
-                         (list/c string?
-                                 (list/c string?) 
-                                 natural-number/c
-                                 natural-number/c)))]{
-Returns the current linkage table.
-
-The linkage table is an association between file locations (encoded as path strings)
-and concrete planet package versions. If a require line in the associated file requests a package,
-this table is consulted to determine a particular concrete package to satisfy the request.}
-
-@defproc[(make-planet-archive [directory path-string?]
-                              [output-file (or/c path? path-string?) 
-                                           (string-append (path->string name) ".plt")]) 
-         path-string?]{
-Makes a .plt archive file suitable for PLaneT whose contents are all
-files in the given directory and returns that file's name.  If the
-optional filename argument is provided, that filename will be used as
-the output file's name.}
-
-@defproc[(unpack-planet-archive [plt-file (or/c path? path-string?)]
-				[output-dir (or/c path? path-string?)])
- 	 any]{
-Unpacks the PLaneT archive with the given filename, placing its contents
-into the given directory (creating that path if necessary).}
-
-@defproc[(remove-pkg [owner string?]
-		     [pkg   string?]
-		     [maj   natural-number/c]
-		     [min   natural-number/c])
-	 any]{
-Removes the specified package from the local planet cache.}
-
-@defproc[(display-plt-file-structure [plt-file (or/c path-string? path?)])
-         any]{
-Print a tree representing the file and directory structure of the
-PLaneT archive .plt file named by @racket[plt-file] to @racket[(current-output-port)].}
-
-@defproc[(display-plt-archived-file [plt-file (or/c path-string? path?)]
-				    [file-to-print string?])
-	 any]{
-Print the contents of the file named @racket[file-to-print] within the 
-PLaneT archive .plt file named by @racket[plt-file] to @racket[(current-output-port)].}
-
-@defproc[(unlink-all) any]{
-Removes the entire linkage table from the system, which will force all
-modules to relink themselves to PLaneT modules the next time they run.}
-
-@defproc[(add-hard-link [owner string?]
-			[pkg   string?]
-			[maj   natural-number/c]
-			[min   natural-number/c]
-			[dir   path?])
-	 any]{
-Adds a development link between the specified package and the given
-directory; once a link is established, PLaneT will treat the cache as
-having a package with the given owner, name, and version whose files
-are located in the given path. This is intended for package
-development; users only interested in using PLaneT packages
-available online should not need to create any development links.
-
-If the specified package already has a development link, this function
-first removes the old link and then adds the new one.}
-
-@defproc[(remove-hard-link [owner string?]
-	 		   [pkg   string?]
-			   [maj   natural-number/c]
-			   [min   natural-number/c])
- 	 any]{
-Removes any hard link that may be associated with the given package.}
-
-@defproc[(resolve-planet-path [spec quoted-planet-require-spec?])
-	 path?]{
-Returns the file system path to the file specified by the given quoted 
-planet require specification. This function downloads and installs the
-specified package if necessary, but does not verify that the actual
-file within it actually exists.}
-
-@deftogether[(
-@defform[(this-package-version)]
-@defform[(this-package-version-name)]
-@defform[(this-package-version-owner)]
-@defform[(this-package-version-maj)]
-@defform[(this-package-version-min)]
-)]{
-Macros that expand into expressions that evaluate to information about
-the name, owner, and version number of the package in which they 
-appear. @racket[this-package-version] returns a list consisting of a string
-naming the package's owner, a string naming the package, a number
-indicating the package major version and a number indicating the
-package minor version, or @racket[#f] if the expression appears outside the
-context of a package. The others are convenience macros that
-select out the relevant field, or return @racket[#f] if the expression
-appears outside the context of a PLaneT package.}
-
-@defproc[(path->package-version [p path?])
-         (or/c (list/c string? string? natural-number/c natural-number/c) #f)]{
-
-Given a path that corresponds to a PLaneT package (or some part of one),
-produces a list corresponding to its name and version, exactly like
-@racket[(this-package-version)].  Given any other path, produces @racket[#f].
-
-}
-
-@defproc[(exn:fail:planet? [val any/c]) boolean?]{
-  Returns @racket[#t] if @racket[val] is                                                   
-}
-
-@subsection{Terse Status Updates}
-
-@defmodule[planet/terse-info]
-
-This module provides access to some PLaneT status information. This
-module is first loaded by PLaneT in the initial namespace (when
-PLaneT's resolver is loaded), but PLaneT uses @racket[dynamic-require] to load
-this module each time it wants to announce information. Similarly, the
-state of which procedures are registered (via @racket[planet-terse-register]) 
-is saved in the namespace, making the listening and information producing
-namespace-specific.
-
-@defproc[(planet-terse-register
-          [proc (-> (or/c 'download 'install 'docs-build 'finish)
-                    string?
-                    any/c)])
-         void?]{
-Registers @racket[proc] as a function to be called when
-@racket[planet-terse-log] is called.
-
-Note that @racket[proc] is called 
-asynchronously (ie, on some thread other than the one calling @racket[planet-terse-register]).
-}
-
-@defproc[(planet-terse-log [id (or/c 'download 'install 'finish)]
-                           [msg string?]) void?]{
-This function is called by PLaneT to announce when things are happening. See also
-@racket[planet-terse-set-key].
-}
-
-@defproc[(planet-terse-set-key [key any/c]) void?]{
-  This sets a @seclink["threadcells" #:doc '(lib "scribblings/reference/reference.scrbl")]{thread cell}
-  to the value of @racket[key].
-  The value of the thread cell is used as an index into a table to determine which
-  of the functions passed to @racket[planet-terse-register] to call when 
-  @racket[planet-terse-log] is called.
-  
-  The table holding the key uses ephemerons and a weak hash table to ensure that
-  when the @racket[key] is unreachable, then the procedures passed to @racket[planet-terse-log]
-  cannot be reached through the table.
-}
+@include-section["private/util.scrbl"]
 
 @section{Developing Packages for PLaneT}
 
@@ -832,8 +535,18 @@ automatically skipped by the packaging tool).
 @subsubsection{Create Documentation [Optional]}
 
 Use Scribble to write documentation for your package. See
+@secref["scribble.rkt"] for macros that ensure proper bindings and version
+numbers in documentation for @|PLaneT| packages, and
 @other-manual['(lib "scribblings/scribble/scribble.scrbl")]
 for instructions on how to write Scribble documentation.
+
+@italic{Note:} Always use @racket[this-package-in] in @racket[for-label]
+bindings when documenting @|PLaneT| packages, and always use the bindings in
+@racketmodname[planet/scribble] rather than @racketmodname[scribble/manual].
+These macros automatically produce @racket[planet]-based module paths with
+appropriate version numbers.  Other @racket[require] subforms and Scribble
+declarations may refer to the wrong version of a package, or may not be
+recognized as part of a @|PLaneT| package at all when documentation is produced.
 
 @subsubsection{Create an @filepath{info.rkt} File [Optional]}
 

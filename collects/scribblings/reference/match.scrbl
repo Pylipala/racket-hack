@@ -1,7 +1,5 @@
 #lang scribble/doc
-@(require "mz.ss"
-          "match-grammar.ss"
-          racket/match)
+@(require "mz.rkt" "match-grammar.rkt" racket/match)
 
 @(define match-eval (make-base-eval))
 @(interaction-eval #:eval match-eval (require racket/match))
@@ -26,7 +24,7 @@ bindings introduced by @racket[pat] (if any). The last @racket[body]
 in the matching clause is evaluated in tail position with respect to
 the @racket[match] expression.
 
-The @racket[clause]s are tried in order to find a match. If no
+To find a match, the @racket[clause]s are tried in order. If no
 @racket[clause] matches, then the @exnraise[exn:misc:match?].
 
 An optional @racket[(=> id)] between a @racket[pat] and the
@@ -46,11 +44,11 @@ In more detail, patterns match as follows:
 
 @itemize[
 
- @item{@racket[_id], excluding the reserved names @racketidfont{_},
+ @item{@racket[_id] (excluding the reserved names @racketidfont{_},
        @racketidfont{...}, @racketidfont{.._},
        @racketidfont{..}@racket[_k], and
        @racketidfont{..}@racket[_k] for non-negative integers
-       @racket[_k] --- matches anything, and binds @racket[id] to the
+       @racket[_k]) or @racket[(var _id)] --- matches anything, and binds @racket[id] to the
        matching values. If an @racket[_id] is used multiple times
        within a pattern, the corresponding matches must be the same
        according to @racket[(match-equality-test)], except that
@@ -95,9 +93,9 @@ In more detail, patterns match as follows:
        corresponds to a ``spliced'' list of greedy matches.
 
        For spliced lists, @racketidfont{...} and @racketidfont{___}
-       are synonyms for zero or more matches. The
+       are aliases for zero or more matches. The
        @racketidfont{..}@racket[_k] and @racketidfont{__}@racket[_k]
-       forms are also synonyms, specifying @racket[_k] or more
+       forms are also aliases, specifying @racket[_k] or more
        matches. Pattern variables that precede these splicing
        operators are bound to lists of matching forms.
 
@@ -213,9 +211,9 @@ In more detail, patterns match as follows:
 
  @item{@racket[(_struct-id _pat ...)] or
        @racket[(#,(racketidfont "struct") _struct-id (_pat ...))] ---
-       matches an instance of a structure type names
+       matches an instance of a structure type named
        @racket[_struct-id], where each field in the instance matches
-       the corresponding @racket[_pat]. See also @scheme[struct*].
+       the corresponding @racket[_pat]. See also @racket[struct*].
 
        Usually, @racket[_struct-id] is defined with
        @racket[struct].  More generally, @racket[_struct-id]
@@ -292,7 +290,7 @@ In more detail, patterns match as follows:
        can be duplicated once for each @racket[_pat]! Identifiers in
        @racket[_pat] are bound only in the corresponding copy of the
        result expression; in a module context, if the result
-       expression refers to a binding, then that all @racket[_pat]s
+       expression refers to a binding, then all @racket[_pat]s
        must include the binding.
 
        @examples[
@@ -380,6 +378,14 @@ Equivalent to @racket[(lambda (id) (match id clause ...))].
 Equivalent to @racket[(lambda lst (match lst clause ...))].
 }
 
+@defform[(match-lambda** clause* ...)]{
+
+Equivalent to @racket[(lambda (args ...) (match* (args ...) clause* ...))],
+where the number of @racket[args ...] is computed from the number of patterns
+appearing in each of the @racket[clause*].
+}
+
+
 @defform[(match-let ([pat expr] ...) body ...+)]{
 
 Generalizes @racket[let] to support pattern bindings. Each
@@ -426,7 +432,7 @@ b
 @; ----------------------------------------
 
 @defproc[(exn:misc:match? [v any/c]) boolean?]{
-A predicate for the exception raised by in the case of a match failure.
+A predicate for the exception raised in the case of a match failure.
 }
 
 
@@ -439,17 +445,18 @@ A predicate for the exception raised by in the case of a match failure.
 
 Binds @racket[id] to a @deftech{match expander}.
 
-The first @racket[proc-expr] subexpression must evaluate to a
+The first @racket[proc-expr] sub-expression must evaluate to a
  transformer that produces a @racket[_pat] for @racket[match].
  Whenever @racket[id] appears as the beginning of a pattern, this
  transformer is given, at expansion time, a syntax object
  corresponding to the entire pattern (including @racket[id]).  The
- pattern is the replaced with the result of the transformer.
+ pattern is replaced with the result of the transformer.
 
-A transformer produced by a second @racket[proc-expr] subexpression is
+A transformer produced by a second @racket[proc-expr] sub-expression is
  used when @racket[id] is used in an expression context. Using the
  second @racket[proc-expr], @racket[id] can be given meaning both
  inside and outside patterns.}
+
 
 @defparam[match-equality-test comp-proc (any/c any/c . -> . any)]{
 
@@ -457,16 +464,24 @@ A parameter that determines the comparison procedure used to check
 whether multiple uses of an identifier match the ``same'' value. The
 default is @racket[equal?].}
 
+@deftogether[[@defform[(match/derived val-expr original-datum clause ...)]
+              @defform[(match*/derived (val-expr ...) original-datum clause* ...)]]]{ 
+Like @racket[match] and @racket[match*] respectively, but includes a
+sub-expression to be used as the source for all syntax errors within the form.
+For example, @racket[match-lambda] expands to @racket[match/derived] so that
+errors in the body of the form are reported in terms of @racket[match-lambda]
+instead of @racket[match].}
+
 @; ----------------------------------------------------------------------
 
 @section{Library Extensions}
 
 @defform[(struct* struct-id ([field pat] ...))]{
- A @scheme[match] pattern form that matches an instance of a structure
+ A @racket[match] pattern form that matches an instance of a structure
  type named @racket[struct-id], where the field @racket[field] in the
  instance matches the corresponding @racket[pat].
                                                 
- Any field of @racket[struct-id] may be omitted and they may occur in any order.
+ Any field of @racket[struct-id] may be omitted, and such fields can occur in any order.
  
  @defexamples[
   #:eval match-eval

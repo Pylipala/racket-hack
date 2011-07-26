@@ -6,14 +6,14 @@
          "item.rkt"
          "utils.rkt"
          "types.rkt"
-         "pixbuf.rkt")
+         "pixbuf.rkt"
+         "window.rkt")
 
 (provide 
  (protect-out message%
               
               gtk_label_new_with_mnemonic
-              gtk_label_set_text_with_mnemonic
-              mnemonic-string))
+              gtk_label_set_text_with_mnemonic))
 
 ;; ----------------------------------------
 
@@ -23,17 +23,6 @@
 (define-gtk gtk_image_new_from_stock (_fun _string _int -> _GtkWidget))
 (define-gtk gtk_misc_set_alignment (_fun _GtkWidget _float _float -> _void))
 (define-gtk gtk_image_set_from_pixbuf (_fun _GtkWidget _GdkPixbuf -> _void))
-
-(define (mnemonic-string s)
-  (if (regexp-match? #rx"&" s)
-      (regexp-replace*
-       #rx"_&"
-       (regexp-replace*
-        #rx"&(.)"
-        (regexp-replace* #rx"_" s "__")
-        "_\\1")
-       "\\&")
-      (regexp-replace* #rx"_" s "__")))
 
 (define (gtk_label_new_with_mnemonic s)
   (let ([l (gtk_label_new s)])
@@ -60,14 +49,11 @@
                              [(caution) (gtk_image_new_from_stock "gtk-dialog-warning" icon-size)]
                              [(stop) (gtk_image_new_from_stock "gtk-dialog-error" icon-size)]
                              [else (gtk_image_new_from_stock "gtk-dialog-question" icon-size)]))
-                          (if (send label ok?)
-                              (let ([pixbuf (bitmap->pixbuf label)])
-                                (begin0
-                                 (as-gtk-allocation
-                                  (gtk_image_new_from_pixbuf pixbuf))
-                                 (release-pixbuf pixbuf)))
-                              (as-gtk-allocation
-                               (gtk_label_new_with_mnemonic "<bad-image>")))))]
+                          (let ([pixbuf (bitmap->pixbuf label)])
+                            (begin0
+                             (as-gtk-allocation
+                              (gtk_image_new_from_pixbuf pixbuf))
+                             (release-pixbuf pixbuf)))))]
              [font font]
              [no-show? (memq 'deleted style)])
 
@@ -85,5 +71,10 @@
         (atomically
          (gtk_image_set_from_pixbuf (get-gtk) pixbuf)
          (release-pixbuf pixbuf)))]))
+
+  (define/public (set-preferred-size)
+    (gtk_widget_set_size_request (get-gtk) -1 -1)
+    (set-auto-size)
+    #t)
 
   (def/public-unimplemented get-font))

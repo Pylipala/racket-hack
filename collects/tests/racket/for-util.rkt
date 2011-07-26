@@ -2,12 +2,12 @@
 
 (require (for-syntax racket/base))
 
-(provide test-multi-generator
-         test-generator)
+(provide test-multi-sequence
+         test-sequence)
 
 ;; Utilities used by various tests of sequences
 
-(define-syntax (test-multi-generator stx)
+(define-syntax (test-multi-sequence stx)
   (syntax-case stx ()
     [(_ [(v ...) ...] gen)
      (with-syntax ([(id ...) (generate-temporaries #'((v ...) ...))]
@@ -32,7 +32,7 @@
                          (car (member (list id ...) `((v2 ...) ...)))))
            (void)))]))
 
-(define-syntax test-generator
+(define-syntax test-sequence
   (syntax-rules ()
     [(_ [seq] gen) ; we assume that seq has at least 2 elements, and all are unique
      (begin
@@ -44,6 +44,9 @@
        (test (map (lambda (x) #t) `seq) 'gen (for*/list ([i gen][b '(#t)]) b))
        (test (append `seq `seq) 'gen (for*/list ([b '(#f #t)][i gen]) i))
        (test (append `seq `seq) 'gen (for/list ([b '(#f #t)] #:when #t [i gen]) i))
+       (test (append `seq `seq) 'gen (for/list ([b '(#t #t #f)] #:when b [i gen]) i))
+       (test (append `seq `seq) 'gen (for/list ([b '(#f #t)] #:unless #f [i gen]) i))
+       (test (append `seq `seq) 'gen (for/list ([b '(#f #f #t)] #:unless b [i gen]) i))
        (test `seq 'gen (let ([g gen]) (for/list ([i g]) i)))
        (test `seq 'gen (let ([r null])
                          (for ([i gen]) (set! r (cons i r)))
@@ -97,6 +100,6 @@
                          (for/and ([(e idx) g]) (set! count (add1 count)) (equal? idx (sub1 count)))))
          (void))
        ;; Run multi-value tests:
-       (test-multi-generator [seq] gen))]
+       (test-multi-sequence [seq] gen))]
     [(_ seqs gen)
-     (test-multi-generator seqs gen)]))
+     (test-multi-sequence seqs gen)]))

@@ -70,10 +70,12 @@
 
       (when ints
         (let ([after-execute-output
-               (send interactions-text
-                     get-text
-                     (send interactions-text paragraph-start-position 2)
-                     (send interactions-text paragraph-end-position 2))])
+               (queue-callback/res
+                (λ ()
+                  (send interactions-text
+                        get-text
+                        (send interactions-text paragraph-start-position 2)
+                        (send interactions-text paragraph-end-position 2))))])
           (unless (or (test-all? test) (string=? "> " after-execute-output))
             (fprintf (current-error-port)
                      "FAILED (line ~a): ~a\n        ~a\n        expected no output after execution, got: ~s\n"
@@ -87,21 +89,23 @@
           (wait-for-computation drs)))
 
       (let* ([text
-              (if (test-all? test)
-                  (let* ([para (- (send interactions-text position-paragraph
-                                        (send interactions-text last-position))
-                                  1)])
-                    (send interactions-text
-                          get-text
-                          (send interactions-text paragraph-start-position 2)
-                          (send interactions-text paragraph-end-position para)))
-                  (let* ([para (- (send interactions-text position-paragraph
-                                        (send interactions-text last-position))
-                                  1)])
-                    (send interactions-text
-                          get-text
-                          (send interactions-text paragraph-start-position para)
-                          (send interactions-text paragraph-end-position para))))]
+              (queue-callback/res
+               (λ ()
+                 (if (test-all? test)
+                     (let* ([para (- (send interactions-text position-paragraph
+                                           (send interactions-text last-position))
+                                     1)])
+                       (send interactions-text
+                             get-text
+                             (send interactions-text paragraph-start-position 2)
+                             (send interactions-text paragraph-end-position para)))
+                     (let* ([para (- (send interactions-text position-paragraph
+                                           (send interactions-text last-position))
+                                     1)])
+                       (send interactions-text
+                             get-text
+                             (send interactions-text paragraph-start-position para)
+                             (send interactions-text paragraph-end-position para))))))]
              [output-passed? (let ([r (test-result test)])
                                ((cond [(string? r) string=?]
                                       [(regexp? r) regexp-match?]
@@ -143,14 +147,16 @@
   
   (set-module-language! #f)
   (test:set-radio-box-item! "Debugging")
-  (let ([f (get-top-level-focus-window)])
+  (let ([f (queue-callback/res (λ () (get-top-level-focus-window)))])
     (test:button-push "OK")
     (wait-for-new-frame f))
 
   (for-each single-test (reverse tests))
   (clear-definitions drs)
-  (send (send drs get-definitions-text) set-modified #f)
-  (for ([file temp-files]) (when (file-exists? file) (delete-file file))))
+  (queue-callback/res (λ () (send (send drs get-definitions-text) set-modified #f)))
+  (for ([file temp-files]) 
+    (when (file-exists? file)
+      (delete-file file))))
 
 (define (run-use-compiled-file-paths-tests)
   
@@ -174,7 +180,7 @@
       (let ([got (setup-dialog/run 
                   (λ () 
                     (test:set-radio-box-item! radio-box)
-                    (test:set-check-box! "Populate compiled/ directories (for faster loading)" #f)))])
+                    (test:set-check-box! "Populate \"compiled\" directories (for faster loading)" #f)))])
         (unless (equal? got (format "~s" no-check-expected))
           (error 'r-u-c-f-p-t.2 "got ~s expected ~s"
                  got

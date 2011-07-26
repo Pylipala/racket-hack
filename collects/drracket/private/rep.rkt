@@ -15,16 +15,12 @@ TODO
 ; =Handler= means in the handler thread of some eventspace; it must
 ;  be combined with either =Kernel= or =User=
 
-;; WARNING: printf is rebound in this module to always use the 
-;;          original stdin/stdout of drscheme, instead of the 
-;;          user's io ports, to aid any debugging printouts.
-;;          (esp. useful when debugging the users's io)
-
 (require racket/class
          racket/path
          racket/pretty
          racket/unit
          racket/list
+         racket/port
          
          string-constants
          setup/xref
@@ -39,6 +35,10 @@ TODO
          planet/terse-info)
 
 (provide rep@ with-stack-checkpoint)
+
+(define orig-output-port (current-output-port))
+(define (oprintf . args) (apply fprintf orig-output-port args))
+ 
 
 ;; run a thunk, and if an exception is raised, make it possible to cut the
 ;; stack so that the surrounding context is hidden
@@ -204,13 +204,13 @@ TODO
   ;; a port that accepts values for printing in the repl
   (define current-value-port (make-parameter #f))
   
-  ;; drscheme-error-display-handler : (string (union #f exn) -> void
+  ;; drracket-error-display-handler : (string (union #f exn) -> void
   ;; =User=
   ;; the timing is a little tricky here. 
   ;; the file icon must appear before the error message in the text, so that happens first.
   ;; the highlight must be set after the error message, because inserting into the text resets
   ;;     the highlighting.
-  (define (drscheme-error-display-handler msg exn)
+  (define (drracket-error-display-handler msg exn)
     (let* ([cut-stack (if (and (exn? exn)
                                (main-user-eventspace-thread?))
                           (cut-stack-at-checkpoint exn)
@@ -235,11 +235,12 @@ TODO
       ;; for use in debugging the stack trace stuff
       #;
       (when (exn? exn)
-        (print-struct #t)
-        (for-each 
-         (λ (frame) (printf " ~s\n" frame))
-         (continuation-mark-set->context (exn-continuation-marks exn)))
-        (printf "\n"))
+        (parameterize ([print-struct #t])
+          (for-each 
+           (λ (frame) (printf " ~s\n" frame))
+           (continuation-mark-set->context (exn-continuation-marks exn)))
+          (printf "\n")))
+      
       (drracket:debug:error-display-handler/stacktrace msg exn stack)))
   
   (define (main-user-eventspace-thread?)
@@ -333,41 +334,14 @@ TODO
   ;; queue is full):
   (define output-limit-size 2000)
   
-  (define (printf . args) (apply fprintf drracket:init:original-output-port args))
-  
   (define setup-scheme-interaction-mode-keymap
     (λ (keymap)
-      (define (beginning-of-line text select?)
-        (let* ([para (send text position-line (send text get-start-position))]
-               [para-start (send text line-start-position para)]
-               [prompt (send text get-prompt)]
-               [para-start-text (send text get-text para-start (+ para-start (string-length prompt)))]
-               [new-start 
-                (cond
-                  [(equal? prompt para-start-text)
-                   (+ para-start (string-length prompt))]
-                  [else
-                   para-start])])
-          (if select?
-              (send text set-position new-start (send text get-end-position))
-              (send text set-position new-start new-start))))
-      
-      (send keymap add-function "beginning-of-line/prompt"
-            (λ (text event) (beginning-of-line text #f)))
-      (send keymap add-function "select-to-beginning-of-line/prompt"
-            (λ (text event) (beginning-of-line text #t)))
-      
       (send keymap add-function "put-previous-sexp"
             (λ (text event) 
               (send text copy-prev-previous-expr)))
       (send keymap add-function "put-next-sexp"
             (λ (text event) 
               (send text copy-next-previous-expr)))
-      
-      (send keymap map-function "c:a" "beginning-of-line/prompt")
-      (send keymap map-function "s:c:a" "select-to-beginning-of-line/prompt")
-      (send keymap map-function "home" "beginning-of-line/prompt")
-      (send keymap map-function "s:home" "select-to-beginning-of-line/prompt")
       
       (keymap:send-map-function-meta keymap "p" "put-previous-sexp")
       (keymap:send-map-function-meta keymap "n" "put-next-sexp")
@@ -734,7 +708,7 @@ TODO
           (reset-highlighting)
           
           (set! error-ranges locs)
-          
+
           (for-each (λ (loc) (send (srcloc-source loc) begin-edit-sequence)) locs)
           
           (when color?
@@ -777,6 +751,14 @@ TODO
             (for-each (λ (loc) (send (srcloc-source loc) end-edit-sequence)) locs)
             
             (when first-loc
+              
+              (when (eq? first-file definitions-text)
+                ;; when we're highlighting something in the defs window,
+                ;; make sure it is visible
+                (let ([tlw (send first-file get-top-level-window)]) 
+                  (when (is-a? tlw drracket:unit:frame<%>)
+                    (send tlw ensure-defs-shown))))
+              
               (send first-file set-caret-owner (get-focus-snip) 'global)))))
       
       (define highlights-can-be-reset (make-parameter #t))
@@ -1339,7 +1321,7 @@ TODO
                   (let ([run-on-user-thread (lambda (t) 
                                               (queue-user/wait 
                                                (λ ()
-                                                 (with-handlers ((exn? (λ (x) (printf "~s\n" (exn-message x)))))
+                                                 (with-handlers ((exn? (λ (x) (oprintf "~s\n" (exn-message x)))))
                                                    (t)))))])
                     run-on-user-thread))
             
@@ -1519,7 +1501,7 @@ TODO
         
         (current-language-settings user-language-settings)
         (error-print-source-location #f)
-        (error-display-handler drscheme-error-display-handler)
+        (error-display-handler drracket-error-display-handler)
         (current-load-relative-directory #f)
         (current-custodian user-custodian)
         (current-load text-editor-load-handler)
@@ -1674,31 +1656,74 @@ TODO
         (thaw-colorer)
         (send context disable-evaluation)
         (reset-console)
-        
-        (let ([exn-raised #f]
-              [lang (drracket:language-configuration:language-settings-language user-language-settings)])
-          (queue-user/wait
-           (λ () ; =User=, =No-Breaks=
-             (with-handlers ((exn:fail? (λ (x) (set! exn-raised x))))
-               (cond
-                 ;; this is for backwards compatibility; drracket used to
-                 ;; expect this method to be a thunk (but that was a bad decision)
-                 [(object-method-arity-includes? lang 'first-opened 1)
-                  (send lang first-opened
-                        (drracket:language-configuration:language-settings-settings user-language-settings))]
-                 [else
-                  ;; this is the backwards compatible case.
-                  (send lang first-opened)]))))
-          (when exn-raised
-            (let ([sp (open-output-string)])
-              (parameterize ([current-error-port sp])
-                (drracket:init:original-error-display-handler (exn-message exn-raised) exn-raised)) 
-              (message-box (string-constant drscheme)
-                           (format "Exception raised while running the first-opened method of the language ~s:\n~a"
-                                   (send lang get-language-position)
-                                   (get-output-string sp))))))
-        
         (insert-prompt)
+        
+        ;; call the first-opened method on the user's thread, but wait here for that to terminate
+        (let ([lang (drracket:language-configuration:language-settings-language user-language-settings)]
+              [drr-evtspace (current-eventspace)]
+              [s (make-semaphore 0)])
+          
+          (define-values (sp-err-other-end sp-err) (make-pipe-with-specials))
+          (define-values (sp-out-other-end sp-out) (make-pipe-with-specials))
+          (define io-chan (make-channel))
+          
+          ;; collect the IO to replay later
+          (thread
+           (λ () 
+             (let loop ([ports (list sp-err-other-end sp-out-other-end)]
+                        [io '()])
+               (cond
+                 [(null? ports) (channel-put io-chan io)]
+                 [else
+                  (apply sync
+                         (map (λ (port) (handle-evt 
+                                         port 
+                                         (λ (_) 
+                                           (define byte/special (read-byte-or-special port))
+                                           (if (eof-object? byte/special)
+                                               (loop (remq port ports) io)
+                                               (loop ports (cons (cons port byte/special) 
+                                                                 io))))))
+                              ports))]))))
+             
+          (run-in-evaluation-thread
+           (λ ()
+             (let/ec k
+               ;; we set the io ports here to ones that just collect the data
+               ;; since we're blocking the eventspace handler thread (and thus IO to 
+               ;; the user's ports can deadlock)
+               (parameterize ([error-escape-handler (λ () (k (void)))]
+                              [current-output-port sp-out]
+                              [current-error-port sp-err])
+                 (cond
+                   ;; this is for backwards compatibility; drracket used to
+                   ;; expect this method to be a thunk (but that was a bad decision)
+                   [(object-method-arity-includes? lang 'first-opened 1)
+                    (send lang first-opened
+                          (drracket:language-configuration:language-settings-settings user-language-settings))]
+                   [else
+                    ;; this is the backwards compatible case.
+                    (send lang first-opened)])))
+             (semaphore-post s)))
+          
+          ;; wait for the first-opened method to finish up
+          (semaphore-wait s)
+          
+          ;; close the output ports to get the above thread to terminate
+          (close-output-port sp-err)
+          (close-output-port sp-out)
+          
+          ;; duplicate it over to the user's ports, now that there is
+          ;; no danger of deadlock
+          (for ([i (in-list (reverse (channel-get io-chan)))])
+            (define obj (cdr i))
+            
+            ((if (byte? obj) write-byte write-special)
+             obj
+             (if (eq? (car i) sp-err-other-end)
+                 (get-err-port)
+                 (get-out-port)))))
+        
         (send context enable-evaluation)
         (end-edit-sequence)
         (clear-undos))
@@ -1837,6 +1862,35 @@ TODO
               (and (not (null? canvases))
                    (car canvases)))))
 
+      (inherit paragraph-end-position)
+      (define/override (get-start-of-line pos)
+        (define para (position-paragraph pos))
+        (define para-start (paragraph-start-position para))
+        (define para-end (paragraph-end-position para))
+        (define after-prompt-start 
+          (let* ([prompt (get-prompt)]
+                 [para-start-text (get-text para-start (+ para-start (string-length prompt)))])
+            (cond
+              [(equal? prompt para-start-text)
+               (+ para-start (string-length prompt))]
+              [else
+               para-start])))
+        (define first-non-whitespace 
+          (let loop ([i after-prompt-start])
+            (cond
+              [(= i para-end) #f]
+              [(char-whitespace? (get-character i))
+               (loop (+ i 1))]
+              [else i])))
+        (define new-pos 
+          (cond 
+            [(not first-non-whitespace) after-prompt-start]
+            [(< pos after-prompt-start) after-prompt-start]
+            [(= pos after-prompt-start) first-non-whitespace]
+            [(<= pos first-non-whitespace) after-prompt-start]
+            [else first-non-whitespace]))
+        new-pos)
+      
       (super-new)
       (auto-wrap #t)
       (set-styles-sticky #f)

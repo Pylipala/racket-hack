@@ -1,6 +1,6 @@
 /*
   Racket
-  Copyright (c) 2004-2010 PLT Scheme Inc.
+  Copyright (c) 2004-2011 PLT Scheme Inc.
   Copyright (c) 1995-2001 Matthew Flatt
  
     This library is free software; you can redistribute it and/or
@@ -22,7 +22,7 @@
 /* This file implements Racket threads.
 
    Usually, Racket threads are implemented by copying the stack.
-   The scheme_thread_block() function is called occassionally by the
+   The scheme_thread_block() function is called occasionally by the
    evaluator so that the current thread can be swapped out.
    do_swap_thread() performs the actual swap. Threads can also be
    implemented by the OS; the bottom part of this file contains
@@ -78,7 +78,7 @@
 
 #if defined(WINDOWS_PROCESSES) || defined(WINDOWS_FILE_HANDLES)
 # include <windows.h>
-extern HANDLE scheme_break_semaphore;
+THREAD_LOCAL_DECL(extern void *scheme_break_semaphore;)
 #endif
 
 #if defined(FILES_HAVE_FDS) \
@@ -122,6 +122,7 @@ static void check_ready_break();
 THREAD_LOCAL_DECL(extern int scheme_num_read_syntax_objects);
 THREAD_LOCAL_DECL(extern intptr_t scheme_hash_request_count);
 THREAD_LOCAL_DECL(extern intptr_t scheme_hash_iteration_count);
+THREAD_LOCAL_DECL(extern intptr_t scheme_code_page_total);
 #ifdef MZ_USE_JIT
 extern int scheme_jit_malloced;
 #else
@@ -196,12 +197,14 @@ THREAD_LOCAL_DECL(static intptr_t end_this_gc_time);
 static void get_ready_for_GC(void);
 static void done_with_GC(void);
 #ifdef MZ_PRECISE_GC
-static void inform_GC(int major_gc, intptr_t pre_used, intptr_t post_used);
+static void inform_GC(int master_gc, int major_gc, intptr_t pre_used, intptr_t post_used,
+                      intptr_t pre_admin, intptr_t post_admin);
 #endif
 
 THREAD_LOCAL_DECL(static volatile short delayed_break_ready);
 THREAD_LOCAL_DECL(static Scheme_Thread *main_break_target_thread);
 
+THREAD_LOCAL_DECL(Scheme_Sleep_Proc scheme_place_sleep);
 HOOK_SHARED_OK void (*scheme_sleep)(float seconds, void *fds);
 HOOK_SHARED_OK void (*scheme_notify_multithread)(int on);
 HOOK_SHARED_OK void (*scheme_wakeup_on_input)(void *fds);
@@ -240,6 +243,10 @@ THREAD_LOCAL_DECL(static int recycle_cc_count);
 
 THREAD_LOCAL_DECL(struct Scheme_Hash_Table *place_local_misc_table);
 
+#if defined(MZ_PRECISE_GC) && defined(MZ_USE_PLACES)
+extern intptr_t GC_is_place();
+#endif
+
 
 #ifdef MZ_PRECISE_GC
 extern intptr_t GC_get_memory_use(void *c);
@@ -251,12 +258,6 @@ typedef struct Thread_Cell {
   Scheme_Object so;
   char inherited, assigned;
   Scheme_Object *def_val;
-  /* A thread's thread_cell table maps cells to keys weakly.
-     This table maps keys to values weakly. The two weak
-     levels ensure that thread cells are properly GCed
-     when the value of a thread cell references the thread
-     cell. */
-  Scheme_Bucket_Table *vals;
 } Thread_Cell;
 
 #ifdef MZ_PRECISE_GC
@@ -327,6 +328,7 @@ static Scheme_Object *evt_p(int argc, Scheme_Object *args[]);
 static Scheme_Object *evts_to_evt(int argc, Scheme_Object *args[]);
 
 static Scheme_Object *make_custodian(int argc, Scheme_Object *argv[]);
+static Scheme_Object *make_custodian_from_main(int argc, Scheme_Object *argv[]);
 static Scheme_Object *custodian_p(int argc, Scheme_Object *argv[]);
 static Scheme_Object *custodian_close_all(int argc, Scheme_Object *argv[]);
 static Scheme_Object *custodian_to_list(int argc, Scheme_Object *argv[]);
@@ -456,120 +458,37 @@ void scheme_init_thread(Scheme_Env *env)
   REGISTER_SO(execute_symbol);
   REGISTER_SO(delete_symbol);
   REGISTER_SO(exists_symbol);
+  REGISTER_SO(client_symbol);
+  REGISTER_SO(server_symbol);
 
   read_symbol = scheme_intern_symbol("read");
   write_symbol = scheme_intern_symbol("write");
   execute_symbol = scheme_intern_symbol("execute");
   delete_symbol = scheme_intern_symbol("delete");
   exists_symbol = scheme_intern_symbol("exists");
-
-  REGISTER_SO(client_symbol);
-  REGISTER_SO(server_symbol);
-
   client_symbol = scheme_intern_symbol("client");
   server_symbol = scheme_intern_symbol("server");
   
-  scheme_add_global_constant("dump-memory-stats",
-			     scheme_make_prim_w_arity(scheme_dump_gc_stats,
-						      "dump-memory-stats",
-						      0, -1), 
-			     env);
+  GLOBAL_PRIM_W_ARITY("dump-memory-stats"            , scheme_dump_gc_stats, 0, -1, env);
+  GLOBAL_PRIM_W_ARITY("vector-set-performance-stats!", current_stats       , 1, 2, env);
 
-  scheme_add_global_constant("vector-set-performance-stats!",
-			     scheme_make_prim_w_arity(current_stats,
-						      "vector-set-performance-stats!",
-						      1, 2),
-			     env);
+  GLOBAL_PRIM_W_ARITY("make-empty-namespace", scheme_make_namespace, 0, 0, env);
 
-
-
-  scheme_add_global_constant("make-empty-namespace",
-			     scheme_make_prim_w_arity(scheme_make_namespace,
-						      "make-empty-namespace",
-						      0, 0),
-			     env);
-
-  scheme_add_global_constant("thread",
-			     scheme_make_prim_w_arity(sch_thread,
-						      "thread",
-						      1, 1),
-			     env);
-  scheme_add_global_constant("thread/suspend-to-kill",
-			     scheme_make_prim_w_arity(sch_thread_nokill,
-						      "thread/suspend-to-kill",
-						      1, 1),
-			     env);
-  
-  scheme_add_global_constant("sleep",
-			     scheme_make_prim_w_arity(sch_sleep,
-						      "sleep",
-						      0, 1),
-			     env);
-
-  scheme_add_global_constant("thread?",
-			     scheme_make_folding_prim(thread_p,
-						      "thread?",
-						      1, 1, 1),
-			     env);
-  scheme_add_global_constant("thread-running?",
-			     scheme_make_prim_w_arity(thread_running_p,
-						      "thread-running?",
-						      1, 1),
-			     env);
-  scheme_add_global_constant("thread-dead?",
-			     scheme_make_prim_w_arity(thread_dead_p,
-						      "thread-dead?",
-						      1, 1),
-			     env);
-  scheme_add_global_constant("thread-wait",
-			     scheme_make_prim_w_arity(thread_wait,
-						      "thread-wait",
-						      1, 1),
-			     env);
-
-  scheme_add_global_constant("current-thread", 
-			     scheme_make_prim_w_arity(sch_current,
-						      "current-thread", 
-						      0, 0), 
-			     env);
-
-  scheme_add_global_constant("kill-thread", 
-			     scheme_make_prim_w_arity(kill_thread,
-						      "kill-thread", 
-						      1, 1), 
-			     env);
-  scheme_add_global_constant("break-thread", 
-			     scheme_make_prim_w_arity(break_thread,
-						      "break-thread", 
-						      1, 1), 
-			     env);
-
-  scheme_add_global_constant("thread-suspend", 
-			     scheme_make_prim_w_arity(thread_suspend,
-						      "thread-suspend", 
-						      1, 1), 
-			     env);
-  scheme_add_global_constant("thread-resume", 
-			     scheme_make_prim_w_arity(thread_resume,
-						      "thread-resume", 
-						      1, 2), 
-			     env);
-
-  scheme_add_global_constant("thread-resume-evt", 
-			     scheme_make_prim_w_arity(make_thread_resume,
-						      "thread-resume-evt", 
-						      1, 1), 
-			     env);
-  scheme_add_global_constant("thread-suspend-evt", 
-			     scheme_make_prim_w_arity(make_thread_suspend,
-						      "thread-suspend-evt", 
-						      1, 1), 
-			     env);
-  scheme_add_global_constant("thread-dead-evt", 
-			     scheme_make_prim_w_arity(make_thread_dead,
-						      "thread-dead-evt", 
-						      1, 1), 
-			     env);
+  GLOBAL_PRIM_W_ARITY("thread"                , sch_thread         , 1, 1, env);
+  GLOBAL_PRIM_W_ARITY("thread/suspend-to-kill", sch_thread_nokill  , 1, 1, env);
+  GLOBAL_PRIM_W_ARITY("sleep"                 , sch_sleep          , 0, 1, env);
+  GLOBAL_FOLDING_PRIM("thread?"               , thread_p           , 1, 1, 1, env);
+  GLOBAL_PRIM_W_ARITY("thread-running?"       , thread_running_p   , 1, 1, env);
+  GLOBAL_PRIM_W_ARITY("thread-dead?"          , thread_dead_p      , 1, 1, env);
+  GLOBAL_PRIM_W_ARITY("thread-wait"           , thread_wait        , 1, 1, env);
+  GLOBAL_PRIM_W_ARITY("current-thread"        , sch_current        , 0, 0, env);
+  GLOBAL_PRIM_W_ARITY("kill-thread"           , kill_thread        , 1, 1, env);
+  GLOBAL_PRIM_W_ARITY("break-thread"          , break_thread       , 1, 1, env);
+  GLOBAL_PRIM_W_ARITY("thread-suspend"        , thread_suspend     , 1, 1, env);
+  GLOBAL_PRIM_W_ARITY("thread-resume"         , thread_resume      , 1, 2, env);
+  GLOBAL_PRIM_W_ARITY("thread-resume-evt"     , make_thread_resume , 1, 1, env);
+  GLOBAL_PRIM_W_ARITY("thread-suspend-evt"    , make_thread_suspend, 1, 1, env);
+  GLOBAL_PRIM_W_ARITY("thread-dead-evt"       , make_thread_dead   , 1, 1, env);
 
   register_thread_sync();
   scheme_add_evt(scheme_thread_suspend_type, (Scheme_Ready_Fun)resume_suspend_ready, NULL, NULL, 1);
@@ -578,246 +497,64 @@ void scheme_init_thread(Scheme_Env *env)
   scheme_add_evt(scheme_cust_box_type, cust_box_ready, NULL, NULL, 0);
 
 
-  scheme_add_global_constant("make-custodian",
-			     scheme_make_prim_w_arity(make_custodian,
-						      "make-custodian",
-						      0, 1),
-			     env);
-  scheme_add_global_constant("custodian?",
-			     scheme_make_folding_prim(custodian_p,
-						      "custodian?",
-						      1, 1, 1),
-			     env);
-  scheme_add_global_constant("custodian-shutdown-all",
-			     scheme_make_prim_w_arity(custodian_close_all,
-						      "custodian-shutdown-all",
-						      1, 1),
-			     env);
-  scheme_add_global_constant("custodian-managed-list",
-			     scheme_make_prim_w_arity(custodian_to_list,
-						      "custodian-managed-list",
-						      2, 2),
-			     env);
-  scheme_add_global_constant("current-custodian", 
-			     scheme_register_parameter(current_custodian,
-						       "current-custodian",
-						       MZCONFIG_CUSTODIAN),
-			     env);
-  scheme_add_global_constant("make-custodian-box",
-			     scheme_make_prim_w_arity(make_custodian_box,
-						      "make-custodian-box",
-						      2, 2),
-			     env);
-  scheme_add_global_constant("custodian-box-value",
-			     scheme_make_prim_w_arity(custodian_box_value,
-						      "custodian-box-value",
-						      1, 1),
-			     env);
-  scheme_add_global_constant("custodian-box?",
-			     scheme_make_folding_prim(custodian_box_p,
-                                                      "custodian-box?",
-                                                      1, 1, 1),
-			     env);
-  scheme_add_global_constant("call-in-nested-thread",
-			     scheme_make_prim_w_arity(call_as_nested_thread,
-						      "call-in-nested-thread",
-						      1, 2),
-			     env);
+  GLOBAL_PARAMETER("current-custodian"        , current_custodian    , MZCONFIG_CUSTODIAN, env);
+  GLOBAL_PRIM_W_ARITY("make-custodian"        , make_custodian       , 0, 1, env);
+  GLOBAL_FOLDING_PRIM("custodian?"            , custodian_p          , 1, 1, 1  , env);
+  GLOBAL_PRIM_W_ARITY("custodian-shutdown-all", custodian_close_all  , 1, 1, env);
+  GLOBAL_PRIM_W_ARITY("custodian-managed-list", custodian_to_list    , 2, 2, env);
+  GLOBAL_PRIM_W_ARITY("make-custodian-box"    , make_custodian_box   , 2, 2, env);
+  GLOBAL_PRIM_W_ARITY("custodian-box-value"   , custodian_box_value  , 1, 1, env);
+  GLOBAL_FOLDING_PRIM("custodian-box?"        , custodian_box_p      , 1, 1, 1  , env);
+  GLOBAL_PRIM_W_ARITY("call-in-nested-thread" , call_as_nested_thread, 1, 2, env);
 
-  scheme_add_global_constant("current-namespace", 
-			     scheme_register_parameter(current_namespace,
-						       "current-namespace",
-						       MZCONFIG_ENV),
-			     env);
+  GLOBAL_PARAMETER("current-namespace"      , current_namespace, MZCONFIG_ENV, env);
+  GLOBAL_PRIM_W_ARITY("namespace?"          , namespace_p          , 1, 1, env);
 
-  scheme_add_global_constant("namespace?", 
-			     scheme_make_prim_w_arity(namespace_p,
-						      "namespace?", 
-						      1, 1), 
-			     env);
+  GLOBAL_PRIM_W_ARITY("security-guard?"    , security_guard_p   , 1, 1, env);
+  GLOBAL_PRIM_W_ARITY("make-security-guard", make_security_guard, 3, 4, env);
+  GLOBAL_PARAMETER("current-security-guard", current_security_guard, MZCONFIG_SECURITY_GUARD, env);
 
-  scheme_add_global_constant("security-guard?", 
-			     scheme_make_prim_w_arity(security_guard_p,
-						      "security-guard?", 
-						      1, 1), 
-			     env);
-  scheme_add_global_constant("make-security-guard", 
-			     scheme_make_prim_w_arity(make_security_guard,
-						      "make-security-guard", 
-						      3, 4), 
-			     env);
-  scheme_add_global_constant("current-security-guard", 
-			     scheme_register_parameter(current_security_guard,
-						       "current-security-guard",
-						       MZCONFIG_SECURITY_GUARD),
-			     env);
+  GLOBAL_PRIM_W_ARITY("thread-group?"    , thread_set_p   , 1, 1, env);
+  GLOBAL_PRIM_W_ARITY("make-thread-group", make_thread_set, 0, 1, env);
+  GLOBAL_PARAMETER("current-thread-group", current_thread_set, MZCONFIG_THREAD_SET, env);
 
-  scheme_add_global_constant("thread-group?", 
-			     scheme_make_prim_w_arity(thread_set_p,
-						      "thread-group?", 
-						      1, 1), 
-			     env);
-  scheme_add_global_constant("make-thread-group", 
-			     scheme_make_prim_w_arity(make_thread_set,
-						      "make-thread-group", 
-						      0, 1), 
-			     env);
-  scheme_add_global_constant("current-thread-group", 
-			     scheme_register_parameter(current_thread_set,
-						       "current-thread-group",
-						       MZCONFIG_THREAD_SET),
-			     env);
+  GLOBAL_PRIM_W_ARITY("parameter?"            , parameter_p           , 1, 1, env);
+  GLOBAL_PRIM_W_ARITY("make-parameter"        , make_parameter        , 1, 2, env);
+  GLOBAL_PRIM_W_ARITY("make-derived-parameter", make_derived_parameter, 3, 3, env);
+  GLOBAL_PRIM_W_ARITY("parameter-procedure=?" , parameter_procedure_eq, 2, 2, env);
+  GLOBAL_PRIM_W_ARITY("parameterization?"     , parameterization_p    , 1, 1, env);
 
-  scheme_add_global_constant("parameter?", 
-			     scheme_make_prim_w_arity(parameter_p,
-						      "parameter?", 
-						      1, 1), 
-			     env);
-  scheme_add_global_constant("make-parameter", 
-			     scheme_make_prim_w_arity(make_parameter,
-						      "make-parameter", 
-						      1, 2), 
-			     env);
-  scheme_add_global_constant("make-derived-parameter", 
-			     scheme_make_prim_w_arity(make_derived_parameter,
-						      "make-derived-parameter", 
-						      3, 3), 
-			     env);
-  scheme_add_global_constant("parameter-procedure=?", 
-			     scheme_make_prim_w_arity(parameter_procedure_eq,
-						      "parameter-procedure=?", 
-						      2, 2), 
-			     env);
-  scheme_add_global_constant("parameterization?", 
-			     scheme_make_prim_w_arity(parameterization_p,
-						      "parameterization?", 
-						      1, 1), 
-			     env);
+  GLOBAL_PRIM_W_ARITY("thread-cell?"                        , thread_cell_p     , 1, 1, env);
+  GLOBAL_PRIM_W_ARITY("make-thread-cell"                    , make_thread_cell  , 1, 2, env);
+  GLOBAL_PRIM_W_ARITY("thread-cell-ref"                     , thread_cell_get   , 1, 1, env);
+  GLOBAL_PRIM_W_ARITY("thread-cell-set!"                    , thread_cell_set   , 2, 2, env);
+  GLOBAL_PRIM_W_ARITY("current-preserved-thread-cell-values", thread_cell_values, 0, 1, env);
 
-  scheme_add_global_constant("thread-cell?", 
-			     scheme_make_prim_w_arity(thread_cell_p,
-						      "thread-cell?", 
-						      1, 1), 
-			     env);
-  scheme_add_global_constant("make-thread-cell", 
-			     scheme_make_prim_w_arity(make_thread_cell,
-						      "make-thread-cell", 
-						      1, 2), 
-			     env);
-  scheme_add_global_constant("thread-cell-ref", 
-			     scheme_make_prim_w_arity(thread_cell_get,
-						      "thread-cell-ref", 
-						      1, 1), 
-			     env);
-  scheme_add_global_constant("thread-cell-set!", 
-			     scheme_make_prim_w_arity(thread_cell_set,
-						      "thread-cell-set!", 
-						      2, 2), 
-			     env);
-  scheme_add_global_constant("current-preserved-thread-cell-values", 
-			     scheme_make_prim_w_arity(thread_cell_values,
-						      "current-preserved-thread-cell-values", 
-						      0, 1), 
-			     env);
-
-  
-  scheme_add_global_constant("make-will-executor", 
-			     scheme_make_prim_w_arity(make_will_executor,
-						      "make-will-executor", 
-						      0, 0), 
-			     env);
-  scheme_add_global_constant("will-executor?", 
-			     scheme_make_prim_w_arity(will_executor_p,
-						      "will-executor?", 
-						      1, 1), 
-			     env);
-  scheme_add_global_constant("will-register", 
-			     scheme_make_prim_w_arity(register_will,
-						      "will-register", 
-						      3, 3), 
-			     env);
-  scheme_add_global_constant("will-try-execute", 
-			     scheme_make_prim_w_arity(will_executor_try,
-						      "will-try-execute", 
-						      1, 1), 
-			     env);
-  scheme_add_global_constant("will-execute", 
-			     scheme_make_prim_w_arity(will_executor_go,
-						      "will-execute", 
-						      1, 1), 
-			     env);
+  GLOBAL_PRIM_W_ARITY("make-will-executor", make_will_executor, 0, 0, env);
+  GLOBAL_PRIM_W_ARITY("will-executor?"    , will_executor_p   , 1, 1, env);
+  GLOBAL_PRIM_W_ARITY("will-register"     , register_will     , 3, 3, env);
+  GLOBAL_PRIM_W_ARITY("will-try-execute"  , will_executor_try , 1, 1, env);
+  GLOBAL_PRIM_W_ARITY("will-execute"      , will_executor_go  , 1, 1, env);
   
   scheme_add_evt_through_sema(scheme_will_executor_type, will_executor_sema, NULL);
 
 
-  scheme_add_global_constant("collect-garbage", 
-			     scheme_make_prim_w_arity(collect_garbage, 
-						      "collect-garbage",
-						      0, 0), 
-			     env);
-  scheme_add_global_constant("current-memory-use", 
-			     scheme_make_prim_w_arity(current_memory_use, 
-						      "current-memory-use",
-						      0, 1),
-			     env);
+  GLOBAL_PRIM_W_ARITY("collect-garbage"                       , collect_garbage      , 0, 0, env);
+  GLOBAL_PRIM_W_ARITY("current-memory-use"                    , current_memory_use   , 0, 1, env);
 
-  scheme_add_global_constant("custodian-require-memory",
-			     scheme_make_prim_w_arity(custodian_require_mem,
-						      "custodian-require-memory",
-						      3, 3),
-			     env);
-  scheme_add_global_constant("custodian-limit-memory",
-			     scheme_make_prim_w_arity(custodian_limit_mem,
-						      "custodian-limit-memory",
-						      2, 3),
-			     env);
-  scheme_add_global_constant("custodian-memory-accounting-available?",
-                             scheme_make_prim_w_arity(custodian_can_mem,
-                                                      "custodian-memory-accounting-available?",
-						      0, 0),
-			     env);
+  GLOBAL_PRIM_W_ARITY("custodian-require-memory"              , custodian_require_mem, 3, 3, env);
+  GLOBAL_PRIM_W_ARITY("custodian-limit-memory"                , custodian_limit_mem  , 2, 3, env);
+  GLOBAL_PRIM_W_ARITY("custodian-memory-accounting-available?", custodian_can_mem    , 0, 0, env);
   
 
-  scheme_add_global_constant("evt?", 
-			     scheme_make_folding_prim(evt_p,
-						      "evt?", 
-						      1, 1, 1), 
-			     env);
-  scheme_add_global_constant("sync", 
-			     scheme_make_prim_w_arity2(sch_sync,
-						       "sync", 
-						       1, -1,
-						       0, -1), 
-			     env);
-  scheme_add_global_constant("sync/timeout", 
-			     scheme_make_prim_w_arity2(sch_sync_timeout,
-						       "sync/timeout", 
-						       2, -1,
-						       0, -1), 
-			     env);
-  scheme_add_global_constant("sync/enable-break", 
-			     scheme_make_prim_w_arity2(sch_sync_enable_break,
-						       "sync/enable-break", 
-						       1, -1,
-						       0, -1),
-			     env);
-  scheme_add_global_constant("sync/timeout/enable-break", 
-			     scheme_make_prim_w_arity2(sch_sync_timeout_enable_break,
-						       "sync/timeout/enable-break", 
-						       2, -1,
-						       0, -1),
-			     env);
-  scheme_add_global_constant("choice-evt", 
-			     scheme_make_prim_w_arity(evts_to_evt,
-						      "choice-evt", 
-						      0, -1), 
-			     env);
-				 
-  scheme_add_global_constant("current-thread-initial-stack-size", 
-			     scheme_register_parameter(current_thread_initial_stack_size,
-						       "current-thread-initial-stack-size",
-						       MZCONFIG_THREAD_INIT_STACK_SIZE),
-			     env);
+  GLOBAL_FOLDING_PRIM("evt?"                      , evt_p                        , 1, 1 , 1, env);
+  GLOBAL_PRIM_W_ARITY2("sync"                     , sch_sync                     , 1, -1, 0, -1, env);
+  GLOBAL_PRIM_W_ARITY2("sync/timeout"             , sch_sync_timeout             , 2, -1, 0, -1, env);
+  GLOBAL_PRIM_W_ARITY2("sync/enable-break"        , sch_sync_enable_break        , 1, -1, 0, -1, env);
+  GLOBAL_PRIM_W_ARITY2("sync/timeout/enable-break", sch_sync_timeout_enable_break, 2, -1, 0, -1, env);
+  GLOBAL_PRIM_W_ARITY("choice-evt"                , evts_to_evt                  , 0, -1, env);
+
+  GLOBAL_PARAMETER("current-thread-initial-stack-size", current_thread_initial_stack_size, MZCONFIG_THREAD_INIT_STACK_SIZE, env);
 }
 
 void scheme_init_thread_places(void) {
@@ -839,21 +576,21 @@ void scheme_init_memtrace(Scheme_Env *env)
   v = scheme_make_symbol("memory-trace-continuation-mark");
   scheme_add_global("memory-trace-continuation-mark", v , newenv);
   v = scheme_make_prim_w_arity(new_tracking_fun, 
-			       "new-memtrace-tracking-function", 1, 1);
+                              "new-memtrace-tracking-function", 1, 1);
   scheme_add_global("new-memtrace-tracking-function", v, newenv);
   v = scheme_make_prim_w_arity(union_tracking_val, 
-			       "unioned-memtrace-tracking-value", 1, 1);
+                               "unioned-memtrace-tracking-value", 1, 1);
   scheme_add_global("unioned-memtrace-tracking-value", v, newenv);
   scheme_finish_primitive_module(newenv);
 }
 
 void scheme_init_inspector() {
-    REGISTER_SO(initial_inspector);
-    initial_inspector = scheme_make_initial_inspectors();
-    /* Keep the initial inspector in case someone resets Scheme (by
-       calling scheme_basic_env() a second time. Using the same
-       inspector after a reset lets us use the same initial module
-       instances. */
+  REGISTER_SO(initial_inspector);
+  initial_inspector = scheme_make_initial_inspectors();
+  /* Keep the initial inspector in case someone resets Scheme (by
+     calling scheme_basic_env() a second time. Using the same
+     inspector after a reset lets us use the same initial module
+     instances. */
 }
 
 Scheme_Object *scheme_get_current_inspector()
@@ -866,6 +603,11 @@ Scheme_Object *scheme_get_current_inspector()
 
   c = scheme_current_config();
   return scheme_get_param(c, MZCONFIG_INSPECTOR);
+}
+
+Scheme_Object *scheme_get_initial_inspector(void)
+{
+  return initial_inspector;
 }
   
 void scheme_init_parameterization()
@@ -886,34 +628,14 @@ void scheme_init_paramz(Scheme_Env *env)
   v = scheme_intern_symbol("#%paramz");
   newenv = scheme_primitive_module(v, env);
   
-  scheme_add_global_constant("exception-handler-key", 
-			     scheme_exn_handler_key,
-			     newenv);
-  scheme_add_global_constant("parameterization-key", 
-			     scheme_parameterization_key,
-			     newenv);
-  scheme_add_global_constant("break-enabled-key", 
-			     scheme_break_enabled_key,
-			     newenv);
+  scheme_add_global_constant("exception-handler-key", scheme_exn_handler_key     , newenv);
+  scheme_add_global_constant("parameterization-key" , scheme_parameterization_key, newenv);
+  scheme_add_global_constant("break-enabled-key"    , scheme_break_enabled_key   , newenv);
 
-  scheme_add_global_constant("extend-parameterization", 
-			     scheme_make_prim_w_arity(extend_parameterization,
-						      "extend-parameterization", 
-						      1, -1), 
-			     newenv);
-
-  scheme_add_global_constant("check-for-break", 
-			     scheme_make_prim_w_arity(check_break_now,
-						      "check-for-break", 
-						      0, 0), 
-			     newenv);
-
-  scheme_add_global_constant("reparameterize",
-                             scheme_make_prim_w_arity(reparameterize,
-						      "reparameterize", 
-						      1, 1), 
-			     newenv);
-
+  GLOBAL_PRIM_W_ARITY("extend-parameterization" , extend_parameterization , 1, -1, newenv);
+  GLOBAL_PRIM_W_ARITY("check-for-break"         , check_break_now         , 0,  0, newenv);
+  GLOBAL_PRIM_W_ARITY("reparameterize"          , reparameterize          , 1,  1, newenv);
+  GLOBAL_PRIM_W_ARITY("make-custodian-from-main", make_custodian_from_main, 0,  0, newenv);
 
   scheme_finish_primitive_module(newenv);
   scheme_protect_primitive_provide(newenv, NULL);
@@ -1019,7 +741,7 @@ static Scheme_Object *custodian_require_mem(int argc, Scheme_Object *args[])
                      "custodian-require-memory: second custodian is not a sub-custodian of the first custodian");
   }
 
-#ifdef NEWGC_BTC_ACCOUNT
+#ifdef MZ_PRECISE_GC
   if (GC_set_account_hook(MZACCT_REQUIRE, c1, lim, c2))
     return scheme_void;
 #endif
@@ -1061,7 +783,7 @@ static Scheme_Object *custodian_limit_mem(int argc, Scheme_Object *args[])
     adjust_limit_table((Scheme_Custodian *)args[2]);
   }
 
-#ifdef NEWGC_BTC_ACCOUNT
+#ifdef MZ_PRECISE_GC
   if (GC_set_account_hook(MZACCT_LIMIT, args[0], lim, (argc > 2) ? args[2] : args[0]))
     return scheme_void;
 #endif
@@ -1073,8 +795,8 @@ static Scheme_Object *custodian_limit_mem(int argc, Scheme_Object *args[])
 
 static Scheme_Object *custodian_can_mem(int argc, Scheme_Object *args[])
 {
-#ifdef NEWGC_BTC_ACCOUNT
-  return scheme_true;
+#ifdef MZ_PRECISE_GC
+  return (GC_accouting_enabled() ? scheme_true : scheme_false);
 #else
   return scheme_false;
 #endif
@@ -1386,7 +1108,8 @@ static void managed_object_gone(void *o, void *mr)
     remove_managed(mr, o, NULL, NULL);
 }
 
-int scheme_custodian_is_available(Scheme_Custodian *m)
+int scheme_custodian_is_available(Scheme_Custodian *m) XFORM_SKIP_PROC 
+/* may be called from a future thread */
 {
   if (m->shut_down)
     return 0;
@@ -1598,6 +1321,10 @@ Scheme_Thread *scheme_do_close_managed(Scheme_Custodian *m, Scheme_Exit_Closer_F
     m = next_m;
   }
 
+#ifdef MZ_USE_FUTURES
+  scheme_future_check_custodians();
+#endif
+
   return kill_self;
 }
 
@@ -1691,6 +1418,11 @@ static Scheme_Object *make_custodian(int argc, Scheme_Object *argv[])
   return (Scheme_Object *)scheme_make_custodian(m);
 }
 
+static Scheme_Object *make_custodian_from_main(int argc, Scheme_Object *argv[])
+{
+  return (Scheme_Object *)scheme_make_custodian(NULL);
+}
+
 static Scheme_Object *custodian_p(int argc, Scheme_Object *argv[])
 {
   return SCHEME_CUSTODIANP(argv[0]) ? scheme_true : scheme_false;
@@ -1706,6 +1438,15 @@ static Scheme_Object *custodian_close_all(int argc, Scheme_Object *argv[])
   return scheme_void;
 }
 
+Scheme_Custodian* scheme_custodian_extract_reference(Scheme_Custodian_Reference *mr)
+{
+  return CUSTODIAN_FAM(mr);
+}
+
+int scheme_custodian_is_shut_down(Scheme_Custodian* c)
+{
+  return c->shut_down;
+}
 
 static Scheme_Object *extract_thread(Scheme_Object *o)
 {
@@ -1810,6 +1551,11 @@ static Scheme_Object *current_custodian(int argc, Scheme_Object *argv[])
 			     scheme_make_integer(MZCONFIG_CUSTODIAN),
 			     argc, argv,
 			     -1, custodian_p, "custodian", 0);
+}
+
+Scheme_Custodian *scheme_get_current_custodian()
+{
+  return (Scheme_Custodian *) current_custodian(0, NULL);
 }
 
 static Scheme_Object *make_custodian_box(int argc, Scheme_Object *argv[])
@@ -1942,18 +1688,20 @@ static void shrink_cust_box_array(void)
 # define clean_cust_box_list()   /* empty */
 #endif
 
-static void run_closers(Scheme_Object *o, Scheme_Close_Custodian_Client *f, void *data)
+void scheme_run_atexit_closers(Scheme_Object *o, Scheme_Close_Custodian_Client *f, void *data)
 {
   Scheme_Object *l;
 
-  for (l = cust_closers; SCHEME_RPAIRP(l); l = SCHEME_CDR(l)) {
-    Scheme_Exit_Closer_Func cf;
-    cf = (Scheme_Exit_Closer_Func)SCHEME_CAR(l);
-    cf(o, f, data);
+  if (cust_closers) {
+    for (l = cust_closers; SCHEME_RPAIRP(l); l = SCHEME_CDR(l)) {
+      Scheme_Exit_Closer_Func cf;
+      cf = (Scheme_Exit_Closer_Func)SCHEME_CAR(l);
+      cf(o, f, data);
+    }
   }
 }
 
-static void run_atexit_closers(void)
+void scheme_run_atexit_closers_on_all(Scheme_Exit_Closer_Func alt)
 {
   mz_jmp_buf newbuf, *savebuf;
 
@@ -1966,9 +1714,14 @@ static void run_atexit_closers(void)
   savebuf = scheme_current_thread->error_buf;
   scheme_current_thread->error_buf = &newbuf;
   if (!scheme_setjmp(newbuf)) {  
-    scheme_do_close_managed(NULL, run_closers);
+    scheme_do_close_managed(NULL, alt ? alt : scheme_run_atexit_closers);
   }
   scheme_current_thread->error_buf = savebuf;
+}
+
+void do_run_atexit_closers_on_all()
+{
+  scheme_run_atexit_closers_on_all(NULL);
 }
 
 void scheme_set_atexit(Scheme_At_Exit_Proc p)
@@ -1980,12 +1733,12 @@ void scheme_add_atexit_closer(Scheme_Exit_Closer_Func f)
 {
   if (!cust_closers) {
     if (replacement_at_exit) {
-      replacement_at_exit(run_atexit_closers);
+      replacement_at_exit(do_run_atexit_closers_on_all);
     } else {
 #ifdef USE_ON_EXIT_FOR_ATEXIT
-      on_exit(run_atexit_closers, NULL);
+      on_exit(do_run_atexit_closers_on_all, NULL);
 #else
-      atexit(run_atexit_closers);
+      atexit(do_run_atexit_closers_on_all);
 #endif
     }
 
@@ -2585,11 +2338,11 @@ void scheme_init_process_globals(void)
 #endif
 }
 
-Scheme_Object *scheme_get_place_table(void)
+Scheme_Hash_Table *scheme_get_place_table(void)
 {
   if (!place_local_misc_table)
     place_local_misc_table = scheme_make_hash_table(SCHEME_hash_ptr);
-  return (Scheme_Object *)place_local_misc_table;
+  return place_local_misc_table;
 }
 
 /*========================================================================*/
@@ -3627,7 +3380,7 @@ static int check_sleep(int need_activity, int sleep_now)
       && !end_with_act 
       && (do_atomic 
 	  || (!p && ((!sleep_now && scheme_wakeup_on_input)
-		     || (sleep_now && scheme_sleep))))) {
+		     || (sleep_now && (scheme_sleep || scheme_place_sleep)))))) {
     double max_sleep_time = 0;
 
     /* Poll from top-level process, and all subprocesses are blocked. */
@@ -3712,7 +3465,15 @@ static int check_sleep(int need_activity, int sleep_now)
 	mst = 100000000.0;
       }
 
-      scheme_sleep(mst, fds);
+      {
+        Scheme_Sleep_Proc slp;
+        if (scheme_place_sleep)
+          slp = scheme_place_sleep;
+        else
+          slp = scheme_sleep;
+
+        slp(mst, fds);
+      }
     } else if (scheme_wakeup_on_input)
       scheme_wakeup_on_input(fds);
 
@@ -3726,6 +3487,11 @@ void scheme_set_wakeup_time(void *fds, double end_time)
 {
   /* should be called only during a needs_wakeup callback */
   needs_sleep_time_end = end_time;
+}
+
+void scheme_set_place_sleep(Scheme_Sleep_Proc slp)
+{
+  scheme_place_sleep = slp;
 }
 
 static int post_system_idle()
@@ -3948,21 +3714,29 @@ static void raise_break(Scheme_Thread *p)
   p->block_needs_wakeup = block_needs_wakeup;
 }
 
+static void escape_to_kill(Scheme_Thread *p)
+{
+  p->cjs.jumping_to_continuation = (Scheme_Object *)p;
+  p->cjs.alt_full_continuation = NULL;
+  p->cjs.is_kill = 1;
+  p->cjs.skip_dws = 0;
+  scheme_longjmp(*p->error_buf, 1);
+}
+
 static void exit_or_escape(Scheme_Thread *p)
 {
   /* Maybe this killed thread is nested: */
   if (p->nester) {
     if (p->running & MZTHREAD_KILLED)
       p->running -= MZTHREAD_KILLED;
-    p->cjs.jumping_to_continuation = (Scheme_Object *)p;
-    p->cjs.alt_full_continuation = NULL;
-    p->cjs.is_kill = 1;
-    p->cjs.skip_dws = 0;
-    scheme_longjmp(*p->error_buf, 1);
+    escape_to_kill(p);
   }
 
   if (SAME_OBJ(p, scheme_main_thread)) {
     /* Hard exit: */
+    if (scheme_current_place_id)
+      escape_to_kill(p);
+
     if (scheme_exit)
       scheme_exit(0);
     
@@ -4038,7 +3812,7 @@ void scheme_break_thread(Scheme_Thread *p)
   scheme_weak_resume_thread(p);
 # if defined(WINDOWS_PROCESSES) || defined(WINDOWS_FILE_HANDLES)
   if (SAME_OBJ(p, scheme_main_thread))
-    ReleaseSemaphore(scheme_break_semaphore, 1, NULL);
+    ReleaseSemaphore((HANDLE)scheme_break_semaphore, 1, NULL);
 # endif
 }
 
@@ -4051,6 +3825,9 @@ static void call_on_atomic_timeout(int must)
   Scheme_Object *blocker;
   Scheme_Ready_Fun block_check;
   Scheme_Needs_Wakeup_Fun block_needs_wakeup;
+  Scheme_Kill_Action_Func private_on_kill;
+  void *private_kill_data;
+  void **private_kill_next;
 
   /* Save any state that has to do with the thread blocking or 
      sleeping, in case scheme_on_atomic_timeout() runs Racket code. */
@@ -4061,6 +3838,10 @@ static void call_on_atomic_timeout(int must)
   blocker = p->blocker;
   block_check = p->block_check;
   block_needs_wakeup = p->block_needs_wakeup;
+
+  private_on_kill = p->private_on_kill;
+  private_kill_data = p->private_kill_data;
+  private_kill_next = p->private_kill_next;
 
   p->running = MZTHREAD_RUNNING;
   p->sleep_end = 0.0;
@@ -4077,6 +3858,10 @@ static void call_on_atomic_timeout(int must)
   p->blocker = blocker;
   p->block_check = block_check;
   p->block_needs_wakeup = block_needs_wakeup;
+
+  p->private_on_kill = private_on_kill;
+  p->private_kill_data = private_kill_data;
+  p->private_kill_next = private_kill_next;
 }
 
 static void find_next_thread(Scheme_Thread **return_arg) {
@@ -4321,7 +4106,7 @@ void scheme_thread_block(float sleep_time)
   if (next && (!next->running || (next->running & MZTHREAD_SUSPENDED))) {
     /* In the process of selecting another thread, it was suspended or
        removed. Very unusual, but possible if a block checker does
-       stange things??? */
+       strange things??? */
     next = NULL;
   }
 
@@ -4405,6 +4190,10 @@ void scheme_thread_block(float sleep_time)
 #if defined(MZ_PRECISE_GC) && defined(MZ_USE_PLACES)
   if (!do_atomic)
     GC_check_master_gc_request(); 
+#endif
+#if defined(MZ_USE_PLACES)
+  if (!do_atomic)
+    scheme_place_check_for_interruption();
 #endif
   
   if (sleep_end > 0) {
@@ -4575,8 +4364,6 @@ void scheme_thread_block_enable_break(float sleep_time, int enable_break)
 
 void scheme_start_atomic(void)
 {
-  if (!do_atomic)
-    missed_context_switch = 0;
   do_atomic++;
 }
 
@@ -4607,6 +4394,7 @@ void scheme_end_atomic(void)
 {
   scheme_end_atomic_no_swap();
   if (!do_atomic && missed_context_switch) {
+    missed_context_switch = 0;
     scheme_thread_block(0.0);
     scheme_current_thread->ran_some = 1;    
   }
@@ -4634,7 +4422,16 @@ int scheme_wait_until_suspend_ok(void)
 
   while (do_atomic && scheme_on_atomic_timeout) {
     did = 1;
+    if (atomic_timeout_auto_suspend)
+      atomic_timeout_auto_suspend++;
     call_on_atomic_timeout(1);
+    if (atomic_timeout_auto_suspend > 1)
+      --atomic_timeout_auto_suspend;
+  }
+
+  if (do_atomic) {
+    scheme_log_abort("about to suspend in atomic mode");
+    abort();
   }
 
   return did;
@@ -5427,31 +5224,33 @@ typedef struct Evt {
 
 
 /* PLACE_THREAD_DECL */
-FIXME_LATER static int evts_array_size;
-FIXME_LATER static Evt **evts;
+static int evts_array_size;
+static Evt **evts;
+#if defined(MZ_PRECISE_GC) && defined(MZ_USE_PLACES)
+THREAD_LOCAL_DECL(static int place_evts_array_size);
+THREAD_LOCAL_DECL(static Evt **place_evts);
+#endif
 
-void scheme_add_evt(Scheme_Type type,
-		    Scheme_Ready_Fun ready, 
-		    Scheme_Needs_Wakeup_Fun wakeup, 
-		    Scheme_Sync_Filter_Fun filter,
-		    int can_redirect)
+void scheme_add_evt_worker(Evt ***evt_array,
+                           int *evt_size,
+                           Scheme_Type type,
+                           Scheme_Ready_Fun ready, 
+                           Scheme_Needs_Wakeup_Fun wakeup, 
+                           Scheme_Sync_Filter_Fun filter,
+                           int can_redirect)
 {
   Evt *naya;
 
-  if (!evts) {
-    REGISTER_SO(evts);
-  }
-
-  if (evts_array_size <= type) {
+  if (*evt_size <= type) {
     Evt **nevts;
     int new_size;
     new_size = type + 1;
     if (new_size < _scheme_last_type_)
       new_size = _scheme_last_type_;
     nevts = MALLOC_N(Evt*, new_size);
-    memcpy(nevts, evts, evts_array_size * sizeof(Evt*));
-    evts = nevts;
-    evts_array_size = new_size;
+    memcpy(nevts, (*evt_array), (*evt_size) * sizeof(Evt*));
+    (*evt_array) = nevts;
+    (*evt_size) = new_size;
   }
 
   naya = MALLOC_ONE_RT(Evt);
@@ -5464,7 +5263,31 @@ void scheme_add_evt(Scheme_Type type,
   naya->filter = filter;
   naya->can_redirect = can_redirect;
 
-  evts[type] = naya;
+  (*evt_array)[type] = naya;
+}
+
+void scheme_add_evt(Scheme_Type type,
+		    Scheme_Ready_Fun ready, 
+		    Scheme_Needs_Wakeup_Fun wakeup, 
+		    Scheme_Sync_Filter_Fun filter,
+		    int can_redirect)
+{
+#if defined(MZ_PRECISE_GC) && defined(MZ_USE_PLACES)
+  if (GC_is_place()) {
+    if (!place_evts) {
+      REGISTER_SO(place_evts);
+    }
+    scheme_add_evt_worker(&place_evts, &place_evts_array_size, type, ready, wakeup, filter, can_redirect);
+  }
+  else {
+#endif
+    if (!evts) {
+      REGISTER_SO(evts);
+    }
+    scheme_add_evt_worker(&evts, &evts_array_size, type, ready, wakeup, filter, can_redirect);
+#if defined(MZ_PRECISE_GC) && defined(MZ_USE_PLACES)
+  }
+#endif
 }
 
 void scheme_add_evt_through_sema(Scheme_Type type,
@@ -5478,21 +5301,23 @@ void scheme_add_evt_through_sema(Scheme_Type type,
 static Evt *find_evt(Scheme_Object *o)
 {
   Scheme_Type t;
-  Evt *w;
+  Evt *w = NULL;
 
   t = SCHEME_TYPE(o);
-  w = evts[t];
-  if (w) {
-    if (w->filter) {
-      Scheme_Sync_Filter_Fun filter;
-      filter = w->filter;
-      if (!filter(o))
-	return NULL;
-    }
-    return w;
-  }
+  if (t < evts_array_size)
+    w = evts[t];
+#if defined(MZ_PRECISE_GC) && defined(MZ_USE_PLACES)
+  if (place_evts && w == NULL)
+    w = place_evts[t];
+#endif
 
-  return NULL;
+  if (w && w->filter) {
+    Scheme_Sync_Filter_Fun filter;
+    filter = w->filter;
+    if (!filter(o))
+      return NULL;
+  }
+  return w;
 }
 
 int scheme_is_evt(Scheme_Object *o)
@@ -5993,6 +5818,8 @@ static Scheme_Object *do_sync(const char *name, int argc, Scheme_Object *argv[],
     if (!SCHEME_FALSEP(argv[0])) {
       if (SCHEME_REALP(argv[0]))
 	timeout = (float)scheme_real_to_double(argv[0]);
+      else if (scheme_check_proc_arity(NULL, 0, 0, argc, argv))
+        timeout = 0.0;
       
       if (timeout < 0.0) {
 	scheme_wrong_type(name, "non-negative real number", 0, argc, argv);
@@ -6151,10 +5978,17 @@ static Scheme_Object *do_sync(const char *name, int argc, Scheme_Object *argv[],
       }
     }
     return o;
-  } else if (tailok)
-    return scheme_false;
-  else
-    return NULL;
+  } else {
+    if (with_timeout && SCHEME_PROCP(argv[0])) {
+      if (tailok)
+        return _scheme_tail_apply(argv[0], 0, NULL);
+      else
+        return _scheme_apply(argv[0], 0, NULL);
+    } else if (tailok)
+      return scheme_false;
+    else
+      return NULL;
+  }
 }
 
 static Scheme_Object *sch_sync(int argc, Scheme_Object *argv[])
@@ -6360,24 +6194,21 @@ Scheme_Config *scheme_current_config()
   return (Scheme_Config *)v;
 }
 
-static Scheme_Config *do_extend_config(Scheme_Config *c, Scheme_Object *key, Scheme_Object *cell)
+static Scheme_Config *do_extend_config(Scheme_Config *c, Scheme_Object *key, Scheme_Object *val)
 {
   Scheme_Config *naya;
+  Scheme_Hash_Tree *ht;
 
   /* In principle, the key+cell link should be weak, but it's
      difficult to imagine a parameter being GC'ed while an active
      `parameterize' is still on the stack (or, at least, difficult to
      imagine that it matters). */
 
-  if (c->depth > 50)
-    scheme_flatten_config(c);
-
   naya = MALLOC_ONE_TAGGED(Scheme_Config);
   naya->so.type = scheme_config_type;
-  naya->depth = c->depth + 1;
-  naya->key = key;
-  naya->cell = cell; /* could be just a value */
-  naya->next = c;
+  ht = scheme_hash_tree_set(c->ht, key, scheme_make_thread_cell(val, 1));
+  naya->ht = ht;
+  naya->root = c->root;
 
   return naya;
 }
@@ -6393,30 +6224,22 @@ void scheme_install_config(Scheme_Config *config)
 }
 
 Scheme_Object *find_param_cell(Scheme_Config *c, Scheme_Object *k, int force_cell)
-     /* Unless force_cell, the result may actually be a value, if there has been
-	no reason to set it before */
 {
-  while (1) {
-    if (SAME_OBJ(c->key, k)) {
-      if (force_cell && !SCHEME_THREAD_CELLP(c->cell)) {
-	Scheme_Object *cell;
-	cell = scheme_make_thread_cell(c->cell, 1);
-	c->cell = cell;
-      }
-      return c->cell;
-    } else if (!c->next) {
-      /* Eventually bottoms out here */
-      Scheme_Parameterization *p = (Scheme_Parameterization *)c->cell;
-      if (SCHEME_INTP(k))
-	return p->prims[SCHEME_INT_VAL(k)];
-      else {
-	if (p->extensions)
-	  return scheme_lookup_in_table(p->extensions, (const char *)k);
-	else
-	  return NULL;
-      }
-    } else
-      c = c->next;
+  Scheme_Object *v;
+  Scheme_Parameterization *p;
+
+  v = scheme_hash_tree_get(c->ht, k);
+  if (v)
+    return v;
+  
+  p = c->root;
+  if (SCHEME_INTP(k))
+    return p->prims[SCHEME_INT_VAL(k)];
+  else {
+    if (p->extensions)
+      return scheme_lookup_in_table(p->extensions, (const char *)k);
+    else
+      return NULL;
   }
 }
 
@@ -6425,9 +6248,7 @@ Scheme_Object *scheme_get_thread_param(Scheme_Config *c, Scheme_Thread_Cell_Tabl
   Scheme_Object *cell;
 
   cell = find_param_cell(c, scheme_make_integer(pos), 0);
-  if (SCHEME_THREAD_CELLP(cell))
-    return scheme_thread_cell_get(cell, cells);
-  return cell;
+  return scheme_thread_cell_get(cell, cells);
 }
 
 Scheme_Object *scheme_get_param(Scheme_Config *c, int pos)
@@ -6454,83 +6275,6 @@ static Scheme_Parameterization *malloc_paramz()
 
 void scheme_flatten_config(Scheme_Config *orig_c)
 {
-  int pos, i;
-  Scheme_Parameterization *paramz, *paramz2;
-  Scheme_Object *key;
-  Scheme_Bucket *b, *b2;
-  Scheme_Config *c;
-
-  if (orig_c->next) {
-    paramz = malloc_paramz();
-#ifdef MZTAG_REQUIRED
-    paramz->type = scheme_rt_parameterization;
-#endif
-    
-    c = orig_c;
-    while (1) {
-      if (c->key) {
-	if (SCHEME_INTP(c->key)) {
-	  pos = SCHEME_INT_VAL(c->key);
-	  if (!paramz->prims[pos]) {
-	    if (!SCHEME_THREAD_CELLP(c->cell)) {
-	      Scheme_Object *cell;
-	      cell = scheme_make_thread_cell(c->cell, 1);
-	      c->cell = cell;
-	    }
-	    paramz->prims[pos] = c->cell;
-	  }
-	} else {
-	  if (!paramz->extensions) {
-	    Scheme_Bucket_Table *t;
-	    t = scheme_make_bucket_table(20, SCHEME_hash_weak_ptr);
-	    paramz->extensions = t;
-	  }
-	  b = scheme_bucket_from_table(paramz->extensions, (const char *)c->key);
-	  if (!b->val) {
-	    if (!SCHEME_THREAD_CELLP(c->cell)) {
-	      Scheme_Object *cell;
-	      cell = scheme_make_thread_cell(c->cell, 1);
-	      c->cell = cell;
-	    }
-	    b->val = c->cell;
-	  }
-	}
-	c = c->next;
-      } else {
-	paramz2 = (Scheme_Parameterization *)c->cell;
-
-	for (i = 0; i < max_configs; i++) {
-	  if (!paramz->prims[i])
-	    paramz->prims[i] = paramz2->prims[i];
-	}
-
-	if (paramz2->extensions) {
-	  if (!paramz->extensions) {
-	    /* Re-use the old hash table */
-	    paramz->extensions = paramz2->extensions;
-	  } else {
-	    for (i = paramz2->extensions->size; i--; ) {
-	      b = paramz2->extensions->buckets[i];
-	      if (b && b->val && b->key) {
-		key = (Scheme_Object *)HT_EXTRACT_WEAK(b->key);
-		if (key) {
-		  b2 = scheme_bucket_from_table(paramz->extensions, (const char *)key);
-		  if (!b2->val)
-		    b2->val = b->val;
-		}
-	      }
-	    }
-	  }
-	}
-
-	break;
-      }
-    }
-
-    orig_c->cell = (Scheme_Object *)paramz;
-    orig_c->key = NULL;
-    orig_c->next = NULL;
-  }
 }
 
 static Scheme_Object *parameterization_p(int argc, Scheme_Object **argv)
@@ -6604,6 +6348,7 @@ static Scheme_Object *reparameterize(int argc, Scheme_Object **argv)
   Scheme_Config *c, *naya;
   Scheme_Parameterization *pz, *npz;
   Scheme_Object *v;
+  Scheme_Hash_Tree *ht;
   int i;
 
   if (!SCHEME_CONFIGP(argv[0]))
@@ -6612,16 +6357,15 @@ static Scheme_Object *reparameterize(int argc, Scheme_Object **argv)
   c = (Scheme_Config *)argv[0];
   scheme_flatten_config(c);
 
-  pz = (Scheme_Parameterization *)c->cell;
+  pz = c->root;
   npz = malloc_paramz();
   memcpy(npz, pz, sizeof(Scheme_Parameterization));
 
   naya = MALLOC_ONE_TAGGED(Scheme_Config);
   naya->so.type = scheme_config_type;
-  naya->depth = 0;
-  naya->key = NULL;
-  naya->cell = (Scheme_Object *)npz;
-  naya->next = NULL;
+  ht = scheme_make_hash_tree(0);
+  naya->ht = ht;
+  naya->root = npz;
 
   for (i = 0; i < max_configs; i++) {
     v = scheme_thread_cell_get(pz->prims[i], scheme_current_thread->cell_values);
@@ -6686,7 +6430,7 @@ static Scheme_Object *do_param(void *_data, int argc, Scheme_Object *argv[])
 
   pos[0] = data->key;
   pos[1] = data->defcell;
-  
+
   return scheme_param_config("parameter-procedure", 
 			     (Scheme_Object *)(void *)pos,
 			     argc, argv2,
@@ -6792,7 +6536,7 @@ static void init_param(Scheme_Thread_Cell_Table *cells,
 void scheme_set_root_param(int p, Scheme_Object *v)
 {
   Scheme_Parameterization *paramz;
-  paramz = (Scheme_Parameterization *)scheme_current_thread->init_config->cell;
+  paramz = scheme_current_thread->init_config->root;
   ((Thread_Cell *)(paramz->prims[p]))->def_val = v;
 }
 
@@ -6813,7 +6557,12 @@ static void make_initial_config(Scheme_Thread *p)
 
   config = MALLOC_ONE_TAGGED(Scheme_Config);
   config->so.type = scheme_config_type;
-  config->cell = (Scheme_Object *)paramz;
+  config->root = paramz;
+  {
+    Scheme_Hash_Tree *ht;
+    ht = scheme_make_hash_tree(0);
+    config->ht = ht;
+  }
 
   p->init_config = config;
 
@@ -6927,6 +6676,11 @@ static void make_initial_config(Scheme_Thread *p)
                                   "default-prompt-read-handler",
                                   0, 0);
     init_param(cells, paramz, MZCONFIG_PROMPT_READ_HANDLER, ph);
+
+    ph = scheme_make_prim_w_arity(scheme_default_read_input_port_handler,
+                                  "default-get-interaction-input-port",
+                                  0, 0);
+    init_param(cells, paramz, MZCONFIG_READ_INPUT_PORT_HANDLER, ph);
 
     ph = scheme_make_prim_w_arity(scheme_default_read_handler,
                                   "default-read-interaction-handler",
@@ -7888,24 +7642,89 @@ static void done_with_GC()
 #ifdef MZ_USE_FUTURES
   scheme_future_continue_after_gc();
 #endif
+
+#ifndef MZ_PRECISE_GC
+  {
+    Scheme_Logger *logger = scheme_get_main_logger();
+    if (logger) {
+      char buf[64];
+      intptr_t buflen;
+
+      sprintf(buf,
+              "GC in %" PRIdPTR " msec",
+              end_this_gc_time - start_this_gc_time);
+      buflen = strlen(buf);
+
+      scheme_log_message(logger, SCHEME_LOG_DEBUG, buf, buflen, NULL);
+    }
+  }
+#endif
 }
 
 #ifdef MZ_PRECISE_GC
-static void inform_GC(int major_gc, intptr_t pre_used, intptr_t post_used)
+static char *gc_num(char *nums, int v)
+/* format a number with commas */
+{
+  int i, j, len, clen, c, d;
+  for (i = 0; nums[i] || nums[i+1]; i++) {
+  }
+  i++;
+
+  v /= 1024; /* bytes => kbytes */
+
+  sprintf(nums+i, "%d", v);
+  for (len = 0; nums[i+len]; len++) { }
+  clen = len + ((len + ((nums[i] == '-') ? -2 : -1)) / 3);
+  
+  c = 0;
+  d = (clen - len);
+  for (j = i + clen - 1; j > i; j--) {
+    if (c == 3) {
+      nums[j] = ',';
+      d--;
+      c = 0;
+    } else {
+      nums[j] = nums[j - d];
+      c++;
+    }
+  }
+
+  return nums + i;
+}
+
+static void inform_GC(int master_gc, int major_gc, 
+                      intptr_t pre_used, intptr_t post_used,
+                      intptr_t pre_admin, intptr_t post_admin)
 {
   Scheme_Logger *logger = scheme_get_main_logger();
   if (logger) {
     /* Don't use scheme_log(), because it wants to allocate a buffer
        based on the max value-print width, and we may not be at a
        point where parameters are available. */
-    char buf[128];
-    intptr_t buflen;
+    char buf[128], nums[128];
+    intptr_t buflen, delta, admin_delta;
 
+#ifdef MZ_USE_PLACES
+# define PLACE_ID_FORMAT "%d:"
+#else
+# define PLACE_ID_FORMAT ""
+#endif
+
+    memset(nums, 0, sizeof(nums));
+
+    delta = pre_used - post_used;
+    admin_delta = (pre_admin - post_admin) - delta;
     sprintf(buf,
-            "GC [%s] at %ld bytes; %ld collected in %ld msec",
-            (major_gc ? "major" : "minor"),
-            pre_used, pre_used - post_used,
-            end_this_gc_time - start_this_gc_time);
+            "GC [" PLACE_ID_FORMAT "%s] at %sK(+%sK)[+%sK];"
+            " freed %sK(%s%sK) in %" PRIdPTR " msec",
+#ifdef MZ_USE_PLACES
+            scheme_current_place_id,
+#endif
+            (master_gc ? "MASTER" : (major_gc ? "MAJOR" : "minor")),
+            gc_num(nums, pre_used), gc_num(nums, pre_admin - pre_used),
+            gc_num(nums, scheme_code_page_total),
+            gc_num(nums, delta), ((admin_delta < 0) ? "" : "+"),  gc_num(nums, admin_delta),
+            (master_gc ? 0 : (end_this_gc_time - start_this_gc_time)));
     buflen = strlen(buf);
 
     scheme_log_message(logger, SCHEME_LOG_DEBUG, buf, buflen, NULL);
@@ -8139,8 +7958,7 @@ uintptr_t scheme_get_current_thread_stack_start(void)
 
 START_XFORM_SKIP;
 
-#define MARKS_FOR_THREAD_C
-#include "mzmark.c"
+#include "mzmark_thread.inc"
 
 static void register_traversers(void)
 {

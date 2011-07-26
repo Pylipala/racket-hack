@@ -59,18 +59,18 @@
 
 (define (_+ x y) (+ x y))
 
-(define (_print n)
-  (if (number? n)
-      (begin (print n) #f)
-      (raise-type-error 'print "number" n)))
+(define-syntax-rule (_set! x e)
+  (begin (set! x e) #f))
+
+(define (_zero? x)
+  (equal? 0 x))
 
 (define (_cons x xs)
   (if (list? xs)
       (cons x xs)
       (raise-type-error 'cons "list?" 1 x xs)))
 
-(define-syntax-rule (_set! x e)
-  (begin (set! x e) #f))
-
-(define (_zero? x)
-  (equal? 0 x))
+(define (_print n)
+  (if (number? n)
+      (begin (print n) #f)
+      (raise-type-error 'print "number" n)))

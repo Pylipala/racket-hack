@@ -8,21 +8,12 @@
          "../private/utils.rkt"
          "../private/libs.rkt")
 
-(define-runtime-lib jpeg-lib 
+(define-runtime-lib jpeg-lib
   [(unix) (ffi-lib "libjpeg" '("62" ""))]
   [(macosx) 
    ;; for PPC, it's actually version 8!
    (ffi-lib "libjpeg.62.dylib")]
   [(windows) (ffi-lib "libjpeg-7.dll")])
-
-(define JPEG_LIB_VERSION
-  (case (system-type)
-    [(macosx) (if (string=? "ppc-macosx" 
-                            (path->string (system-library-subpath #f)))
-                  80
-                  62)]
-    [(unix) 62]
-    [(windows) 70]))
 
 (define-ffi-definer define-jpeg jpeg-lib
   #:provide provide)
@@ -70,20 +61,63 @@
                                   ;; and more
                                   ))
 
-(define _scaled_size
-  (case JPEG_LIB_VERSION
-    [(62) _int]
-    [else (make-cstruct-type (list _int _int))]))
+(define-cstruct _jpeg_any_struct ([err _jpeg_error_mgr-pointer]))
 
-(define _prog_scan_size
-  (case JPEG_LIB_VERSION
-    [(62 70) (make-cstruct-type (list _int _int _int _int))]
-    [else (make-cstruct-type (list _int _int _int _int _int _pointer _int))]))
+(define (error-exit m) 
+  (let ([bstr (make-bytes JMSG_LENGTH_MAX)])
+    ((jpeg_error_mgr-format_message
+      (jpeg_any_struct-err (cast m _pointer _jpeg_any_struct-pointer)))
+     m
+     bstr)
+    (error 'jpeg "~a" (bytes->string/latin-1 (subbytes bstr 0 (let loop ([i 0])
+                                                                (if (zero? (bytes-ref bstr i))
+                                                                    i
+                                                                    (loop (add1 i)))))))))
 
-(define _comp_info_size
-  (case JPEG_LIB_VERSION
-    [(62 70) _pointer]
-    [else (make-cstruct-type (list _pointer _jbool))]))
+(define-jpeg/private jpeg_std_error (_fun _jpeg_error_mgr-pointer -> _jpeg_error_mgr-pointer))
+
+(define-jpeg/private jpeg_CreateDecompress/test (_fun _pointer _int _int -> _void)
+  #:c-id jpeg_CreateDecompress)
+
+;; jpeglib offers no way to get the library version number dynamically,
+;; so we hack it by intercepting an error from jpeg_CreateDecompress:
+(define JPEG_LIB_VERSION
+  (let ([dummy-size 4096])
+    (let ([m (cast (malloc dummy-size 'raw) _pointer _jpeg_any_struct-pointer)]
+          [e (cast (malloc sizeof_jpeg_error_mgr 'raw) _pointer _jpeg_error_mgr-pointer)])
+      (set-jpeg_any_struct-err! m (jpeg_std_error e))
+      (set-jpeg_error_mgr-error_exit! e error-exit)
+      (let ([s (with-handlers ([exn:fail? (lambda (exn) (exn-message exn))])
+                 (jpeg_CreateDecompress/test m 0 dummy-size)
+                 "")])
+        (free m)
+        (free e)
+        (let ([m (regexp-match #rx"version: library is ([0-9]+)" s)])
+          (if m
+              (string->number (cadr m))
+              "unknown"))))))
+
+(unless (member JPEG_LIB_VERSION '(62 64 70 80))
+  (error 'jpeg "unsupported library version: ~e" JPEG_LIB_VERSION))
+
+(define-syntax-rule (cstruct-type/version elem ...)
+  (make-cstruct-type (flatten-type (list (cstruct-type/version-elem elem) ...))))
+
+(define-syntax cstruct-type/version-elem
+  (syntax-rules (unquote)
+    [(_ (unquote ([vers (elem ...)] ...)))
+     (case JPEG_LIB_VERSION
+       [vers (list (cstruct-type/version-elem elem) ...)]
+       ...)]
+    [(_ [name type]) type]))
+
+(define (flatten-type l)
+  (cond
+   [(null? l) null]
+   [(list? (car l))
+    (append (flatten-type (car l)) (flatten-type (cdr l)))]
+   [else
+    (cons (car l) (flatten-type (cdr l)))]))
 
 (define-cstruct _jpeg_decompress_struct ([err _jpeg_error_mgr-pointer]
                                          [mem _jpeg_memory_mgr-pointer]
@@ -120,7 +154,7 @@
                                          [enable_2pass_quant _jbool]
 
                                          [output_width _JDIMENSION]
-                                         [output_height _JDIMENSION]
+                                         [output_height _JDIMENSION] ; <-
                                          [out_color_components _int]
                                          [output_components _int]
                                          [rec_outbuf_height _int]
@@ -128,21 +162,230 @@
                                          [actual_number_of_colors _int]
                                          [colormap _pointer]
 
-                                         [output_scanline _JDIMENSION]
+                                         ;; We don't need to refer to any of the remaining
+                                         ;; fields, and the specific set of fields depends
+                                         ;; on the version
+                                         [rest
+                                          (cstruct-type/version
+                                           [output_scanline _JDIMENSION]
 
-                                         [input_scan_number _int]
-                                         [input_iMCU_row _JDIMENSION]
+                                           [input_scan_number _int]
+                                           [input_iMCU_row _JDIMENSION]
 
-                                         [output_scan_number _int]
-                                         [output_iMCU_row _JDIMENSION]
+                                           [output_scan_number _int]
+                                           [output_iMCU_row _JDIMENSION]
+                                           
+                                           [coef_bits _pointer]
+                                           
+                                           [quant_tbl_ptrs_1 _pointer]
+                                           [quant_tbl_ptrs_2 _pointer]
+                                           [quant_tbl_ptrs_3 _pointer]
+                                           [quant_tbl_ptrs_4 _pointer]
+                                           
+                                           [dc_huff_tbl_ptrs_1 _pointer]
+                                           [dc_huff_tbl_ptrs_2 _pointer]
+                                           [dc_huff_tbl_ptrs_3 _pointer]
+                                           [dc_huff_tbl_ptrs_4 _pointer]
+                                           [ac_huff_tbl_ptrs_1 _pointer]
+                                           [ac_huff_tbl_ptrs_2 _pointer]
+                                           [ac_huff_tbl_ptrs_3 _pointer]
+                                           [ac_huff_tbl_ptrs_4 _pointer]
 
-                                         [coef_bits _pointer]
+                                           [data_precision _int]
+
+                                           [comp_info _pointer]
+
+                                           ,([(62 64 70) ()]
+                                             [else ([is_baseline _jbool])])
+                                           [progressive_mode _jbool]
+                                           [arith_code _jbool]
+
+                                           [arith_dc_L_1 _uint8]
+                                           [arith_dc_L_2 _uint8]
+                                           [arith_dc_L_3 _uint8]
+                                           [arith_dc_L_4 _uint8]
+                                           [arith_dc_L_5 _uint8]
+                                           [arith_dc_L_6 _uint8]
+                                           [arith_dc_L_7 _uint8]
+                                           [arith_dc_L_8 _uint8]
+                                           [arith_dc_L_9 _uint8]
+                                           [arith_dc_L_10 _uint8]
+                                           [arith_dc_L_11 _uint8]
+                                           [arith_dc_L_12 _uint8]
+                                           [arith_dc_L_13 _uint8]
+                                           [arith_dc_L_14 _uint8]
+                                           [arith_dc_L_15 _uint8]
+                                           [arith_dc_L_16 _uint8]
+
+                                           [arith_dc_U_1 _uint8]
+                                           [arith_dc_U_2 _uint8]
+                                           [arith_dc_U_3 _uint8]
+                                           [arith_dc_U_4 _uint8]
+                                           [arith_dc_U_5 _uint8]
+                                           [arith_dc_U_6 _uint8]
+                                           [arith_dc_U_7 _uint8]
+                                           [arith_dc_U_8 _uint8]
+                                           [arith_dc_U_9 _uint8]
+                                           [arith_dc_U_10 _uint8]
+                                           [arith_dc_U_11 _uint8]
+                                           [arith_dc_U_12 _uint8]
+                                           [arith_dc_U_13 _uint8]
+                                           [arith_dc_U_14 _uint8]
+                                           [arith_dc_U_15 _uint8]
+                                           [arith_dc_U_16 _uint8]
+
+                                           [arith_dc_K_1 _uint8]
+                                           [arith_dc_K_2 _uint8]
+                                           [arith_dc_K_3 _uint8]
+                                           [arith_dc_K_4 _uint8]
+                                           [arith_dc_K_5 _uint8]
+                                           [arith_dc_K_6 _uint8]
+                                           [arith_dc_K_7 _uint8]
+                                           [arith_dc_K_8 _uint8]
+                                           [arith_dc_K_9 _uint8]
+                                           [arith_dc_K_10 _uint8]
+                                           [arith_dc_K_11 _uint8]
+                                           [arith_dc_K_12 _uint8]
+                                           [arith_dc_K_13 _uint8]
+                                           [arith_dc_K_14 _uint8]
+                                           [arith_dc_K_15 _uint8]
+                                           [arith_dc_K_16 _uint8]
+
+                                           [restart_interval _uint]
+
+                                           [saw_JFIF_marker _jbool]
+                                           [JFIF_major_version _uint8]
+                                           [JFIF_minor_version _uint8]
+                                           [density_unit _uint8]
+                                           [X_density _uint16]
+                                           [Y_density _uint16]
+                                           [saw_Adobe_marker _jbool]
+                                           [Adobe_transform _uint8]
+
+                                           [CCIR601_sampling _jbool]
+
+                                           [marker_list _pointer]
+
+                                           [max_h_samp_factor _int]
+                                           [max_v_samp_factor _int]
+
+                                           ,([(62 64) ([min_DCT_scaled_size _int])]
+                                             [else ([min_DCT_h_scaled_size _int]
+                                                    [min_DCT_v_scaled_size _int])])
+
+                                           [total_iMCU_rows _JDIMENSION]
+                                           [sample_range_limit _pointer]
+
+                                           [comps_in_scan _int]
+
+                                           [cur_comp_info_1 _pointer]
+                                           [cur_comp_info_2 _pointer]
+                                           [cur_comp_info_3 _pointer]
+                                           [cur_comp_info_4 _pointer]
+
+                                           [MCUs_per_row _JDIMENSION]
+                                           [MCU_rows_in_scan _JDIMENSION]
+
+                                           [blocks_in_MCU _int]
+                                           
+                                           [MCU_membership_1 _int]
+                                           [MCU_membership_2 _int]
+                                           [MCU_membership_3 _int]
+                                           [MCU_membership_4 _int]
+                                           [MCU_membership_5 _int]
+                                           [MCU_membership_6 _int]
+                                           [MCU_membership_7 _int]
+                                           [MCU_membership_8 _int]
+                                           [MCU_membership_9 _int]
+                                           [MCU_membership_10 _int]
+
+                                           [Ss _int]
+                                           [Se _int]
+                                           [Ah _int]
+                                           [Al _int]
+                                           
+                                           ,([(62 64 70) ()]
+                                             [else
+                                              ([block_size _int]
+                                               [natural_order _pointer]
+                                               [lim_Se _int])])
+
+                                           [unread_marker _int]
+
+                                           [master _pointer]
+                                           [main _pointer]
+                                           [coef _pointer]
+                                           [post _pointer]
+                                           [inputctl _pointer]
+                                           [marker _pointer]
+                                           [entropy _pointer]
+                                           [idct _pointer]
+                                           [upsample _pointer]
+                                           [cconvert _pointer]
+                                           [cquantize _pointer])]))
+
+(define _j_decompress_ptr _jpeg_decompress_struct-pointer)
+
+(define-cstruct _jpeg_source_mgr ([next_input_byte _pointer] ;; /* => next byte to read from buffer */
+                                  [bytes_in_buffer _size_t]  ;; /* # of bytes remaining in buffer */
+                                  [init_source (_fun _j_decompress_ptr -> _void)]
+                                  [fill_input_buffer (_fun _j_decompress_ptr -> _jbool)]
+                                  [skip_input_data (_fun _j_decompress_ptr _long -> _void)]
+                                  [resync_to_restart (_fun _j_decompress_ptr _int -> _jbool)]
+                                  [term_source (_fun _j_decompress_ptr -> _void)]
+                                  ;; extra fields specific to this binding:
+                                  [buffer _pointer]))
+
+(define (jpeg_decompress_struct-src m)
+  (ptr-cast (jpeg_decompress_struct-src* m) _jpeg_source_mgr-pointer))
+
+(define-cstruct _jpeg_compress_struct ([err _jpeg_error_mgr-pointer]
+                                       [mem _jpeg_memory_mgr-pointer]
+                                       [progress _pointer] ; _jpeg_progress_mgr_pointer
+                                       [client_data _pointer]
+                                       [is_decompressor _jbool]
+                                       [global_state _int]
+
+                                       [dest* _pointer] ; actually jpeg_destination_mgr-pointer
+
+                                       [image_width _JDIMENSION]
+                                       [image_height _JDIMENSION]
+                                       [input_components _int]
+                                       [in_color_space _J_COLOR_SPACE] ; <-
+  
+                                       [input_gamma _double]
+
+                                       ;; We don't need to refer to any of the remaining
+                                       ;; fields, and the specific set of fields depends
+                                       ;; on the version
+                                       [rest
+                                        (cstruct-type/version
+                                         ,([(62 64) ()]
+                                           [else
+                                            ([scale_num _uint]
+                                             [scale_denom _uint]
+                                             [jpeg_width _JDIMENSION]
+                                             [jpeg_height _JDIMENSION])])
+                                         
+                                         [data_precission _int]
+
+                                         [num_components _int]
+                                         [jpeg_color_space _J_COLOR_SPACE]
+
+                                         [comp_info _pointer]
 
                                          [quant_tbl_ptrs_1 _pointer]
                                          [quant_tbl_ptrs_2 _pointer]
                                          [quant_tbl_ptrs_3 _pointer]
                                          [quant_tbl_ptrs_4 _pointer]
                                          
+                                         ,([(62 64) ()]
+                                           [else
+                                            ([q_scale_factor_1 _int]
+                                             [q_scale_factor_2 _int]
+                                             [q_scale_factor_3 _int]
+                                             [q_scale_factor_4 _int])])
+                                       
                                          [dc_huff_tbl_ptrs_1 _pointer]
                                          [dc_huff_tbl_ptrs_2 _pointer]
                                          [dc_huff_tbl_ptrs_3 _pointer]
@@ -151,13 +394,6 @@
                                          [ac_huff_tbl_ptrs_2 _pointer]
                                          [ac_huff_tbl_ptrs_3 _pointer]
                                          [ac_huff_tbl_ptrs_4 _pointer]
-
-                                         [data_precision _int]
-
-                                         [comp_info&is_baseline _comp_info_size]
-
-                                         [progressive_mode _jbool]
-                                         [arith_code _jbool]
 
                                          [arith_dc_L_1 _uint8]
                                          [arith_dc_L_2 _uint8]
@@ -209,40 +445,54 @@
                                          [arith_dc_K_14 _uint8]
                                          [arith_dc_K_15 _uint8]
                                          [arith_dc_K_16 _uint8]
+                                         
+                                         [num_scans _int]
+                                         [scan_info _pointer]
+
+                                         [raw_data_in _jbool]
+                                         [arith_code _jbool]
+                                         [optimize_coding _jbool]
+                                         [CCIR601_sampling _jbool]
+                                         ,([(62 64) ()]
+                                           [else
+                                            ([do_fancy_downsampling _jbool])])
+
+                                         [smoothing_factor _int]
+                                         [dct_method _J_DCT_METHOD]
 
                                          [restart_interval _uint]
-
-                                         [saw_JFIF_marker _jbool]
+                                         [restart_in_rows _int]
+                                         
+                                         [write_JFIF_header _jbool]
                                          [JFIF_major_version _uint8]
                                          [JFIF_minor_version _uint8]
                                          [density_unit _uint8]
                                          [X_density _uint16]
                                          [Y_density _uint16]
-                                         [saw_Adobe_marker _jbool]
-                                         [Adobe_transform _uint8]
-
-                                         [CCIR601_sampling _jbool]
-
-                                         [marker_list _pointer]
-
+                                         [write_Adobe_marker _jbool]
+                                         
+                                         [next_scanline _JDIMENSION]
+                                         
+                                         [progressive_mode _jbool]
+                                         
                                          [max_h_samp_factor _int]
                                          [max_v_samp_factor _int]
 
-                                         [min_DCT_scaled_size _scaled_size]
+                                         ,([(62 64) ()]
+                                           [else ([min_DCT_h_scaled_size _int]
+                                                  [min_DCT_v_scaled_size _int])])
 
                                          [total_iMCU_rows _JDIMENSION]
-                                         [sample_range_limit _pointer]
 
                                          [comps_in_scan _int]
-
                                          [cur_comp_info_1 _pointer]
                                          [cur_comp_info_2 _pointer]
                                          [cur_comp_info_3 _pointer]
                                          [cur_comp_info_4 _pointer]
-
+                                       
                                          [MCUs_per_row _JDIMENSION]
                                          [MCU_rows_in_scan _JDIMENSION]
-
+                                         
                                          [blocks_in_MCU _int]
                                          
                                          [MCU_membership_1 _int]
@@ -256,223 +506,28 @@
                                          [MCU_membership_9 _int]
                                          [MCU_membership_10 _int]
 
-                                         [prog_scan _prog_scan_size] ; Ss, Se, Ah, Al
-
-                                         [unread_marker _int]
+                                         [Ss _int]
+                                         [Se _int]
+                                         [Ah _int]
+                                         [Al _int]
+                                         
+                                         ,([(62 64 70) ()]
+                                           [else
+                                            ([block_size _int]
+                                             [natural_order _pointer]
+                                             [lim_Se _int])])
 
                                          [master _pointer]
                                          [main _pointer]
+                                         [prep _pointer]
                                          [coef _pointer]
-                                         [post _pointer]
-                                         [inputctl _pointer]
                                          [marker _pointer]
-                                         [entropy _pointer]
-                                         [idct _pointer]
-                                         [upsample _pointer]
                                          [cconvert _pointer]
-                                         [cquantize _pointer]))
-
-(define _j_decompress_ptr _jpeg_decompress_struct-pointer)
-
-(define-cstruct _jpeg_source_mgr ([next_input_byte _pointer] ;; /* => next byte to read from buffer */
-                                  [bytes_in_buffer _size_t]  ;; /* # of bytes remaining in buffer */
-                                  [init_source (_fun _j_decompress_ptr -> _void)]
-                                  [fill_input_buffer (_fun _j_decompress_ptr -> _jbool)]
-                                  [skip_input_data (_fun _j_decompress_ptr _long -> _void)]
-                                  [resync_to_restart (_fun _j_decompress_ptr _int -> _jbool)]
-                                  [term_source (_fun _j_decompress_ptr -> _void)]
-                                  ;; extra fields specific to this binding:
-                                  [buffer _pointer]))
-
-(define (jpeg_decompress_struct-src m)
-  (ptr-cast (jpeg_decompress_struct-src* m) _jpeg_source_mgr-pointer))
-
-(define-cstruct _jpeg7_compression_params ([scale_num _uint]
-					   [scale_denom _uint]
-					   [jpeg_width _JDIMENSION]
-					   [jpeg_height _JDIMENSION]
-					   [data_precision _int]))
-(define _compression_params_t
-  (case JPEG_LIB_VERSION
-    [(62) _int] ; just data_precission
-    [else _jpeg7_compression_params]))
-
-(define-cstruct _quant_tbl_62_t ([quant_tbl_ptrs_1 _pointer]
-				 [quant_tbl_ptrs_2 _pointer]
-				 [quant_tbl_ptrs_3 _pointer]
-				 [quant_tbl_ptrs_4 _pointer]))
-(define-cstruct (_quant_tbl_70_t _quant_tbl_62_t) ([q_scale_factor_1 _int]
-						   [q_scale_factor_2 _int]
-						   [q_scale_factor_3 _int]
-						   [q_scale_factor_4 _int]))
-
-(define _quant_tbl_t
-  (case JPEG_LIB_VERSION
-    [(62) _quant_tbl_62_t]
-    [else _quant_tbl_70_t]))
-
-(define _sampling_t
-  (case JPEG_LIB_VERSION
-    [(62) _jbool] ; just CCIR601_sampling
-    [else (make-cstruct-type (list _jbool _jbool))])) ; CCIR601_sampling and do_fancy_downsampling
-
-(define-cstruct _factors_62_t ([max_h_samp_factor _int]
-			      [max_v_samp_factor _int]))
-(define-cstruct (_factors_70_t _factors_62_t) ([scaled _scaled_size]))
-(define _factors_t
-  (case JPEG_LIB_VERSION
-    [(62) _factors_62_t]
-    [else _factors_70_t]))
-
-
-(define-cstruct _jpeg_compress_struct ([err _jpeg_error_mgr-pointer]
-                                       [mem _jpeg_memory_mgr-pointer]
-                                       [progress _pointer] ; _jpeg_progress_mgr_pointer
-                                       [client_data _pointer]
-                                       [is_decompressor _jbool]
-                                       [global_state _int]
-
-                                       [dest* _pointer] ; actually jpeg_destination_mgr-pointer
-
-                                       [image_width _JDIMENSION]
-                                       [image_height _JDIMENSION]
-                                       [input_components _int]
-                                       [in_color_space _J_COLOR_SPACE]
-  
-                                       [input_gamma _double]
-
-				       [compression_params _compression_params_t]
-
-                                       [num_components _int]
-                                       [jpeg_color_space _J_COLOR_SPACE]
-
-                                       [comp_info _pointer]
-				       
-				       [quant_tbl _quant_tbl_t]
-                                       
-                                       [dc_huff_tbl_ptrs_1 _pointer]
-                                       [dc_huff_tbl_ptrs_2 _pointer]
-                                       [dc_huff_tbl_ptrs_3 _pointer]
-                                       [dc_huff_tbl_ptrs_4 _pointer]
-                                       [ac_huff_tbl_ptrs_1 _pointer]
-                                       [ac_huff_tbl_ptrs_2 _pointer]
-                                       [ac_huff_tbl_ptrs_3 _pointer]
-                                       [ac_huff_tbl_ptrs_4 _pointer]
-
-                                       [arith_dc_L_1 _uint8]
-                                       [arith_dc_L_2 _uint8]
-                                       [arith_dc_L_3 _uint8]
-                                       [arith_dc_L_4 _uint8]
-                                       [arith_dc_L_5 _uint8]
-                                       [arith_dc_L_6 _uint8]
-                                       [arith_dc_L_7 _uint8]
-                                       [arith_dc_L_8 _uint8]
-                                       [arith_dc_L_9 _uint8]
-                                       [arith_dc_L_10 _uint8]
-                                       [arith_dc_L_11 _uint8]
-                                       [arith_dc_L_12 _uint8]
-                                       [arith_dc_L_13 _uint8]
-                                       [arith_dc_L_14 _uint8]
-                                       [arith_dc_L_15 _uint8]
-                                       [arith_dc_L_16 _uint8]
-
-                                       [arith_dc_U_1 _uint8]
-                                       [arith_dc_U_2 _uint8]
-                                       [arith_dc_U_3 _uint8]
-                                       [arith_dc_U_4 _uint8]
-                                       [arith_dc_U_5 _uint8]
-                                       [arith_dc_U_6 _uint8]
-                                       [arith_dc_U_7 _uint8]
-                                       [arith_dc_U_8 _uint8]
-                                       [arith_dc_U_9 _uint8]
-                                       [arith_dc_U_10 _uint8]
-                                       [arith_dc_U_11 _uint8]
-                                       [arith_dc_U_12 _uint8]
-                                       [arith_dc_U_13 _uint8]
-                                       [arith_dc_U_14 _uint8]
-                                       [arith_dc_U_15 _uint8]
-                                       [arith_dc_U_16 _uint8]
-
-                                       [arith_dc_K_1 _uint8]
-                                       [arith_dc_K_2 _uint8]
-                                       [arith_dc_K_3 _uint8]
-                                       [arith_dc_K_4 _uint8]
-                                       [arith_dc_K_5 _uint8]
-                                       [arith_dc_K_6 _uint8]
-                                       [arith_dc_K_7 _uint8]
-                                       [arith_dc_K_8 _uint8]
-                                       [arith_dc_K_9 _uint8]
-                                       [arith_dc_K_10 _uint8]
-                                       [arith_dc_K_11 _uint8]
-                                       [arith_dc_K_12 _uint8]
-                                       [arith_dc_K_13 _uint8]
-                                       [arith_dc_K_14 _uint8]
-                                       [arith_dc_K_15 _uint8]
-                                       [arith_dc_K_16 _uint8]
-                                       
-                                       [num_scans _int]
-                                       [scan_info _pointer]
-
-                                       [raw_data_in _jbool]
-                                       [arith_code _jbool]
-                                       [optimize_coding _jbool]
-				       [sampling _sampling_t]
-                                       [smoothing_factor _int]
-                                       [dct_method _J_DCT_METHOD]
-
-                                       [restart_interval _uint]
-                                       [restart_in_rows _int]
-                                       
-                                       [write_JFIF_header _jbool]
-                                       [JFIF_major_version _uint8]
-                                       [JFIF_minor_version _uint8]
-                                       [density_unit _uint8]
-                                       [X_density _uint16]
-                                       [Y_density _uint16]
-                                       [write_Adobe_marker _jbool]
-
-                                       [next_scanline _JDIMENSION]
-
-                                       [progressive_mode _jbool]
-				       [factors _factors_t]
-
-                                       [total_iMCU_rows _JDIMENSION]
-
-                                       [comps_in_scan _int]
-                                       [cur_comp_info_1 _pointer]
-                                       [cur_comp_info_2 _pointer]
-                                       [cur_comp_info_3 _pointer]
-                                       [cur_comp_info_4 _pointer]
-                                       
-                                       [MCUs_per_row _JDIMENSION]
-                                       [MCU_rows_in_scan _JDIMENSION]
-
-                                       [blocks_in_MCU _int]
-                                       
-                                       [MCU_membership_1 _int]
-                                       [MCU_membership_2 _int]
-                                       [MCU_membership_3 _int]
-                                       [MCU_membership_4 _int]
-                                       [MCU_membership_5 _int]
-                                       [MCU_membership_6 _int]
-                                       [MCU_membership_7 _int]
-                                       [MCU_membership_8 _int]
-                                       [MCU_membership_9 _int]
-                                       [MCU_membership_10 _int]
-
-                                       [prog_scan _prog_scan_size] ; Ss, Se, Ah, Al
-
-                                       [master _pointer]
-                                       [main _pointer]
-                                       [prep _pointer]
-                                       [coef _pointer]
-                                       [marker _pointer]
-                                       [cconvert _pointer]
-                                       [downsample _pointer]
-                                       [fdct _pointer]
-                                       [entropy _pointer]
-                                       [script_space _pointer]
-                                       [script_space_size _int]))
+                                         [downsample _pointer]
+                                         [fdct _pointer]
+                                         [entropy _pointer]
+                                         [script_space _pointer]
+                                         [script_space_size _int])]))
 
 (define _j_compress_ptr _jpeg_compress_struct-pointer)
 
@@ -532,11 +587,13 @@
 (define (init-destination m)
   (void))
 
-(define (empty-output-buffer m)
+(define (do-empty-output-buffer m all?)
   (let* ([d (jpeg_compress_struct-dest m)]
          [b (jpeg_destination_mgr-buffer d)]
          [bstr (scheme_make_sized_byte_string b 
-                                              (- BUFFER-SIZE (jpeg_destination_mgr-free_in_buffer d))
+                                              (if all?
+                                                  BUFFER-SIZE
+                                                  (- BUFFER-SIZE (jpeg_destination_mgr-free_in_buffer d)))
                                               0)]
          [out (ptr-ref (jpeg_compress_struct-client_data m) _scheme)])
     (write-bytes bstr out)
@@ -544,23 +601,15 @@
     (set-jpeg_destination_mgr-free_in_buffer! d BUFFER-SIZE)
     #t))
 
+(define (empty-output-buffer m)
+  (do-empty-output-buffer m #t))
+
 (define (term-destination m)
-  (empty-output-buffer m)
+  (do-empty-output-buffer m #f)
   ;; Maybe add support to optionally close port as early as possible?
   (when #f
     (let ([in (ptr-ref (jpeg_decompress_struct-client_data m) _scheme)])
       (close-input-port in))))
-
-(define (error-exit m) 
-  (let ([bstr (make-bytes JMSG_LENGTH_MAX)])
-    ((jpeg_error_mgr-format_message
-      (jpeg_decompress_struct-err (ptr-cast m _jpeg_decompress_struct-pointer)))
-     m
-     bstr)
-    (error 'jpeg "~a" (bytes->string/latin-1 (subbytes bstr 0 (let loop ([i 0])
-                                                                (if (zero? (bytes-ref bstr i))
-                                                                    i
-                                                                    (loop (add1 i)))))))))
 
 (define (ptr-cast p t) (cast p _pointer t))
 
@@ -633,8 +682,6 @@
                 len
                 1)])
     (values samps (scheme_make_sized_byte_string (ptr-ref samps _pointer) len 0))))
-
-(define-jpeg/private jpeg_std_error (_fun _jpeg_error_mgr-pointer -> _jpeg_error_mgr-pointer))
 
 (define-jpeg/private jpeg_CreateDecompress (_fun _j_decompress_ptr _int _int -> _void))
 (define-jpeg/private jpeg_resync_to_restart (_fun _j_decompress_ptr _int -> _jbool))

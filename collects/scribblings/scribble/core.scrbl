@@ -1,8 +1,9 @@
 #lang scribble/doc
-@(require scribble/manual
-          "utils.ss"
+@(require scribble/manual "utils.rkt"
           (for-label scribble/manual-struct
-                     setup/main-collects))
+                     file/convertible
+                     setup/main-collects
+                     scriblib/render-cond))
 
 @title[#:tag "core"]{Structures And Processing}
 
@@ -340,10 +341,11 @@ The recognized @tech{style properties} are as follows:
        normally shows only the top-level sections).}
 
  @item{@racket['hidden] --- The part title is not shown in rendered
-       HTML output.}
+       HTML output. The @racket['toc-hidden] style usually should be
+       included with @racket['hidden].}
 
  @item{@racket['toc-hidden] --- The part title is not shown in tables
-       of contents.}
+       of contents, including in ``on this page'' boxes.}
 
  @item{@racket['quiet] --- In HTML output and most other output modes,
        hides entries for sub-parts of this part in a
@@ -365,6 +367,13 @@ The recognized @tech{style properties} are as follows:
        minimum, a non-@racket[""] version is rendered when it is
        attached to a part representing the whole document. The default
        version for a document is @racket[(version)].}
+
+ @item{@racket[document-date] structure --- A date for the part,
+       normally used on a document's main part for for Latex
+       output. The default date for a document is @racket[#f], which
+       avoids explicitly specifying a date at the Latex level, so that
+       the current date is used as the document date. Set the date to
+       @racket[""] to suppress a date in an output document.}
 
   @item{@racket[body-id] structure --- Generated HTML uses the given
         string @tt{id} attribute of the @tt{body} tag; this style can
@@ -405,6 +414,9 @@ recognized:
        by the Latex renderer by moving the author information to the
        title.}
 
+ @item{@racket['pretitle] --- Typeset before the title of the
+       enclosing part.}
+
 ]
 
 The currently recognized @tech{style properties} are as follows:
@@ -412,17 +424,22 @@ The currently recognized @tech{style properties} are as follows:
 @itemize[
 
  @item{@racket['omitable] --- When a table cell contains a single
-       @racket[omitable-paragraph], then when rendering to HTML, no
-       @tt{p} tag wraps the cell content.}
+       @racket[paragraph] with the @racket['omitable] style property,
+       then when rendering to HTML, no @tt{<p>} tag wraps the cell
+       content.}
 
  @item{@racket['div] --- Generates @tt{<div>} HTML output instead of
-       @tt{<p>}.}
+       @tt{<p>} (unless a @racket[alt-tag] property is provided).}
+
+ @item{@racket[alt-tag] structure --- Generates the indicated HTML tag
+       instead of @tt{<p>} or @tt{<div>}.}
 
  @item{@racket[attributes] structure --- Provides additional HTML
-       attributes for the @tt{<p>} or @tt{<div>} tag.}
+       attributes for the @tt{<p>}, @tt{<div>}, or alternate tag.}
 
  @item{@racket[body-id] structure --- For HTML, uses the given string
-       as an @tt{id} attribute of the @tt{<p>} or @tt{<div>} tag.}
+       as an @tt{id} attribute of the @tt{<p>}, @tt{<div>}, or
+       alternate tag.}
 
  @item{@racket['never-indents] --- For Latex and @tech{compound
        paragraphs}; see @racket[compound-paragraph].}
@@ -481,11 +498,11 @@ line-wrapped, unless a vertical alignment is specified for the cell
 through a @racket[table-cells] or @racket[table-columns]
 @tech{style property}. To get a line-wrapped paragraph, use a
 @racket[compound-paragraph] or use an element with a string style and
-define a corresponding Latex macro in terms of @tt{parbox}. For Latex
+define a corresponding Latex macro in terms of @ltx{parbox}. For Latex
 output of blocks in the flow that are @racket[nested-flow]s,
 @racket[itemization]s, @racket[compound-paragraph]s, or
-@racket[delayed-block]s, the block is wrapped with @tt{minipage} using
-@tt{linewidth} divided by the column count as the width.}
+@racket[delayed-block]s, the block is wrapped with @ltxe{minipage} using
+@ltx{linewidth} divided by the column count as the width.}
 
 
 @defstruct[itemization ([style style?]
@@ -528,8 +545,8 @@ The following @tech{style properties} are currently recognized:
 
 A @techlink{nested flow} has a style and a @tech{flow}.
 
-In @racket[style], the @racket{style name} is normally a string that
-corresponds to a CSS class for HTML @tt{blockquote} output or a Latex
+In @racket[style], the @tech{style name} is normally a string that
+corresponds to a CSS class for HTML @tt{<blockquote>} output or a Latex
 environment (see @secref["extra-style"]). The following symbolic style
 names are recognized:
 
@@ -537,6 +554,9 @@ names are recognized:
 
  @item{@racket['inset] --- Insets the nested flow relative to
        surrounding text.}
+
+ @item{@racket['code-inset] --- Insets the nested flow relative to
+       surrounding text in a way suitable for code.}
 
 ]
 
@@ -547,6 +567,10 @@ The following @tech{style properties} are currently recognized:
  @item{@racket['command] --- For Latex output, a string @tech{style
        name} is used as a command name instead of an environment
        name.}
+
+ @item{@racket['multicommand] --- For Latex output, a string
+       @tech{style name} is used as a command name with a separate
+       argument for each block in @racket[blocks].}
 
  @item{@racket[attributes] structure --- Provides additional HTML
        attributes for the @tt{<blockquote>} tag.}
@@ -569,7 +593,7 @@ A @techlink{compound paragraph} has a @tech{style} and a list of
 For HTML, a @racket[paragraph] block in @racket[blocks] is rendered
 without a @tt{<p>} tag, unless the paragraph has a style with a
 non-@racket[#f] @tech{style name}. For Latex, each @tech{block} in
-@racket[blocks] is rendered with a preceding @tt{\noindent}, unless
+@racket[blocks] is rendered with a preceding @ltx{noindent}, unless
 the block has the @racket['never-indents] property (checking
 recursively in a @racket[nested-flow] or @racket[compound-paragraph]
 if the @racket[nested-flow] or @racket[compound-paragraph] itself has
@@ -586,11 +610,14 @@ for Latex output (see @secref["extra-style"]). The following
        name} is used as a command name instead of an environment
        name.}
 
+ @item{@racket[alt-tag] structure --- Generates the given HTML tag
+       instead of @tt{<p>}.}
+
  @item{@racket[attributes] structure --- Provides additional HTML
-       attributes for the @tt{<p>} tag.}
+       attributes for the @tt{<p>} or alternate tag.}
 
  @item{@racket[body-id] structure --- For HTML, uses the given string
-       as an @tt{id} attribute of the @tt{<p>} tag.}
+       as an @tt{id} attribute of the @tt{<p>} or alternate tag.}
 
  @item{@racket['never-indents] --- For Latex within another
        @tech{compound paragraph}; see above.}
@@ -601,15 +628,34 @@ for Latex output (see @secref["extra-style"]). The following
 @defstruct[traverse-block ([traverse block-traverse-procedure/c])]{
 
 Produces another block during the @tech{traverse pass}, eventually.
-The @scheme[traverse] procedure is called with procedures to get and
-set symbol-keyed information, and it should return either a
-@tech{block} (which effectively takes the @racket[traverse-block]'s
-place) or a procedure like @racket[traverse] to be called in the next
-iteration of the @tech{traverse pass}.
+
+The @racket[traverse] procedure is called with @racket[_get] and
+@racket[_set] procedures to get and set symbol-keyed information; the
+@racket[traverse] procedure should return either a @tech{block} (which
+effectively takes the @racket[traverse-block]'s place) or a procedure
+like @racket[traverse] to be called in the next iteration of the
+@tech{traverse pass}.
 
 All @racket[traverse-element] and @racket[traverse-block]s that have
 not been replaced are forced in document order relative to each other
-during an iteration of the @tech{traverse pass}.}
+during an iteration of the @tech{traverse pass}.
+
+The @racket[_get] procedure passed to @racket[traverse] takes a symbol
+and any value to act as a default; it returns information registered
+for the symbol or the given default if no value has been
+registered. The @racket[_set] procedure passed to @racket[traverse]
+takes a symbol and a value to registered for the symbol.
+
+@margin-note*{See also @racket[cond-block] in @racketmodname[scriblib/render-cond].}
+@;
+The symbol @indexed-racket['scribble:current-render-mode] is
+automatically registered to a list of symbols that describe the
+target of document rendering. The list contains @racket['html]
+when rendering to HTML, @racket['latex] when rendering via Latex, and
+@racket['text] when rendering to text. The registration of
+@racket['scribble:current-render-mode] cannot be changed via
+@racket[_set].}
+
 
 @defstruct[delayed-block ([resolve (any/c part? resolve-info? . -> . block?)])]{
 
@@ -646,6 +692,9 @@ recognized:
  @item{@racket['newline] --- Renders a line break independent of
        the @racket[content].}
 
+ @item{@racket['no-break] --- Prevents line breaks when rendering
+       @racket[content].}
+
 ]
 
 The following @tech{style properties} are currently recognized:
@@ -663,8 +712,11 @@ The following @tech{style properties} are currently recognized:
  @item{@racket[background-color-property] structure --- Applies a color to the
        background of @racket[content].}
 
+ @item{@racket[alt-tag] structure --- Generates the given HTML tag
+       instead of the default one (@tt{<span>}, @tt{b}, @|etc|).}
+
  @item{@racket[attributes] structure --- Provides additional HTML
-       attributes for a @tt{<span>} tag.}
+       attributes for a tag.}
 
  @item{@racket[hover-property] structure --- For HTML, adds a text
        label to the content to be shown when the mouse hovers over
@@ -674,7 +726,7 @@ The following @tech{style properties} are currently recognized:
        script alternative to @racket[content].}
 
   @item{@racket[body-id] structure --- For HTML uses the given
-        string as an @tt{id} attribute of the @tt{span} tag.}
+        string as an @tt{id} attribute of the @tt{<span>} tag.}
 
   @item{@racket['aux] --- Intended for use in titles, where the
         auxiliary part of the title can be omitted in hyperlinks. See,
@@ -704,7 +756,7 @@ For each string in @racket[suffixes], if the rendered works with the
 corresponding suffix, the suffix is added to @racket[path] and used if
 the resulting path refers to a file that exists. The order in
 @racket[suffixes] determines the order in which suffixes are
-tried. The HTML renderer supports @racket[".png"] and @racket[".gif"],
+tried. The HTML renderer supports @racket[".png"], @racket[".gif"], and @racket[".svg"],
 while the Latex renderer supports @racket[".png"], @racket[".pdf"],
 and @racket[".ps"] (but rendering Latex output to PDF will not work
 with @racket[".ps"] files, while rendering to Latex DVI output works
@@ -798,6 +850,8 @@ in curly braces) as elements of @racket[content].}
 
 @defstruct[traverse-element ([traverse element-traverse-procedure/c])]{
 
+@margin-note*{See also @racket[cond-element] in @racketmodname[scriblib/render-cond].}
+@;
 Like @racket[traverse-block], but the @racket[traverse] procedure must
 eventually produce @tech{content}, rather than a @tech{block}.}
 
@@ -873,8 +927,14 @@ than a file path.}
 
 @defstruct[document-version ([text (or/c string? false/c)])]{
 
-Used as a @tech{style property} for a @racket[path] to indicate a
+Used as a @tech{style property} for a @racket[part] to indicate a
 version number.}
+
+
+@defstruct[document-date ([text (or/c string? false/c)])]{
+
+Used as a @tech{style property} for a @racket[part] to indicate a
+date (which is typically used for Latex output).}
 
 
 @defstruct[color-property ([color (or/c string? (list/c byte? byte? byte?))])]{
@@ -1144,7 +1204,7 @@ Produces the content that replaces @racket[e].}
 
 Defined as
 
-@schemeblock[
+@racketblock[
   (recursive-contract
    ((symbol? any/c . -> . any/c)
     (symbol? any/c . -> . any)
@@ -1156,7 +1216,7 @@ Defined as
 
 Defined as
 
-@schemeblock[
+@racketblock[
   (recursive-contract
    ((symbol? any/c . -> . any/c)
     (symbol? any/c . -> . any)
@@ -1177,6 +1237,13 @@ Defined as
 
 Used as a @tech{style property} to add arbitrary attributes to an HTML
 tag.}
+
+@defstruct[alt-tag ([name (and/c string? #rx"^[a-zA-Z0-9]+$")])]{
+
+Use as a @tech{style property} for an @racket[element],
+@racket[paragraph], or @racket[compound-paragraph] to substitute an
+alternate HTML tag (instead of @tt{<span>}, @tt{<p>}, @tt{div},
+@|etc|).}
 
 
 @defstruct[url-anchor ([name string?])]{

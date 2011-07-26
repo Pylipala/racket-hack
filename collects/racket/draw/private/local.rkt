@@ -12,6 +12,7 @@
   get-cairo-alpha-surface
   release-bitmap-storage
   get-bitmap-gl-context
+  drop-alpha-s
 
   ;; bitmap-dc%
   internal-get-bitmap
@@ -20,6 +21,7 @@
   ;; dc%
   in-cairo-context
   get-clipping-matrix
+  reset-config
 
   ;; region%
   install-region
@@ -42,5 +44,9 @@
   get-font-metrics-key
   install-color
   dc-adjust-smoothing
+  dc-adjust-cap-shape
+  get-hairline-width
   can-combine-text?
-  can-mask-bitmap?)
+  can-mask-bitmap?
+  reset-clip
+  get-clear-operator)

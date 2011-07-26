@@ -29,7 +29,7 @@
 #undef HAVE_UINTPTR_T
 
 #ifdef HAVE_INTPTR_T
-# include <stdint.h>
+# include <inttypes.h>
 #endif
 #ifndef HAVE_INTPTR_T
 typedef long intptr_t;
@@ -56,16 +56,19 @@ typedef unsigned long uintptr_t;
 /* Whether pthread_rwlock is available. */
 #undef HAVE_PTHREAD_RWLOCK
 
-/* Enable futures and/or places (but not with sgc): */
-#if !defined(USE_SENORA_GC) || defined(NEWGC_BTC_ACCOUNT)
+/* Enable futures: */
 #undef MZ_USE_FUTURES
+
+/* Enable places --- 3m only: */
+#ifdef MZ_PRECISE_GC
 #undef MZ_USE_PLACES
 #endif
 
 /* Configure use of pthreads for the user-thread timer. */
 #undef USE_PTHREAD_INSTEAD_OF_ITIMER
 
-/* Enable GC2 Places Testing. */
-#undef GC2_PLACES_TESTING
+/* Enable single-precision floats [as default]: */
+#undef USE_SINGLE_FLOATS
+#undef USE_SINGLE_FLOATS_AS_DEFAULT
 
 #endif

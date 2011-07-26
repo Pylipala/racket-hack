@@ -6,7 +6,7 @@
          lang/run-teaching-program
          (only-in srfi/13 string-contains)
          scheme/contract
-         "language-level-model.ss")
+         "language-level-model.rkt")
 
 
 ;; A SIMPLE EXAMPLE OF USING THIS FRAMEWORK:
@@ -77,8 +77,8 @@
 
 ;; THE METHOD THAT RUNS A TEST:
 
-(provide/contract [run-one-test (symbol? model-or-models/c string? (listof step?) . -> . boolean?)])
-;; run-one-test : symbol? model-or-models? string? steps? -> boolean?
+(provide/contract [run-one-test (symbol? model-or-models/c string? (listof step?) (listof (list/c string? string?)) . -> . boolean?)])
+;; run-one-test : symbol? model-or-models? string? steps? extra-files -> boolean?
 
 ;; the ll-model determines the behavior of the stepper w.r.t. "language-level"-y things:
 ;; how should values be rendered, should steps be displayed (i.e, will the input & output
@@ -90,55 +90,76 @@
 ;; the steps lists the desired steps.  The easiest way to understand these is probably just to 
 ;; read the code for the comparison given in "compare-steps", below.
 
+;; the extra-files contain a list of other files that must occur in the same directory. 
+
 ;; run the named test, return #t if a failure occurred during the test.
 
-(define (run-one-test name models exp-str expected-steps)
+(define (run-one-test name models exp-str expected-steps extra-files)
   (unless (display-only-errors)
     (printf "running test: ~v\n" name))
   (let ([error-has-occurred-box (box #f)])
-    (test-sequence/many models exp-str expected-steps error-has-occurred-box)
+    (test-sequence/many models exp-str expected-steps extra-files error-has-occurred-box)
     (if (unbox error-has-occurred-box)
         (begin (fprintf (current-error-port) "...Error has occurred during test: ~v\n" name)
                #f)
-        #t)
-    ))
+        #t)))
+
+(provide/contract [string->expanded-syntax-list (-> ll-model? string? (listof syntax?))])
+(define (string->expanded-syntax-list ll-model exp-str)
+  (define expander-thunk ((string->expander-thunk ll-model exp-str)))
+  (let loop ()
+    (define next (expander-thunk))
+    (cond [(eof-object? next) '()]
+          [else (cons next (loop))])))
+
 
 
 
 
 ;; test-sequence/many : model-or-models/c string? steps? -> (void)
 ;; run a given test through a bunch of language models (or just one).
-
-(define (test-sequence/many models exp-str expected-steps error-box)
-  (cond [(list? models)(for-each (lambda (model) (test-sequence model exp-str expected-steps error-box))
+(define (test-sequence/many models exp-str expected-steps extra-files error-box)
+  (cond [(list? models)(for-each (lambda (model) (test-sequence model exp-str expected-steps extra-files error-box))
                                  models)]
-        [else (test-sequence models exp-str expected-steps error-box)]))
+        [else (test-sequence models exp-str expected-steps extra-files error-box)]))
 
-;; test-sequence : ll-model? string? steps? -> (void)
+;; test-sequence : ll-model? string? steps? extra-files? -> (void)
 ;; given a language model and an expression and a sequence of steps,
 ;; check to see whether the stepper produces the desired steps
-(define (test-sequence the-ll-model exp-str expected-steps error-box)
-  (match the-ll-model
-    [(struct ll-model (namespace-spec teachpack-specs render-settings show-lambdas-as-lambdas? enable-testing?))
-     (let ([filename (build-path test-directory "stepper-test")])
-       (call-with-output-file filename
-         (lambda (port) (fprintf port "~a" exp-str))
-         #:exists
-         'truncate)
+(define (test-sequence the-ll-model exp-str expected-steps extra-files error-box)
+  (parameterize ([current-directory test-directory])
+    (for ([f (in-list extra-files)])
+      (display-to-file (second f) (first f) #:exists 'truncate))
+    (define expander-thunk (string->expander-thunk the-ll-model exp-str))
+    (match the-ll-model
+      [(struct ll-model (namespace-spec render-settings enable-testing?))
        (unless (display-only-errors)
          (printf "testing string: ~v\n" exp-str))
-       (let* ([port (open-input-file filename)]
-              [module-id (gensym "stepper-module-name-")]
-              ;; thunk this so that syntax errors happen within the error handlers:
-              [expanded-thunk 
-               (lambda () (expand-teaching-program port read-syntax namespace-spec teachpack-specs #f module-id enable-testing?))])
-         (test-sequence/core render-settings show-lambdas-as-lambdas? expanded-thunk expected-steps error-box)))]))
+       (test-sequence/core render-settings expander-thunk expected-steps error-box)
+       (delete-file "stepper-test")
+       (for ([f (in-list extra-files)])
+         (delete-file (first f)))])))
+
+
+;; given a language level model and a string, produce a thunk that returns
+;; syntax objects expanded in the given language:
+;; EFFECT: creates a file called "stepper-test" in test-directory
+(define (string->expander-thunk the-ll-model exp-str)
+  (parameterize ([current-directory test-directory])
+    (match the-ll-model
+      [(struct ll-model (namespace-spec render-settings enable-testing?))
+       (let ([filename "stepper-test"])
+         (display-to-file exp-str filename #:exists 'truncate)
+         (let* ([port (open-input-file filename)]
+                [module-id (gensym "stepper-module-name-")])
+           ;; thunk this so that syntax errors happen within the error handlers:
+           (lambda () (expand-teaching-program port read-syntax namespace-spec '() #f module-id enable-testing?))))])))
 
 ;; test-sequence/core : render-settings? boolean? syntax? steps?
 ;; this is a front end for calling the stepper's "go"; the main 
 ;; responsibility here is to fake the behavior of DrRacket and collect the
 ;; resulting steps.
-(define (test-sequence/core render-settings show-lambdas-as-lambdas? expanded-thunk expected-steps error-box)
+(define (test-sequence/core render-settings expanded-thunk expected-steps error-box)
   (let* ([current-error-display-handler (error-display-handler)]
          [all-steps
           (append expected-steps '((finished-stepping)))]
@@ -170,33 +191,37 @@
     (let/ec escape
       (parameterize ([error-escape-handler (lambda () (escape (void)))])
         (go iter-caller receive-result render-settings
-            show-lambdas-as-lambdas?
-            ;; language level:
-            'testing
-            (disable-stepper-error-handling))))
+            #:disable-error-handling? (disable-stepper-error-handling))))
     (error-display-handler current-error-display-handler)))
 
 (define-namespace-anchor n-anchor)
+
+;; it seems to be okay to use the same namespace for all of the tests... 
+(define test-namespace (make-base-namespace))
+(namespace-attach-module (namespace-anchor->empty-namespace n-anchor)
+                         'mzlib/pconvert-prop
+                         test-namespace)
+(namespace-attach-module (namespace-anchor->empty-namespace n-anchor)
+                         'racket/private/promise
+                         test-namespace)
+(parameterize ([current-namespace test-namespace])
+    (namespace-require 'test-engine/racket-tests)
+    ;; make the test engine happy by adding a binding for test~object:
+    (namespace-set-variable-value! 'test~object #f))
 
 ;; call-iter-on-each : (-> syntax?) (syntax? (-> 'a) -> 'a) -> void/c
 ;; call the given iter on each syntax in turn (iter bounces control
 ;; back to us by calling the followup-thunk).
 (define (call-iter-on-each stx-thunk iter)
-  (let ([ns (make-base-namespace)])
-    ;; gets structures to print correctly. Copied from fix in command-line tests.
-    (namespace-attach-module (namespace-anchor->empty-namespace n-anchor)
-                             'mzlib/pconvert-prop
-                             ns)
-  (parameterize ([current-namespace ns])
-    (namespace-require 'test-engine/racket-tests)
-    ;; make the test engine happy by adding a binding for test~object:
-    (namespace-set-variable-value! 'test~object #f)
+  (parameterize ([current-namespace test-namespace])
     (let iter-loop ()
       (let* ([next (stx-thunk)]
-             [followup-thunk (if (eof-object? next) void iter-loop)]
+             [followup-thunk (if (eof-object? next) 
+                                 void
+                                 iter-loop)]
              [expanded (expand next)])
         ;;(printf "~v\n" expanded)
-        (iter expanded followup-thunk))))))
+        (iter expanded followup-thunk)))))
 
 
 (define (warn error-box who fmt . args)
@@ -267,7 +292,6 @@
       (begin (warn error-box 'not-equal?
                    "~.s:\nactual:   ~e =/= \nexpected: ~e\n  here's the diff: ~e" name actual expected (sexp-diff actual expected))
              #f)))
-
 
 
 

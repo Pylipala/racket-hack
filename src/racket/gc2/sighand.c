@@ -23,16 +23,38 @@
 #endif
 
 #if WAIT_FOR_GDB
-static void launchgdb() {
-  pid_t pid = getpid();
-  char inbuffer[10];
+void launchgdb() {
+  {
+    pid_t pid = getpid();
+    fprintf(stderr, "pid # %i run gdb\nsudo gdb ./racket3m %i\nor kill process.\n", pid, pid);
+    fflush(stderr);
+  }
 
-  fprintf(stderr, "pid # %i run gdb \"gdb ./racket3m %i\" or kill process.\n", pid, pid);
-  fflush(stderr);
+  pid_t fpid = fork();
+  if (fpid == 0)                // child
+  {
+    char _pidstr[20];
+    char *pidstr = (char*) _pidstr;
+    snprintf(pidstr, 20, "%i", getpid());
+    execl("/usr/bin/bash", "rgdb", pidstr);
+  }
+  else if (fpid < 0)            // failed to fork
+  {
+    printf("Failed to fork\n");
+    exit(1);
+  }
+  else                                   // parent
+  {
+    kill(getpid(), SIGSTOP);
+  }
 
-  while(read(fileno(stdin), inbuffer, 10) <= 0){
-    if(errno != EINTR){
-      fprintf(stderr, "Error detected %i\n", errno);
+  kill(getpid(), SIGSTOP);
+  {
+    char inbuffer[10];
+    while(read(fileno(stdin), inbuffer, 10) <= 0){
+      if(errno != EINTR){
+        fprintf(stderr, "Error detected %i\n", errno);
+      }
     }
   }
 }
@@ -90,6 +112,9 @@ void fault_handler(int sn, struct siginfo *si, void *ctx)
     else {
       printf("SIGSEGV ???? SI_CODE %i fault on %p\n", c, p);
     }
+#if WAIT_FOR_GDB
+    launchgdb();
+#endif
     abort();
   }
 #  define NEED_SIGSTACK
@@ -100,7 +125,7 @@ void fault_handler(int sn, struct siginfo *si, void *ctx)
 
 /* ========== FreeBSD/NetBSD/OpenBSD signal handler ========== */
 /*  As of 2007/06/29, this is a guess for NetBSD!  */
-#if defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
+#if defined(__FreeBSD__) || defined(__FreeBSD_kernel__) || defined(__NetBSD__) || defined(__OpenBSD__)
 # include <signal.h>
 # include <sys/param.h>
 void fault_handler(int sn, siginfo_t *si, void *ctx)
@@ -109,10 +134,14 @@ void fault_handler(int sn, siginfo_t *si, void *ctx)
     abort();
 }
 #  define NEED_SIGACTION
-#  if defined(__FreeBSD__) && (__FreeBSD_version < 700000)
+#  if (defined(__FreeBSD__) && (__FreeBSD_version < 700000))
 #    define USE_SIGACTON_SIGNAL_KIND SIGBUS
 #  else
 #    define USE_SIGACTON_SIGNAL_KIND SIGSEGV
+#    ifdef __FreeBSD_kernel__
+       /* Some versions of the kFreeBSD C library use SIGBUS */
+#      define USE_ANOTHER_SIGACTON_SIGNAL_KIND SIGBUS
+#    endif
 #  endif
 #endif
 
@@ -205,6 +234,9 @@ static void initialize_signal_handler(GCTYPE *gc)
     act.sa_flags |= SA_ONSTACK;
 #  endif
     sigaction(USE_SIGACTON_SIGNAL_KIND, &act, &oact);
+#  ifdef USE_ANOTHER_SIGACTON_SIGNAL_KIND
+    sigaction(USE_ANOTHER_SIGACTON_SIGNAL_KIND, &act, &oact); 
+#  endif
   }
 # endif
 # ifdef NEED_SIGWIN
@@ -238,6 +270,9 @@ static void remove_signal_handler(GCTYPE *gc)
     sigemptyset(&act.sa_mask);
     act.sa_flags = SA_SIGINFO;
     sigaction(USE_SIGACTON_SIGNAL_KIND, &act, &oact);
+#  ifdef USE_ANOTHER_SIGACTON_SIGNAL_KIND
+    sigaction(USE_ANOTHER_SIGACTON_SIGNAL_KIND, &act, &oact); 
+#  endif
   }
 # endif
 # ifdef NEED_SIGWIN

@@ -6,8 +6,9 @@
   (define path (installer-path installer))
   (define file (installer-file installer))
   (define html-file (string-append (regexp-replace* #rx"\\." file "-") ".html"))
-  (define version (installer-version installer))
-  (define date (version->date version))
+  (define release (installer-release installer))
+  (define version (release-version release))
+  (define date    (release-date-string release))
   (define package (package->name (installer-package installer)))
   (define size (installer-size installer))
   (define type (if (installer-binary? installer) "" " source"))
@@ -47,8 +48,6 @@
     @; (looks redundant now that all of the installers are pretty standard)
     @;section{Installation instructions}
     @;(bundle-installation-instructions bundle)
-    @;br{}
-    @;div[align: 'right]{(@(link-to 'license))}
     })
 
 (provide installer->page)

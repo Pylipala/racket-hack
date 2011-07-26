@@ -1,24 +1,17 @@
-#lang scheme/unit
-#|
-
-WARNING: printf is rebound in the body of the unit to always
-         print to the original output port.
-
-|#
+#lang racket/unit
 
 (require string-constants
-         scheme/unit
-         scheme/class
-         scheme/match
-         scheme/path
+         racket/unit
+         racket/class
+         racket/match
+         racket/path
          "sig.rkt"
          "../gui-utils.rkt"
          "../preferences.rkt"
          mred/mred-sig
          mrlib/interactive-value-port
          setup/dirs
-         racket/list
-         (prefix-in srfi1: srfi/1))
+         racket/list)
 (require setup/xref
          scribble/xref
          scribble/manual-struct)
@@ -37,10 +30,7 @@ WARNING: printf is rebound in the body of the unit to always
 (init-depend framework:editor^)
 
 (define original-output-port (current-output-port))
-(define (printf . args) 
-  (apply fprintf original-output-port args)
-  (void))
-
+(define (oprintf . args) (apply fprintf original-output-port args))
 
 (define-struct range (start end caret-space? style color) #:inspector #f)
 (define-struct rectangle (left top right bottom style color) #:inspector #f)
@@ -82,7 +72,8 @@ WARNING: printf is rebound in the body of the unit to always
     move/copy-to-edit
     initial-autowrap-bitmap
     get-port-name
-    port-name-matches?))
+    port-name-matches?
+    get-start-of-line))
 
 (define basic-mixin
   (mixin (editor:basic<%> (class->interface text%)) (basic<%>)
@@ -111,8 +102,9 @@ WARNING: printf is rebound in the body of the unit to always
       (let ([filename (get-filename)])
         (or (and (path? id)
                  (path? filename)
-                 (equal? (normal-case-path (normalize-path (get-filename)))
-                         (normal-case-path (normalize-path id))))
+                 (or (equal? id filename) ;; "fast path" check
+                     (equal? (normal-case-path (normalize-path (get-filename)))
+                             (normal-case-path (normalize-path id)))))
             (and (symbol? port-name-identifier)
                  (symbol? id)
                  (equal? port-name-identifier id)))))
@@ -541,8 +533,12 @@ WARNING: printf is rebound in the body of the unit to always
                          ""
                          parent)))
     
+    (define/public (get-start-of-line pos)
+      (line-start-position (position-line pos)))
+    
     (super-new)
     (set-autowrap-bitmap (initial-autowrap-bitmap))))
+
 
 (define (hash-cons! h k v) (hash-set! h k (cons v (hash-ref h k '()))))
 
@@ -621,11 +617,11 @@ WARNING: printf is rebound in the body of the unit to always
              (cond
                [(<= (unbox by) h)
                 ;; the max is relevant when we're already scrolled to the top.
-                (send admin scroll-to localx (max 0 (- localy h)) width height refresh? bias)]
+                (super scroll-editor-to localx (max 0 (- localy h)) width height refresh? bias)]
                [else
-                (send admin scroll-to localx localy width height refresh? bias)]))]
+                (super scroll-editor-to localx localy width height refresh? bias)]))]
           [else
-           (send admin scroll-to localx localy width height refresh? bias)])))
+           (super scroll-editor-to localx localy width height refresh? bias)])))
     
     (define/override (on-event event)
       (cond
@@ -785,9 +781,14 @@ WARNING: printf is rebound in the body of the unit to always
     (inherit begin-edit-sequence end-edit-sequence
              delete insert split-snip find-snip
              get-snip-position get-top-level-window find-string)
-    (define pasting? #f)
-    (define rewriting? #f)
     
+    ;; pasting-info : (or/c #f (listof (list number number)))
+    ;; when #f, we are not in a paste
+    ;; when a list, we are in a paste and the 
+    ;;   list contains the regions that have
+    ;;   been changed by the paste
+    (define paste-info #f)
+
     (define/public (ask-normalize?)
       (cond
         [(preferences:get 'framework:ask-about-paste-normalization)
@@ -812,45 +813,46 @@ WARNING: printf is rebound in the body of the unit to always
         [else
          (preferences:get 'framework:do-paste-normalization)]))
     (define/public (string-normalize s) (string-normalize-nfkc s))
-
-    
     
     (define/override (do-paste start time)
       (dynamic-wind
-       (λ () (set! pasting? #t))
-       (λ () (super do-paste start time))
-       (λ () (set! pasting? #f))))
+       (λ () (set! paste-info '()))
+       (λ () (super do-paste start time)
+         (let ([local-paste-info paste-info])
+           (set! paste-info #f)
+           (deal-with-paste local-paste-info)))
+       ;; use the dynamic wind to be sure that the paste-info is set back to #f
+       ;; in the case that the middle thunk raises an exception
+       (λ () (set! paste-info #f))))
     
-    (define/augment (on-insert start len)
-      (inner (void) on-insert start len)
-      (begin-edit-sequence))
-         
     (define/augment (after-insert start len)
-      (when pasting?
-        (unless rewriting?
-          (set! rewriting? #t)
-          (let/ec abort
-            (define ask? #t)
-            (split-snip start)
-            (split-snip (+ start len))
-            (let loop ([snip (find-snip start 'after-or-none)])
-              (when snip
-                (let ([pos (get-snip-position snip)])
-                  (when (< pos (+ start len))
-                    (when (is-a? snip string-snip%)
-                      (let* ([old (send snip get-text 0 (send snip get-count))]
-                             [new (string-normalize old)])
-                        (unless (equal? new old)
-                          (when ask?
-                            (set! ask? #f)
-                            (unless (ask-normalize?) (abort)))
-                          (let ([snip-pos (get-snip-position snip)])
-                            (delete snip-pos (+ snip-pos (string-length old)))
-                            (insert new snip-pos snip-pos #f)))))
-                    (loop (send snip next)))))))
-          (set! rewriting? #f)))
-      (end-edit-sequence)
+      (when paste-info
+        (set! paste-info (cons (list start len) paste-info)))
       (inner (void) after-insert start len))
+
+    (define/private (deal-with-paste local-paste-info)
+      (let/ec abort
+        (define ask? #t)
+        (for ([insertion (in-list local-paste-info)])
+          (define start (list-ref insertion 0))
+          (define len (list-ref insertion 1))
+          (split-snip start)
+          (split-snip (+ start len))
+          (let loop ([snip (find-snip start 'after-or-none)])
+            (when snip
+              (let ([pos (get-snip-position snip)])
+                (when (< pos (+ start len))
+                  (when (is-a? snip string-snip%)
+                    (let* ([old (send snip get-text 0 (send snip get-count))]
+                           [new (string-normalize old)])
+                      (unless (equal? new old)
+                        (when ask?
+                          (set! ask? #f)
+                          (unless (ask-normalize?) (abort)))
+                        (let ([snip-pos (get-snip-position snip)])
+                          (delete snip-pos (+ snip-pos (string-length old)))
+                          (insert new snip-pos snip-pos #f)))))
+                  (loop (send snip next)))))))))
     
     (super-new)))
 
@@ -1503,6 +1505,21 @@ WARNING: printf is rebound in the body of the unit to always
         (send new-snip set-style (send snip get-style))
         new-snip))
     
+    (define todo '())
+    (define timer (new timer% 
+                       [notify-callback
+                        (λ ()
+                          (send delegate begin-edit-sequence)
+                          (for ([th (in-list (reverse todo))])
+                            (th))
+                          (send delegate end-edit-sequence)
+                          (set! todo '()))]))
+    (define/private (to-delegate thunk)
+      (when delegate
+        (send timer stop)
+        (send timer start 250 #t)
+        (set! todo (cons thunk todo))))
+    
     (define delegate #f)
     (inherit get-highlighted-ranges)
     (define/public-final (get-delegate) delegate)
@@ -1514,52 +1531,57 @@ WARNING: printf is rebound in the body of the unit to always
       (refresh-delegate))
     
     (define/private (refresh-delegate)
-      (when delegate
-        (send delegate begin-edit-sequence)
-        (send delegate lock #f)
-        (when (is-a? this scheme:text<%>)
-          (send delegate set-tabs null (send this get-tab-size) #f))
-        (send delegate hide-caret #t)
-        (send delegate erase)
-        (send delegate set-style-list (get-style-list))
-        (let loop ([snip (find-first-snip)])
-          (when snip
-            (let ([copy-of-snip (copy snip)])
-              (send delegate insert
-                    copy-of-snip
-                    (send delegate last-position)
-                    (send delegate last-position))
-              (loop (send snip next)))))
-        (for-each
-         (λ (range)
-           (send delegate unhighlight-range 
-                 (range-start range)
-                 (range-end range)
-                 (range-color range)
-                 (range-caret-space? range)
-                 (range-style range)))
-         (send delegate get-highlighted-ranges))
-        (for-each
-         (λ (range)
-           (send delegate highlight-range 
-                 (range-start range)
-                 (range-end range)
-                 (range-color range)
-                 (range-caret-space? range)
-                 'high
-                 (range-style range)))
-         (reverse (get-highlighted-ranges)))
-        (send delegate lock #t)
-        (send delegate end-edit-sequence)))
+      (set! todo '())
+      (to-delegate (λ () (refresh-delegate/do-work))))
+    
+    (define/private (refresh-delegate/do-work)
+      (send delegate begin-edit-sequence)
+      (send delegate lock #f)
+      (when (is-a? this scheme:text<%>)
+        (send delegate set-tabs null (send this get-tab-size) #f))
+      (send delegate hide-caret #t)
+      (send delegate erase)
+      (send delegate set-style-list (get-style-list))
+      (let loop ([snip (find-first-snip)])
+        (when snip
+          (let ([copy-of-snip (copy snip)])
+            (send delegate insert
+                  copy-of-snip
+                  (send delegate last-position)
+                  (send delegate last-position))
+            (loop (send snip next)))))
+      (for-each
+       (λ (range)
+         (send delegate unhighlight-range 
+               (range-start range)
+               (range-end range)
+               (range-color range)
+               (range-caret-space? range)
+               (range-style range)))
+       (send delegate get-highlighted-ranges))
+      (for-each
+       (λ (range)
+         (send delegate highlight-range 
+               (range-start range)
+               (range-end range)
+               (range-color range)
+               (range-caret-space? range)
+               'high
+               (range-style range)))
+       (reverse (get-highlighted-ranges)))
+      (send delegate lock #t)
+      (send delegate end-edit-sequence))
     
     (define/override (highlight-range start end color [caret-space? #f] [priority 'low] [style 'rectangle])
-      (when delegate
-        (send delegate highlight-range start end color caret-space? priority style))
+      (to-delegate
+       (λ ()
+         (send delegate highlight-range start end color caret-space? priority style)))
       (super highlight-range start end color caret-space? priority style))
     
     (define/override (unhighlight-range start end color [caret-space? #f] [style 'rectangle])
-      (when delegate
-        (send delegate unhighlight-range start end color caret-space? style))
+      (to-delegate
+       (λ ()
+         (send delegate unhighlight-range start end color caret-space? style)))
       (super unhighlight-range start end color caret-space? style))
     
     (inherit get-canvases get-active-canvas has-focus?)
@@ -1568,77 +1590,77 @@ WARNING: printf is rebound in the body of the unit to always
       (unless before?
         (let ([active-canvas (get-active-canvas)])
           (when active-canvas
-            (send (send active-canvas get-top-level-window) delegate-moved)))))
+            (to-delegate
+             (λ ()
+               (send (send active-canvas get-top-level-window) delegate-moved)))))))
     
     (define/augment (on-edit-sequence)
-      (when delegate
-        (send delegate begin-edit-sequence))
+      (to-delegate
+       (λ ()
+         (send delegate begin-edit-sequence)))
       (inner (void) on-edit-sequence))
-    
+
     (define/augment (after-edit-sequence)
-      (when delegate
-        (send delegate end-edit-sequence))
+      (to-delegate
+       (λ ()
+         (send delegate end-edit-sequence)))
       (inner (void) after-edit-sequence))
     
     (define/override (resized snip redraw-now?)
       (super resized snip redraw-now?)
       (when (and delegate
-                 linked-snips
                  (not (is-a? snip string-snip%)))
-        (let ([delegate-copy (hash-ref linked-snips snip (λ () #f))])
-          (when delegate-copy
-            (send delegate resized delegate-copy redraw-now?)))))
+        (to-delegate
+         (λ ()
+           (when linked-snips
+             (let ([delegate-copy (hash-ref linked-snips snip (λ () #f))])
+               (when delegate-copy
+                 (send delegate resized delegate-copy redraw-now?))))))))
     
     (define/augment (after-insert start len)
-      (when delegate
-        (send delegate begin-edit-sequence)
-        (send delegate lock #f)
-        (split-snip start)
-        (split-snip (+ start len))
-        (let loop ([snip (find-snip (+ start len) 'before-or-none)])
-          (when snip
-            (unless ((get-snip-position snip) . < . start)
-              (send delegate insert (copy snip) start start)
-              (loop (send snip previous)))))
-        (send delegate lock #t)
-        (send delegate end-edit-sequence))
+      (to-delegate
+       (λ ()
+         (send delegate begin-edit-sequence)
+         (send delegate lock #f)
+         (split-snip start)
+         (split-snip (+ start len))
+         (let loop ([snip (find-snip (+ start len) 'before-or-none)])
+           (when snip
+             (unless ((get-snip-position snip) . < . start)
+               (send delegate insert (copy snip) start start)
+               (loop (send snip previous)))))
+         (send delegate lock #t)
+         (send delegate end-edit-sequence)))
       (inner (void) after-insert start len))
     
     (define/augment (after-delete start len)
-      (when delegate
-        (send delegate lock #f)
-        (send delegate begin-edit-sequence)
-        (send delegate delete start (+ start len))
-        (send delegate end-edit-sequence)
-        (send delegate lock #t))
+      (to-delegate
+       (λ ()
+         (send delegate lock #f)
+         (send delegate begin-edit-sequence)
+         (send delegate delete start (+ start len))
+         (send delegate end-edit-sequence)
+         (send delegate lock #t)))
       (inner (void) after-delete start len))
     
     (define/augment (after-change-style start len)
-      (when delegate
-        (send delegate begin-edit-sequence)
-        (send delegate lock #f)
-        (split-snip start)
-        (let* ([snip (find-snip start 'after)]
-               [style (send snip get-style)]
-               [other-style 
-                '(send (send delegate get-style-list) find-or-create-style
-                       style delegate-style-delta)])
-          (send delegate change-style style start (+ start len)))
-        (send delegate lock #f)
-        (send delegate end-edit-sequence))
+      (to-delegate
+       (λ ()
+         (send delegate begin-edit-sequence)
+         (send delegate lock #f)
+         (split-snip start)
+         (let* ([snip (find-snip start 'after)]
+                [style (send snip get-style)])
+           (send delegate change-style style start (+ start len)))
+         (send delegate lock #f)
+         (send delegate end-edit-sequence)))
       (inner (void) after-change-style start len))
     
-    (define filename #f)
-    (define format #f)
-    (define/augment (on-load-file _filename _format)
-      (set! filename _filename)
-      (set! format _format)
-      (inner (void) on-load-file _filename _format))
     (define/augment (after-load-file success?)
       (when success?
         (refresh-delegate))
       (inner (void) after-load-file success?))
-    (super-instantiate ())))
+    (super-new)))
 
 (define info<%> (interface (basic<%>)))
 
@@ -1823,6 +1845,9 @@ WARNING: printf is rebound in the body of the unit to always
 (define-struct committer (kr commit-peeker-evt done-evt resp-chan resp-nack))
 
 (define msec-timeout 500)
+
+;; this value (4096) is also mentioned in the test suite (collects/tests/framework/test.rkt)
+;; so if you change it, be sure to change things over there too
 (define output-buffer-full 4096)
 
 (define-local-member-name 
@@ -1870,6 +1895,17 @@ WARNING: printf is rebound in the body of the unit to always
   (let ([value-sd (make-object style-delta% 'change-nothing)])
     (send value-sd set-delta-foreground (make-object color% 0 0 175))
     (create-style-name value-style-name value-sd)))
+
+;; data : any
+;; to-insert-chan : (or/c #f channel)
+;;   if to-insert-chan is a channel, this means
+;;   the eventspace handler thread is the one that
+;;   is initiating the communication, so instead of
+;;   queueing a callback to do the update of the editor,
+;;   just send the work back directly and it will be done
+;;   syncronously there. If it is #f, then we queue a callback
+;;   to do the work
+(define-struct data/chan (data to-insert-chan))
 
 (define ports-mixin
   (mixin (wide-snip<%>) (ports<%>)
@@ -2033,6 +2069,7 @@ WARNING: printf is rebound in the body of the unit to always
                (start . >= . unread-start-point))
            (inner #t can-delete? start len)))
     
+    (inherit set-position)
     (define/override (on-local-char key)
       (let ([start (get-start-position)]
             [end (get-end-position)]
@@ -2045,7 +2082,8 @@ WARNING: printf is rebound in the body of the unit to always
           [(and (insertion-point . <= . start)
                 (= start end)
                 (submit-to-port? key))
-           (insert "\n")
+           (insert "\n" (last-position) (last-position))
+           (set-position (last-position) (last-position))
            (for-each/snips-chars
             unread-start-point
             (last-position)
@@ -2156,7 +2194,7 @@ WARNING: printf is rebound in the body of the unit to always
     
     ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
     ;;
-    ;; output port syncronization code
+    ;; output port synchronization code
     ;;
     
     ;; flush-chan : (channel (evt void))
@@ -2237,7 +2275,7 @@ WARNING: printf is rebound in the body of the unit to always
           (after-io-insertion))))
     
     (define/public (after-io-insertion) (void))
-    
+
     (define output-buffer-thread
       (let ([converter (bytes-open-converter "UTF-8-permissive" "UTF-8")])
         (thread
@@ -2253,13 +2291,16 @@ WARNING: printf is rebound in the body of the unit to always
                    (alarm-evt (+ last-flush msec-timeout))
                    (λ (_)
                      (let-values ([(viable-bytes remaining-queue) (split-queue converter text-to-insert)])
+                       ;; we always queue the work here since the always event means no one waits for the callback
                        (queue-insertion viable-bytes always-evt)
                        (loop remaining-queue (current-inexact-milliseconds))))))
               (handle-evt
                flush-chan
-               (λ (return-evt)
+               (λ (return-evt/to-insert-chan)
                  (let-values ([(viable-bytes remaining-queue) (split-queue converter text-to-insert)])
-                   (queue-insertion viable-bytes return-evt)
+                   (if (channel? return-evt/to-insert-chan)
+                       (channel-put return-evt/to-insert-chan viable-bytes) 
+                       (queue-insertion viable-bytes return-evt/to-insert-chan))
                    (loop remaining-queue (current-inexact-milliseconds)))))
               (handle-evt
                clear-output-chan
@@ -2267,16 +2308,22 @@ WARNING: printf is rebound in the body of the unit to always
                  (loop (empty-queue) (current-inexact-milliseconds))))
               (handle-evt
                write-chan
-               (λ (pr)
+               (λ (pr-pr)
+                 (define return-chan (car pr-pr))
+                 (define pr (cdr pr-pr))
                  (let ([new-text-to-insert (enqueue pr text-to-insert)])
                    (cond
                      [((queue-size text-to-insert) . < . output-buffer-full)
+                      (when return-chan
+                        (channel-put return-chan '()))
                       (loop new-text-to-insert last-flush)]
                      [else
                       (let ([chan (make-channel)])
                         (let-values ([(viable-bytes remaining-queue) 
                                       (split-queue converter new-text-to-insert)])
-                          (queue-insertion viable-bytes (channel-put-evt chan (void)))
+                          (if return-chan
+                              (channel-put return-chan viable-bytes)
+                              (queue-insertion viable-bytes (channel-put-evt chan (void))))
                           (channel-get chan)
                           (loop remaining-queue (current-inexact-milliseconds))))]))))))))))
     
@@ -2296,16 +2343,23 @@ WARNING: printf is rebound in the body of the unit to always
         (λ (to-write start end block/buffer? enable-breaks?)
           (cond
             [(= start end) (flush-proc)]
-            [(eq? (current-thread) (eventspace-handler-thread eventspace))
-             (error 'write-bytes-proc "cannot write to port on eventspace main thread")]
             [else
-             (channel-put write-chan (cons (subbytes to-write start end) style))])
+             (define pair (cons (subbytes to-write start end) style))
+             (cond
+               [(eq? (current-thread) (eventspace-handler-thread eventspace))
+                (define return-channel (make-channel))
+                (thread (λ () (channel-put write-chan (cons return-channel pair))))
+                (do-insertion (channel-get return-channel) #f)]
+               [else
+                (channel-put write-chan (cons #f pair))])])
           (- end start)))
       
       (define (flush-proc)
         (cond
           [(eq? (current-thread) (eventspace-handler-thread eventspace))
-           (error 'flush-proc "cannot flush port on eventspace main thread")]
+           (define to-insert-channel (make-channel))
+           (thread (λ () (channel-put flush-chan to-insert-channel)))
+           (do-insertion (channel-get to-insert-channel) #f)]
           [else
            (sync
             (nack-guard-evt
@@ -2323,17 +2377,18 @@ WARNING: printf is rebound in the body of the unit to always
       
       (define (make-write-special-proc style)
         (λ (special can-buffer? enable-breaks?)
+          (define str/snp (cond
+                            [(string? special) special]
+                            [(is-a? special snip%) special]
+                            [else (format "~s" special)]))
+          (define to-send (cons str/snp style))
           (cond
             [(eq? (current-thread) (eventspace-handler-thread eventspace))
-             (error 'write-bytes-proc "cannot write to port on eventspace main thread")]
+             (define return-chan (make-channel))
+             (thread (λ () (channel-put write-chan (cons return-chan to-send))))
+             (do-insertion (channel-get return-chan) #f)]
             [else
-             (let ([str/snp (cond
-                              [(string? special) special]
-                              [(is-a? special snip%) special]
-                              [else (format "~s" special)])])
-               (channel-put 
-                write-chan 
-                (cons str/snp style)))])
+             (channel-put write-chan (cons #f to-send))])
           #t))
       
       (let* ([add-standard
@@ -2372,7 +2427,7 @@ WARNING: printf is rebound in the body of the unit to always
         (let ([install-handlers
                (λ (port)
                  ;; don't want to set the port-print-handler here; 
-                 ;; instead drscheme sets the global-port-print-handler
+                 ;; instead drracket sets the global-port-print-handler
                  ;; to catch fractions and the like
                  (set-interactive-write-handler port)
                  (set-interactive-display-handler port))])
@@ -3117,7 +3172,7 @@ designates the character that triggers autocompletion
             (show-options word start-pos end-pos completion-cursor)))))
     
     ;; Number -> String
-    ;; The word that ends at the current positon of the editor
+    ;; The word that ends at the current position of the editor
     (define/public (get-word-at current-pos)
       (let ([start-pos (box current-pos)]) 
         (find-wordbreak start-pos #f 'caret)
@@ -3128,14 +3183,23 @@ designates the character that triggers autocompletion
     ;; should change the current word to the word in the list.
     (define/private (show-options word start-pos end-pos cursor)
       (let ([x (box 0)]
-            [y (box 0)])
-        (position-location start-pos x y #f)
+            [yb (box 0)]
+            [yt (box 0)])
+        (position-location start-pos x yb #f)
+        (position-location start-pos #f yt #t)
         (set! completions-box (new completion-box%
                                    [completions (new scroll-manager% [cursor cursor])]
-                                   [menu-x (unbox x)]
-                                   [menu-y (+ (unbox y) 2)]
+                                   [line-x (unbox x)]
+                                   [line-y-above (unbox yt)]
+                                   [line-y-below (unbox yb)]
                                    [editor this]))
         (send completions-box redraw)))
+    
+    (define/augment (after-set-position)
+      (when completions-box
+        (destroy-completions-box)
+        (auto-complete))
+      (inner (void) after-set-position))
     
     ;; on-char must handle inputs for two modes: normal text mode and in-the-middle-of-autocompleting mode
     ;; perhaps it would be better to handle this using the state machine pattern
@@ -3300,7 +3364,7 @@ designates the character that triggers autocompletion
          (set! hidden? #t)
          (set! all-completions (send cursor get-completions))
          (set! all-completions-length (send cursor get-length))
-         (set! visible-completions (srfi1:take (send cursor get-completions) (autocomplete-limit)))
+         (set! visible-completions (take (send cursor get-completions) (autocomplete-limit)))
          (set! visible-completions-length (autocomplete-limit))]))
     
     (define/public (get-completions) all-completions)
@@ -3314,14 +3378,14 @@ designates the character that triggers autocompletion
     
     (define/public (scroll-down)
       (when hidden?
-        (set! all-completions (append (srfi1:drop all-completions (autocomplete-limit)) visible-completions))
-        (set! visible-completions (srfi1:take all-completions (autocomplete-limit)))))
+        (set! all-completions (append (drop all-completions (autocomplete-limit)) visible-completions))
+        (set! visible-completions (take all-completions (autocomplete-limit)))))
     
     (define/public (scroll-up)
       (when hidden?
         (let ([n (- all-completions-length (autocomplete-limit))])
-          (set! all-completions (append (srfi1:drop all-completions n) (srfi1:take all-completions n)))
-          (set! visible-completions (srfi1:take all-completions (autocomplete-limit))))))
+          (set! all-completions (append (drop all-completions n) (take all-completions n)))
+          (set! visible-completions (take all-completions (autocomplete-limit))))))
     
     (define/public (narrow char)
       (let ([new-cursor (send cursor narrow char)])
@@ -3372,8 +3436,9 @@ designates the character that triggers autocompletion
   (class* object% (completion-box<%>)
     
     (init-field completions       ; scroll-manager%       the possible completions (all of which have base-word as a prefix)
-                menu-x            ; int                   the menu's top-left x coordinate
-                menu-y            ; int                   the menu's top-left y coordinate
+                line-x            ; int                   the x coordinate of the line where the menu goes
+                line-y-above      ; int                   the y coordinate of the top of the line where the menu goes
+                line-y-below      ; int                   the y coordinate of the bottom of the line where the menu goes
                 editor            ; editor<%>             the owner of this completion box
                 )
     
@@ -3418,7 +3483,7 @@ designates the character that triggers autocompletion
             (cond
               [(zero? num-completions)
                (let-values ([(tw th _1 _2) (send dc get-text-extent (string-constant no-completions) 
-                                                 (get-mt-font dc))])
+                                                 (get-mt-font))])
                  (values (+ menu-padding-x tw menu-padding-x)
                          (+ menu-padding-y th menu-padding-y)))]
               [else
@@ -3430,7 +3495,7 @@ designates the character that triggers autocompletion
                  (cond
                    [(null? pc)
                     (let-values ([(hidden?) (send completions items-are-hidden?)] 
-                                 [(tw th _1 _2) (send dc get-text-extent hidden-completions-text)])
+                                 [(tw th _1 _2) (send dc get-text-extent hidden-completions-text (get-reg-font))])
                       (let ([w (if hidden? (max tw w) w)]
                             [h (if hidden? (+ th h) h)])
                         (initialize-mouse-offset-map! coord-map)
@@ -3440,7 +3505,7 @@ designates the character that triggers autocompletion
                                   (+ offset-h h)))))]
                    [else 
                     (let ([c (car pc)])
-                      (let-values ([(tw th _1 _2) (send dc get-text-extent c)])
+                      (let-values ([(tw th _1 _2) (send dc get-text-extent c (get-reg-font))])
                         (loop (cdr pc)
                               (max tw w)
                               (+ th h)
@@ -3448,12 +3513,18 @@ designates the character that triggers autocompletion
                               (add1 n))))]))])))
         
         (let ([final-x (cond
-                         [(< (+ menu-x w) editor-width)
-                          menu-x]
+                         [(< (+ line-x w) editor-width)
+                          line-x]
                          [(> editor-width w)
                           (- editor-width w)]
-                         [else menu-x])]
-              [final-y menu-y])
+                         [else line-x])]
+              [final-y (cond
+                         [(< (+ line-y-below 2 h) editor-height)
+                          (+ line-y-below 2)]
+                         [(> (- line-y-above h) 0)
+                          (- line-y-above h)]
+                         [else
+                          (+ line-y-below 2)])])
           
           (make-geometry final-x final-y w h vec))))
     
@@ -3467,48 +3538,56 @@ designates the character that triggers autocompletion
     ;; draws the menu to the given drawing context at offset dx, dy
     (define/public (draw dc dx dy)
       (let ([old-pen (send dc get-pen)]
-            [old-brush (send dc get-brush)])
+            [old-brush (send dc get-brush)]
+            [font (send dc get-font)])
+        (define-values (mx my tw th) (get-menu-coordinates))
         (send dc set-pen (send editor get-autocomplete-border-color) 1 'solid)
         (send dc set-brush (send editor get-autocomplete-background-color) 'solid)
-        (let-values ([(mx my tw th) (get-menu-coordinates)])
-          (send dc draw-rectangle (+ mx dx) (+ my dy) tw th)
-          (cond
-            [(send completions empty?)
-             (let ([font (send dc get-font)])
-               (send dc set-font (get-mt-font dc))
-               (send dc draw-text (string-constant no-completions) (+ mx dx menu-padding-x) (+ menu-padding-y my dy))
-               (send dc set-font font))]
-            [else
-             (let loop ([item-number 0] [y my] [pc (send completions get-visible-completions)])
-               (cond
-                 [(null? pc) 
-                  (when (send completions items-are-hidden?)
-                    (let-values ([(hw _1 _2 _3) (send dc get-text-extent hidden-completions-text)])
-                      (send dc draw-text 
-                            hidden-completions-text 
-                            (+ mx dx (- (/ tw 2) (/ hw 2)))
-                            (+ menu-padding-y y dy))))]
-                 [else
-                  (let ([c (car pc)])
-                    (let-values ([(w h d a) (send dc get-text-extent c)])
-                      (when (= item-number highlighted-menu-item)
-                        (send dc set-pen "black" 1 'transparent)
-                        (send dc set-brush (send editor get-autocomplete-selected-color) 'solid)
-                        (send dc draw-rectangle (+ mx dx 1) (+ dy y menu-padding-y 1) (- tw 2) (- h 1)))
-                      (send dc draw-text c (+ mx dx menu-padding-x) (+ menu-padding-y y dy))
-                      (loop (add1 item-number) (+ y h) (cdr pc))))]))]))
+        (send dc draw-rectangle (+ mx dx) (+ my dy) tw th)
+        
+        (cond
+          [(send completions empty?)
+           (let ([font (send dc get-font)])
+             (send dc set-font (get-mt-font))
+             (send dc draw-text (string-constant no-completions) (+ mx dx menu-padding-x) (+ menu-padding-y my dy))
+             (send dc set-font font))]
+          [else
+           (send dc set-font (get-reg-font))
+           (let loop ([item-number 0] [y my] [pc (send completions get-visible-completions)])
+             (cond
+               [(null? pc) 
+                (when (send completions items-are-hidden?)
+                  (let-values ([(hw _1 _2 _3) (send dc get-text-extent hidden-completions-text)])
+                    (send dc draw-text 
+                          hidden-completions-text 
+                          (+ mx dx (- (/ tw 2) (/ hw 2)))
+                          (+ menu-padding-y y dy))))]
+               [else
+                (let ([c (car pc)])
+                  (let-values ([(w h d a) (send dc get-text-extent c)])
+                    (when (= item-number highlighted-menu-item)
+                      (send dc set-pen "black" 1 'transparent)
+                      (send dc set-brush (send editor get-autocomplete-selected-color) 'solid)
+                      (send dc draw-rectangle (+ mx dx 1) (+ dy y menu-padding-y 1) (- tw 2) (- h 1)))
+                    (send dc draw-text c (+ mx dx menu-padding-x) (+ menu-padding-y y dy))
+                    (loop (add1 item-number) (+ y h) (cdr pc))))]))])
         (send dc set-pen old-pen)
-        (send dc set-brush old-brush)))
+        (send dc set-brush old-brush)
+        (send dc set-font font)))
     
-    (define/private (get-mt-font dc)
-      (let ([font (send dc get-font)])
-        (send the-font-list find-or-create-font
-              (send font get-point-size)
-              (send font get-family)
-              'italic
-              (send font get-weight)
-              (send font get-underlined)
-              (send font get-smoothing))))
+    (define/private (get-mt-font)
+      (send the-font-list find-or-create-font
+            (preferences:get 'framework:standard-style-list:font-size)
+            'default
+            'italic
+            'normal))
+    
+    (define/private (get-reg-font)
+      (send the-font-list find-or-create-font
+            (preferences:get 'framework:standard-style-list:font-size)
+            'default
+            'normal
+            'normal))
     
     ;; redraw : -> void
     ;; tells the parent to refresh enough of itself to redraw this menu
@@ -3681,23 +3760,6 @@ designates the character that triggers autocompletion
     (send e set-position (send e last-position) (send e last-position))
     (send f show #t)))
 
-(define basic% (basic-mixin (editor:basic-mixin text%)))
-(define hide-caret/selection% (hide-caret/selection-mixin basic%))
-(define nbsp->space% (nbsp->space-mixin basic%))
-(define normalize-paste% (normalize-paste-mixin basic%))
-(define delegate% (delegate-mixin basic%))
-(define wide-snip% (wide-snip-mixin basic%))
-(define standard-style-list% (editor:standard-style-list-mixin wide-snip%))
-(define input-box% (input-box-mixin standard-style-list%))
-(define -keymap% (editor:keymap-mixin standard-style-list%))
-(define return% (return-mixin -keymap%))
-(define autowrap% (editor:autowrap-mixin -keymap%))
-(define file% (file-mixin (editor:file-mixin autowrap%)))
-(define clever-file-format% (clever-file-format-mixin file%))
-(define backup-autosave% (editor:backup-autosave-mixin clever-file-format%))
-(define searching% (searching-mixin backup-autosave%))
-(define info% (info-mixin (editor:info-mixin searching%)))
-
 ;; ============================================================
 ;; line number text%
 
@@ -3709,33 +3771,48 @@ designates the character that triggers autocompletion
 
 ;; draws line numbers on the left hand side of a text% object
 (define line-numbers-mixin
-  (mixin ((class->interface text%)) (line-numbers<%>)
-    (super-new)
+  (mixin ((class->interface text%) editor:standard-style-list<%>) (line-numbers<%>)
     (inherit get-visible-line-range
              get-visible-position-range
              last-line
              line-location
              line-paragraph
              line-start-position
-             line-end-position)
+             line-end-position
+             get-view-size
+             set-padding
+             get-padding)
 
-    (init-field [line-numbers-color "black"])
+    (init-field [line-numbers-color #f])
     (init-field [show-line-numbers? #t])
     ;; whether the numbers are aligned on the left or right
     ;; only two values should be 'left or 'right
     (init-field [alignment 'right])
 
-    (define (number-space)
+    (define/private (number-space)
       (number->string (max (* 10 (add1 (last-line))) 100)))
     ;; add an extra 0 so it looks nice
-    (define (number-space+1) (string-append (number-space) "0"))
+    (define/private (number-space+1) (string-append (number-space) "0"))
 
-    (define cached-snips (list))
-    (define need-to-recalculate-snips #f)
+    (define/private (repaint)
+      (send this invalidate-bitmap-cache))
+
+    (define padding-dc (new bitmap-dc% [bitmap (make-screen-bitmap 1 1)]))
+    (define/private (setup-padding)
+      (if (showing-line-numbers?)
+        (let ()
+          (send padding-dc set-font (get-style-font))
+          (define-values (padding-left padding-top padding-right padding-bottom) (get-padding))
+          (define new-padding (text-width padding-dc (number-space+1)))
+          (set-padding new-padding 0 0 0)
+          (when (not (= padding-left new-padding))
+            (repaint)))
+        (set-padding 0 0 0 0)))
 
     ;; call this method with #t or #f to turn on/off line numbers
     (define/public (show-line-numbers! what)
-      (set! show-line-numbers? what))
+      (set! show-line-numbers? what)
+      (setup-padding))
 
     (define/public (showing-line-numbers?)
       show-line-numbers?)
@@ -3743,37 +3820,56 @@ designates the character that triggers autocompletion
     (define/public (set-line-numbers-color color)
       (set! line-numbers-color color))
 
-    (define (get-style-font)
-      (let* ([style-list (send this get-style-list)]
-             [std (or (send style-list find-named-style "Standard")
-                      #t
-                      #;
-                      (send style-list basic-style))])
-        (send std get-font)))
+    (define notify-registered-in-list #f)
 
-    ;; a <= b <= c
-    (define (between low what high)
-      (and (>= what low)
-           (<= what high)))
+    (define style-change-notify
+      (lambda (style) (unless style (setup-padding))))
+
+    (define/private (get-style)
+      (let* ([style-list (editor:get-standard-style-list)]
+             [std (or (send style-list
+                            find-named-style
+                            (editor:get-default-color-style-name))
+                      (send style-list find-named-style "Standard")
+                      (send style-list basic-style))])
+        ;; If the style changes, we should re-check the width of
+        ;; drawn line numbers:
+        (unless (eq? notify-registered-in-list style-list)
+          ;; `notify-on-change' holds the given function weakly:
+          (send style-list notify-on-change style-change-notify)
+          ;; Avoid registering multiple notifications:
+          (set! notify-registered-in-list style-list))
+        std))
+
+    (define/private (get-style-foreground)
+      (send (get-style) get-foreground))
+
+    (define/private (get-style-font)
+      (send (get-style) get-font))
 
     (define-struct saved-dc-state (pen font foreground-color))
-    (define (save-dc-state dc)
+    (define/private (save-dc-state dc)
       (saved-dc-state (send dc get-pen)
                       (send dc get-font)
                       (send dc get-text-foreground)))
 
-    (define (restore-dc-state dc dc-state)
+    (define/private (restore-dc-state dc dc-state)
       (send dc set-pen (saved-dc-state-pen dc-state))
       (send dc set-font (saved-dc-state-font dc-state))
       (send dc set-text-foreground (saved-dc-state-foreground-color dc-state)))
 
+    (define/private (get-foreground)
+      (if line-numbers-color
+        (make-object color% line-numbers-color)
+        (get-style-foreground)))
+        
     ;; set the dc stuff to values we want
-    (define (setup-dc dc)
-      (send dc set-pen "black" 1 'solid)
+    (define/private (setup-dc dc)
+      (send dc set-pen (get-foreground) 1 'solid)
       (send dc set-font (get-style-font))
-      (send dc set-text-foreground (make-object color% line-numbers-color)))
+      (send dc set-text-foreground (get-foreground)))
 
-    (define (lighter-color color)
+    (define/private (lighter-color color)
       (define (integer number)
         (inexact->exact (round number)))
       ;; hue 0-360
@@ -3837,7 +3933,27 @@ designates the character that triggers autocompletion
                           (min 255 (integer (* 255 green)))
                           (min 255 (integer (* 255 blue)))))
 
-    (define (draw-numbers dc top bottom dx dy start-line end-line)
+    ;; adjust space so that we are always at the left-most position where
+    ;; drawing looks right
+    (define/private (left-space dc dx)
+      (define left (box 0))
+      (define top (box 0))
+      (define width (box 0))
+      (define height (box 0))
+      (send (send this get-admin) get-view left top width height)
+      (+ (unbox left) dx))
+
+    (define/augment (after-insert start length)
+      (inner (void) after-insert start length)
+      ; in case the max line number changed:
+      (setup-padding))
+
+    (define/augment (after-delete start length)
+      (inner (void) after-delete start length)
+      ; in case the max line number changed:
+      (setup-padding))
+
+    (define/private (draw-numbers dc top bottom dx dy start-line end-line)
       (define (draw-text . args)
         (send/apply dc draw-text args))
 
@@ -3847,11 +3963,12 @@ designates the character that triggers autocompletion
       (define last-paragraph #f)
       (for ([line (in-range start-line end-line)])
         (define y (line-location line))
+        (define yb (line-location line #f))
 
-        (when (between top y bottom)
+        (when (and (y . <= . bottom) (yb . >= . top))
           (define view (number->string (add1 (line-paragraph line))))
           (define final-x
-            (+ dx 
+            (+ (left-space dc dx)
                (case alignment
                  [(left) 0]
                  [(right) (- right-space (text-width dc view) single-space)]
@@ -3861,93 +3978,100 @@ designates the character that triggers autocompletion
             (begin
               (send dc set-text-foreground (lighter-color (send dc get-text-foreground)))
               (draw-text view final-x final-y)
-              (send dc set-text-foreground (make-object color% line-numbers-color)))
+              (send dc set-text-foreground (get-foreground)))
             (draw-text view final-x final-y)))
 
         (set! last-paragraph (line-paragraph line))))
 
     ;; draw the line between the line numbers and the actual text
-    (define (draw-separator dc top bottom dx dy x)
-      (send dc draw-line (+ dx x) (+ dy top) (+ dx x) (+ dy bottom)))
+    (define/private (draw-separator dc top bottom dx dy x)
+      (define line-x (+ (left-space dc dx) x))
+      (define line-y1 (+ dy top))
+      (define line-y2 (+ dy bottom))
+      (send dc draw-line line-x line-y1
+                         line-x line-y2))
 
     ;; `line-numbers-space' will get mutated in the `on-paint' method
-    (define line-numbers-space 0)
-    (define/override (find-position x y . args)
-      ;; adjust x position to account for line numbers
-      (if show-line-numbers?
-        (super find-position (- x line-numbers-space) y . args)
-        (super find-position x y . args)))
+    ;; (define line-numbers-space 0)
 
-    (define (draw-line-numbers dc left top right bottom dx dy)
+    (define/private (draw-line-numbers dc left top right bottom dx dy)
       (define saved-dc (save-dc-state dc))
       (setup-dc dc)
       (define start-line (box 0))
       (define end-line (box 0))
       (get-visible-line-range start-line end-line #f)
 
+      #|
+      (define view-width (box 0))
+      (define view-height (box 0))
+      (send this get-view-size view-width view-height)
+      |#
+
+      ; (printf "dx ~a\n" dx)
       ;; draw it!
       (draw-numbers dc top bottom dx dy (unbox start-line) (add1 (unbox end-line)))
       (draw-separator dc top bottom dx dy (text-width dc (number-space)))
       (restore-dc-state dc saved-dc))
 
-    (define (text-width dc stuff)
+    (define/private (text-width dc stuff)
       (define-values (font-width font-height baseline space)
                      (send dc get-text-extent stuff))
       font-width)
 
-    (define (text-height dc stuff)
+    (define/private (text-height dc stuff)
       (define-values (font-width height baseline space)
                      (send dc get-text-extent stuff))
       height)
 
-    (define old-origin-x 0)
-    (define old-origin-y 0)
     (define old-clipping #f)
     (define/override (on-paint before? dc left top right bottom dx dy draw-caret)
-      (when show-line-numbers?
-        (if before?
-          (let ()
-            ;; FIXME: Moving the origin and setting the clipping rectangle
-            ;; will probably go away when 'margin's are added to editors
-            ;;
-            ;; save old origin and push it to the right a little bit
-            ;; TODO: maybe allow the line numbers to be drawn on the right hand side
-            ;; of the editor?
-            (define-values (x y) (send dc get-origin))
-            (set! old-origin-x x)
-            (set! old-origin-y y)
-            (set! old-clipping (send dc get-clipping-region))
-            (define saved-dc (save-dc-state dc))
-            (setup-dc dc)
-            (define-values (font-width font-height baseline space)
-                           (send dc get-text-extent (number-space)))
-            (restore-dc-state dc saved-dc)
-            (define clipped (make-object region% dc))
-            (define all (make-object region% dc))
-            (define copy (make-object region% dc))
-            (send all set-rectangle
-                  (+ dx left) (+ dy top)
-                  (- right left) (- bottom top))
-            (if old-clipping
-              (send copy union old-clipping)
-              (send copy union all))
-            (send clipped set-rectangle
-                  0 (+ dy top)
-                  (text-width dc (number-space+1))
-                  (- bottom top))
-            #;
-            (define (print-region name region)
-              (define-values (a b c d) (send region get-bounding-box))
-              (printf "~a: ~a, ~a, ~a, ~a\n" name a b c d))
-            (send copy subtract clipped)
-            (send dc set-clipping-region copy)
-            (send dc set-origin (+ x (text-width dc (number-space+1))) y)
-            (set! line-numbers-space (text-width dc (number-space+1)))
-            )
-          (begin
-            ;; rest the origin and draw the line numbers
-            (send dc set-origin old-origin-x old-origin-y)
-            (send dc set-clipping-region old-clipping)
-            (draw-line-numbers dc left top right bottom dx dy))))
+      (if show-line-numbers?
+        (begin
+          (if before?
+            (let ()
+              (define left-most (left-space dc dx))
+              (set! old-clipping (send dc get-clipping-region))
+              (define saved-dc (save-dc-state dc))
+              (setup-dc dc)
+              (define clipped (make-object region% dc))
+              (define all (make-object region% dc))
+              (define copy (make-object region% dc))
+              (send all set-rectangle
+                    (+ dx left) (+ dy top)
+                    (- right left) (- bottom top))
+              (if old-clipping
+                (send copy union old-clipping)
+                (send copy union all))
+              (send clipped set-rectangle
+                    0 (+ dy top)
+                    (text-width dc (number-space+1))
+                    (- bottom top))
+              (restore-dc-state dc saved-dc)
+              (send copy subtract clipped)
+              (send dc set-clipping-region copy))
+            (begin
+              (send dc set-clipping-region old-clipping)
+              (draw-line-numbers dc left top right bottom dx dy))))
+          (void))
+      (void)
       (super on-paint before? dc left top right bottom dx dy draw-caret))
-    ))
+
+    (super-new)
+    (setup-padding)))
+
+(define basic% (basic-mixin (editor:basic-mixin text%)))
+(define hide-caret/selection% (hide-caret/selection-mixin basic%))
+(define nbsp->space% (nbsp->space-mixin basic%))
+(define normalize-paste% (normalize-paste-mixin basic%))
+(define delegate% (delegate-mixin basic%))
+(define wide-snip% (wide-snip-mixin basic%))
+(define standard-style-list% (editor:standard-style-list-mixin wide-snip%))
+(define input-box% (input-box-mixin standard-style-list%))
+(define -keymap% (editor:keymap-mixin standard-style-list%))
+(define return% (return-mixin -keymap%))
+(define autowrap% (editor:autowrap-mixin -keymap%))
+(define file% (file-mixin (editor:file-mixin autowrap%)))
+(define clever-file-format% (clever-file-format-mixin file%))
+(define backup-autosave% (editor:backup-autosave-mixin clever-file-format%))
+(define searching% (searching-mixin backup-autosave%))
+(define info% (info-mixin (editor:info-mixin searching%)))

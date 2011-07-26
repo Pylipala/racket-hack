@@ -1,8 +1,5 @@
 #lang scribble/doc
-@(require scribble/manual
-          scribble/eval
-          "guide-utils.ss"
-          "contracts-utils.ss"
+@(require scribble/manual scribble/eval "guide-utils.rkt" "contracts-utils.rkt"
           (for-label racket/contract))
 
 @title[#:tag "contracts-struct"]{Contracts on Structures}
@@ -224,7 +221,7 @@ racket
   
 (code:comment "bst-between : number number -> contract")
 (code:comment "builds a contract for binary search trees")
-(code:comment "whose values are betweeen low and high")
+(code:comment "whose values are between low and high")
 (define (bst-between/c low high)
   (or/c null?
         (node/dc [val (between/c low high)]

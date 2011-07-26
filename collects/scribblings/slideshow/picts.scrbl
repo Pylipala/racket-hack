@@ -1,10 +1,6 @@
 #lang scribble/doc
-@(require "ss.ss"
-          "pict-diagram.rkt"
-          (for-label racket/gui
-                     slideshow/code
-                     slideshow/flash
-                     slideshow/face
+@(require "ss.rkt" "pict-diagram.rkt"
+          (for-label racket/gui slideshow/code slideshow/flash slideshow/face
                      slideshow/balloon))
 
 @title[#:style 'toc]{Making Pictures}
@@ -98,10 +94,15 @@ own last sub-pict.}
                   [dx real?]
                   [dy real?]
                   [sx real?]
-                  [sy real?])]{
+                  [sy real?]
+                  [sxy real?]
+                  [syx real?])]{
 
-Records, for a pict constructed of other picts, the relative location
-and scale of one nested pict.
+Records, for a pict constructed of other picts, the transformation to
+arrive at a @tech{inverted point} in the composed pict from an
+@tech{inverted point} in a constituent pict's. An @deftech{inverted
+point} is a point relative to a pict's lower-left corner with an
+increasing value moving upward.
 
 A @racket[child] structure is normally not created directly with
 @racket[make-child]. Instead, functions like @racket[hc-append] create
@@ -150,9 +151,8 @@ adding the given ascent and descent.}
          pict?]{
 
 Creates a pict that draws text. For creating text picts within a slide
-presentation, see @racket[t], instead. Otherwise, before calling this
-function, a drawing context must be installed with
-@racket[dc-for-text-size].
+presentation, see @racket[t]. The size of the resulting pict may
+depend on the value of @racket[dc-for-text-size].
 
 The @racket[style] argument must be one of the following:
 
@@ -494,15 +494,31 @@ Scales a pict drawing, as well as its @tech{bounding-box}. The drawing
 is scaled by adjusting the destination @racket[dc<%>]'s scale while
 drawing the original @racket[pict].}
 
+
+@defproc[(rotate [pict pict?] [theta real?]) pict?]{
+
+Rotates a pict's drawing by @racket[theta] radians counter-clockwise.
+
+The bounding box of the resulting pict is the box encloses the rotated
+corners of @racket[pict] (which inflates the area of the bounding
+box, unless @racket[theta] is a multiple of half of @racket[pi]). The
+ascent and descent lines of the result's bounding box are the
+horizontal lines that bisect the rotated original lines; if the ascent
+line drops below the descent line, the two lines are flipped.}
+
+
 @defproc[(ghost [pict pict?]) pict?]{
 
 Creats a container picture that doesn't draw the child picture,
 but uses the child's size.}
 
-@defproc[(linewidth [w real?] [pict pict?]) pict?]{
+
+@defproc[(linewidth [w (or/c real? #f)] [pict pict?]) pict?]{
 
 Selects a specific pen width for drawing, which applies to pen drawing
-for @racket[pict] that does not already use a specific pen width.}
+for @racket[pict] that does not already use a specific pen width.
+A @racket[#f] value for @racket[w] makes the pen transparent (in contrast
+to a zero value, which means ``as thin as possible for the target device'').}
 
 @defproc[(colorize [pict pict?] [color (or/c string? 
                                              (is-a?/c color%)
@@ -707,6 +723,26 @@ plain pumpkin. The @racket[size] determines the width.}
 
 Creates an angel wing, left or right, or any size.  The color and pen
 width for drawing the wing outline is the current one.}
+
+@defproc[(desktop-machine [scale real?]
+                          [style (listof symbol?) null])
+         pict?]{
+
+Produces a picture of ancient desktop computer. The @racket[scale]
+argument scales the size relative to the base size of 120 by 115. 
+
+The @racket[style] can include any of the following:
+
+@itemlist[
+
+ @item{@racket['plt] --- include a Racket logo on the machine's screen}
+
+ @item{@racket['binary] --- put 1s and 0s on the machine's screen}
+
+ @item{@racket['devil] --- like @racket['binary], and also give the machine 
+                           horns and a tail}
+
+]}
 
 @; ----------------------------------------
 
@@ -972,7 +1008,7 @@ dividing the gap between the RGB components and 255 by the factor.}
 Calls a @racket[proc] multiple times, gradually changing the pen
 and/or brush color for each call. For the first call, the current pen
 and/or brush color matches @racket[start]; for the last call, it
-matches racket[end]; and for intermediate calls, the color is an
+matches @racket[end]; and for intermediate calls, the color is an
 intermediate color.
 
 The @racket[max-step] and @racket[step-delta] arguments should be
@@ -989,10 +1025,10 @@ A parameter that is used to determine the @tech{bounding box} of picts
 created with @racket[text].
 
 The drawing context installed in this parameter need not be the same
-as the ultimate drawing context, but it must measure text in the same
-way. In particular, use a @racket[post-script-dc%] for preparing
-PostScript output, while a @racket[bitmap-dc%] instance will work fine
-for either @racket[bitmap-dc%] or @racket[canvas%] output.}
+as the ultimate drawing context, but it should measure text in the same
+way. Under normal circumstances, font metrics are the same for all
+drawing contexts, so the default value of @racket[dc-for-text-size] is
+a @racket[bitmap-dc%] that draws to a 1-by-1 bitmap.}
 
 
 @defproc[(draw-pict [pict pict?]

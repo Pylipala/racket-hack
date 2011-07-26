@@ -8,6 +8,7 @@
          "const.rkt"
          "utils.rkt"
          "window.rkt"
+         "queue.rkt"
          "../common/event.rkt"
          "../common/queue.rkt"
          "../common/freeze.rkt"
@@ -30,7 +31,7 @@
           (queue-window-event wx (lambda () (send wx changed)))
           (constrained-reply
            (send wx get-eventspace)
-           (lambda () (let loop () (pre-event-sync #t) (when (yield) (loop))))
+           (lambda () (let loop () (pre-event-sync #t) (when (yield/no-sync) (loop))))
            (void))))))
 
 (defclass slider% item%
@@ -45,12 +46,15 @@
 
   (define vert? (memq 'vertical style))
 
+  (define slider-lo lo)
+  (define slider-hi hi)
+
   (define slider-cocoa
     (let ([cocoa (as-objc-allocation
                   (tell (tell MySlider alloc) init))])
       (tellv cocoa setMinValue: #:type _double* lo)
       (tellv cocoa setMaxValue: #:type _double* hi)
-      (tellv cocoa setDoubleValue: #:type _double* val)
+      (tellv cocoa setDoubleValue: #:type _double* (flip val))
       ;; heuristic: show up to tick marks:
       (when ((- hi lo) . < . 64)
         (tellv cocoa setNumberOfTickMarks: #:type _NSUInteger (add1 (- hi lo)))
@@ -147,16 +151,26 @@
                         [event-type 'slider]
                         [time-stamp (current-milliseconds)])))
 
+  (define/private (flip v)
+    (if vert?
+        (+ slider-lo (- slider-hi v))
+        v))
 
   (define/public (set-value v)
     (atomically
-     (tellv slider-cocoa setDoubleValue: #:type _double* v)
+     (tellv slider-cocoa setDoubleValue: #:type _double* (flip v))
      (update-message v)))
   (define/public (get-value)
-    (inexact->exact (floor (tell #:type _double slider-cocoa doubleValue))))
+    (flip (inexact->exact (floor (tell #:type _double slider-cocoa doubleValue)))))
 
   (define/public (update-message [val (get-value)])
     (tellv message-cocoa setTitleWithMnemonic: #:type _NSString (format "~a" val)))
+
+  (inherit get-cocoa-window)
+  (define/override (post-mouse-down)
+    ;; For some reason, dragging a slider disabled mouse-moved
+    ;;  events for the window, so turn them back on:
+    (tellv (get-cocoa-window) setAcceptsMouseMovedEvents: #:type _BOOL #t))
 
   (define/override (maybe-register-as-child parent on?)
     (register-as-child parent on?)))

@@ -89,12 +89,10 @@
 
 (drracket:modes:add-initial-modes)
 
-(namespace-set-variable-value! 'help-desk:frame-mixin drracket:frame:basics-mixin)
+(finder:default-filters
+ `(["Racket Sources" "*.rkt;*.scrbl;*.rktl;*.rktd;*.ss;*.scm"]
+   ,@(finder:default-filters)))
 
-(finder:default-filters (list* '("Racket (.rkt)" "*.rkt")
-                               '("Racket (.ss)" "*.ss")
-                               '("Racket (.scm)" "*.scm")
-                               (finder:default-filters)))
 (application:current-app-name (string-constant drscheme))
 
 (drr:set-default 'drracket:language-dialog:hierlist-default #f (λ (x) (or (not x) (and (list? x) (andmap string? x)))))
@@ -340,15 +338,7 @@
    (λ (editor-panel)
      (make-check-box 'drracket:show-line-numbers?
                      (string-constant show-line-numbers)
-                     editor-panel
-                     (lambda (value)
-                       (define (drracket:frame? frame)
-                         (and (is-a? frame top-level-window<%>)
-                              (is-a? frame drracket:unit:frame%)))
-                       ;; is it a hack to use `get-top-level-windows' ?
-                       (define frames (filter drracket:frame? (get-top-level-windows)))
-                       (when (not (null? frames))
-                         (send (car frames) show-line-numbers! value))))
+                     editor-panel)
      
      ;; come back to this one.
      #;
@@ -463,7 +453,7 @@
                  (let ([len (length exprs)])
                    (when (> len max-len)
                      (save (drop exprs (- len max-len)))))))])
-  (let ([framework-prefs (get-preference 'plt:framework-prefs)])
+  (let ([framework-prefs (get-preference 'plt:framework-prefs #:timeout-lock-there (λ (x) #f))])
     (when (and (list? framework-prefs)
                (andmap pair? framework-prefs))
       (let ([exprs-pref (assq 'drscheme:console-previous-exprs framework-prefs)])
@@ -473,7 +463,7 @@
                   (put-preferences (list 'plt:framework-prefs)
                                    (list (dict-set framework-prefs 'drscheme:console-previous-exprs (list trimmed)))
                                    void)))))))
-  (trim (get-preference 'plt:framework-pref:drscheme:console-previous-exprs)
+  (trim (get-preference 'plt:framework-pref:drscheme:console-previous-exprs #:timeout-lock-there (λ (x) #f))
         (λ (trimmed)
           (put-preferences (list 'plt:framework-pref:drscheme:console-previous-exprs)
                            (list trimmed)
@@ -537,7 +527,7 @@
   ;; preferences initialization
   (drr:set-default 'drracket:multi-file-search:recur? #t boolean?)
   (drr:set-default 'drracket:multi-file-search:filter? #t boolean?)
-  (drr:set-default 'drracket:multi-file-search:filter-regexp "\\.(rkt.?|ss|scm)$" string?)
+  (drr:set-default 'drracket:multi-file-search:filter-regexp "\\.(rkt.?|scrbl|ss|scm)$" string?)
   (drr:set-default 'drracket:multi-file-search:search-string "" string?)
   (drr:set-default 'drracket:multi-file-search:search-type
                            1
@@ -639,6 +629,29 @@
                                             (string-constant repl-out-color))))
 
 
+(define test-coverage-on-style-pref (string->symbol drracket:debug:test-coverage-on-style-name))
+(define test-coverage-off-style-pref (string->symbol drracket:debug:test-coverage-off-style-name))
+
+(color-prefs:register-color-preference test-coverage-on-style-pref
+                                       drracket:debug:test-coverage-on-style-name
+                                       (send the-color-database find-color "forest green"))
+(color-prefs:register-color-preference test-coverage-off-style-pref
+                                       drracket:debug:test-coverage-off-style-name
+                                       (send the-color-database find-color "maroon"))
+(color-prefs:add-to-preferences-panel 
+ "Module Language"
+ (λ (parent)
+   (color-prefs:build-color-selection-panel parent
+                                            test-coverage-on-style-pref
+                                            drracket:debug:test-coverage-on-style-name
+                                            (string-constant test-coverage-on))
+   (color-prefs:build-color-selection-panel parent
+                                            test-coverage-off-style-pref
+                                            drracket:debug:test-coverage-off-style-name
+                                            (string-constant test-coverage-off))))
+
+
+
 (let* ([find-frame
         (λ (item)
           (let loop ([item item])
@@ -657,21 +670,34 @@
             (send item enable (and frame (> (length (send frame get-tabs)) 1)))))])
   (group:add-to-windows-menu
    (λ (windows-menu)
+     (define sprefix (if (eq? (system-type) 'windows)
+                         (cons 'shift (get-default-shortcut-prefix))
+                         (get-default-shortcut-prefix)))
      (new menu-item%
-          [parent windows-menu] [label (string-constant prev-tab)] [shortcut #\[]
+          [parent windows-menu]
+          [label (string-constant prev-tab)]
+          [shortcut #\[]
+          [shortcut-prefix sprefix]
           [demand-callback dc]
           [callback (λ (item _) 
                       (let ([frame (find-frame item)])
                         (when frame
                           (send frame prev-tab))))])
-     (new menu-item% [parent windows-menu] [label (string-constant next-tab)] [shortcut #\]]
+     (new menu-item% 
+          [parent windows-menu]
+          [label (string-constant next-tab)]
+          [shortcut #\]]
+          [shortcut-prefix sprefix]
           [demand-callback dc]
           [callback (λ (item _) 
                       (let ([frame (find-frame item)])
                         (when frame
                           (send frame next-tab))))])
+     
      (let ([frame (find-frame windows-menu)])
        (unless (or (not frame) (= 1 (send frame get-tab-count)))
+         (unless (eq? (system-type) 'macosx)
+           (new separator-menu-item% [parent windows-menu]))
          (for ([i (in-range 0 (send frame get-tab-count))]
                #:when (< i 9))
            (new menu-item% 
@@ -683,7 +709,9 @@
                 [callback
                  (λ (a b)
                    (send frame change-to-nth-tab i))]))))
-     (new separator-menu-item% [parent windows-menu]))))
+     
+     (when (eq? (system-type) 'macosx)
+       (new separator-menu-item% [parent windows-menu])))))
 
 ;; Check for any files lost last time.
 ;; Ignore the framework's empty frames test, since

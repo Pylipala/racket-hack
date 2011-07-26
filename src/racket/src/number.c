@@ -1,6 +1,6 @@
 /*
   Racket
-  Copyright (c) 2004-2010 PLT Scheme Inc.
+  Copyright (c) 2004-2011 PLT Scheme Inc.
   Copyright (c) 1995-2001 Matthew Flatt
 
     This library is free software; you can redistribute it and/or
@@ -23,6 +23,12 @@
   All rights reserved.
 */
 
+#ifdef __APPLE__
+#include <TargetConditionals.h>
+#endif
+#ifndef TARGET_OS_IPHONE
+#define TARGET_OS_IPHONE 0
+#endif
 #include "schpriv.h"
 #include "nummacs.h"
 #include <math.h>
@@ -52,11 +58,11 @@
 # define MAX_SHIFT_EVER 32
 #endif
 
-#ifdef IPHONE
+#if TARGET_OS_IPHONE
 #ifdef ASM_DBLPREC_CONTROL_87
 #undef ASM_DBLPREC_CONTROL_87
 #endif
-#endif /* IPHONE */
+#endif /* TARGET_OS_IPHONE */
 
 /* locals */
 static Scheme_Object *number_p (int argc, Scheme_Object *argv[]);
@@ -70,6 +76,9 @@ static Scheme_Object *exact_positive_integer_p (int argc, Scheme_Object *argv[])
 static Scheme_Object *fixnum_p (int argc, Scheme_Object *argv[]);
 static Scheme_Object *inexact_real_p (int argc, Scheme_Object *argv[]);
 static Scheme_Object *flonum_p (int argc, Scheme_Object *argv[]);
+static Scheme_Object *single_flonum_p (int argc, Scheme_Object *argv[]);
+static Scheme_Object *real_to_single_flonum (int argc, Scheme_Object *argv[]);
+static Scheme_Object *real_to_double_flonum (int argc, Scheme_Object *argv[]);
 static Scheme_Object *exact_p (int argc, Scheme_Object *argv[]);
 static Scheme_Object *even_p (int argc, Scheme_Object *argv[]);
 static Scheme_Object *bitwise_or (int argc, Scheme_Object *argv[]);
@@ -103,19 +112,15 @@ static Scheme_Object *flvector (int argc, Scheme_Object *argv[]);
 static Scheme_Object *flvector_p (int argc, Scheme_Object *argv[]);
 static Scheme_Object *flvector_length (int argc, Scheme_Object *argv[]);
 static Scheme_Object *make_flvector (int argc, Scheme_Object *argv[]);
-#if defined(MZ_USE_PLACES) && defined(MZ_PRECISE_GC)
 static Scheme_Object *shared_flvector (int argc, Scheme_Object *argv[]);
 static Scheme_Object *make_shared_flvector (int argc, Scheme_Object *argv[]);
-#endif
 
 static Scheme_Object *fxvector (int argc, Scheme_Object *argv[]);
 static Scheme_Object *fxvector_p (int argc, Scheme_Object *argv[]);
 static Scheme_Object *fxvector_length (int argc, Scheme_Object *argv[]);
 static Scheme_Object *make_fxvector (int argc, Scheme_Object *argv[]);
-#if defined(MZ_USE_PLACES) && defined(MZ_PRECISE_GC)
 static Scheme_Object *shared_fxvector (int argc, Scheme_Object *argv[]);
 static Scheme_Object *make_shared_fxvector (int argc, Scheme_Object *argv[]);
-#endif
 
 static Scheme_Object *integer_to_fl (int argc, Scheme_Object *argv[]);
 static Scheme_Object *fl_to_integer (int argc, Scheme_Object *argv[]);
@@ -169,6 +174,11 @@ static Scheme_Object *unsafe_make_flrectangular (int argc, Scheme_Object *argv[]
 static Scheme_Object *unsafe_flreal_part (int argc, Scheme_Object *argv[]);
 static Scheme_Object *unsafe_flimag_part (int argc, Scheme_Object *argv[]);
 
+#ifdef MZ_USE_SINGLE_FLOATS
+static Scheme_Object *TO_FLOAT(const Scheme_Object *n);
+#endif
+Scheme_Object *scheme_TO_DOUBLE(const Scheme_Object *n);
+
 /* globals */
 READ_ONLY double scheme_infinity_val;
 READ_ONLY double scheme_minus_infinity_val;
@@ -189,13 +199,30 @@ READ_ONLY Scheme_Object *scheme_single_inf_object, *scheme_single_minus_inf_obje
 
 
 #ifdef FREEBSD_CONTROL_387
-#include <machine/floatingpoint.h>
+# include <ieeefp.h>
 #endif
 #ifdef LINUX_CONTROL_387
-#include <fpu_control.h>
+# include <fpu_control.h>
 #endif
 #ifdef ALPHA_CONTROL_FP
-#include <machine/fpu.h>
+# include <machine/fpu.h>
+#endif
+
+#ifdef ASM_DBLPREC_CONTROL_87
+/* Linux uses extended precision by default.
+   Make x87 computations double-precision instead of 
+   extended-precision, so that if/when the JIT generates
+   x87 instructions, it's consistent with everything else. */
+static void to_double_prec(void)
+{
+  int _dblprec = 0x27F;
+  asm ("fldcw %0" : : "m" (_dblprec));
+}
+static void to_extended_prec(void)
+{
+  int _dblprec = 0x37F;
+  asm ("fldcw %0" : : "m" (_dblprec));
+}
 #endif
 
 void
@@ -228,7 +255,7 @@ scheme_init_number (Scheme_Env *env)
   MZ_SIGSET(SIGFPE, SIG_IGN);
 #endif
 #ifdef FREEBSD_CONTROL_387
-  fpsetmask(0);
+  (void)fpsetmask(0);
 #endif
 #ifdef LINUX_CONTROL_387
   __setfpucw(_FPU_EXTENDED + _FPU_RC_NEAREST + 0x3F);
@@ -241,7 +268,7 @@ scheme_init_number (Scheme_Env *env)
 #endif
 #ifdef IGNORE_BY_MS_CONTROL_87
   /* Shouldn't be necessary, because the C library
-     should do this, but explictly masking exceptions
+     should do this, but explicitly masking exceptions
      makes Racket work under Bochs 2.1.1 with Win95 */
   _control87(_MCW_EM, _MCW_EM);
 #endif
@@ -253,13 +280,7 @@ scheme_init_number (Scheme_Env *env)
   }
 #endif
 #ifdef ASM_DBLPREC_CONTROL_87
-  {
-    /* Make x87 computations double-precision instead of 
-       extended-precision, so that if/when the JIT generates
-       x87 instructions, it's consistent with everything else. */
-    int _dblprec = 0x27F;
-    asm ("fldcw %0" : : "m" (_dblprec));
-  }
+  to_double_prec();
 #endif
   END_XFORM_SKIP;
 
@@ -360,6 +381,20 @@ scheme_init_number (Scheme_Env *env)
   SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_UNARY_INLINED;
   scheme_add_global_constant("flonum?", p, env);
 
+  p = scheme_make_folding_prim(single_flonum_p, "single-flonum?", 1, 1, 1);
+  SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_UNARY_INLINED;
+  scheme_add_global_constant("single-flonum?", p, env);
+
+  p = scheme_make_folding_prim(real_to_single_flonum, "real->single-flonum", 1, 1, 1);
+  scheme_add_global_constant("real->single-flonum", p, env);
+
+  p = scheme_make_folding_prim(real_to_double_flonum, "real->double-flonum", 1, 1, 1);
+  if (scheme_can_inline_fp_op())
+    SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_UNARY_INLINED;
+  else
+    SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_SOMETIMES_INLINED;
+  scheme_add_global_constant("real->double-flonum", p, env);
+  
   scheme_add_global_constant("exact?", 
 			     scheme_make_folding_prim(exact_p,
 						      "exact?",
@@ -581,13 +616,8 @@ void scheme_init_flfxnum_number(Scheme_Env *env)
                                                     1, 2),
 			     env);
 
-#if defined(MZ_USE_PLACES) && defined(MZ_PRECISE_GC)
   GLOBAL_PRIM_W_ARITY("shared-flvector", shared_flvector, 0, -1, env);
   GLOBAL_PRIM_W_ARITY("make-shared-flvector", make_shared_flvector, 1, 2, env);
-#else
-  GLOBAL_PRIM_W_ARITY("shared-flvector", flvector, 0, -1, env); 
-  GLOBAL_PRIM_W_ARITY("make-shared-flvector", make_flvector, 1, 2, env);
-#endif
 
   p = scheme_make_immed_prim(flvector_length, "flvector-length", 1, 1);
   SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_UNARY_INLINED;
@@ -624,13 +654,8 @@ void scheme_init_flfxnum_number(Scheme_Env *env)
                                                     1, 2),
 			     env);
 
-#if defined(MZ_USE_PLACES) && defined(MZ_PRECISE_GC)
   GLOBAL_PRIM_W_ARITY("shared-fxvector", shared_fxvector, 0, -1, env);
   GLOBAL_PRIM_W_ARITY("make-shared-fxvector", make_shared_fxvector, 1, 2, env);
-#else
-  GLOBAL_PRIM_W_ARITY("shared-fxvector", fxvector, 0, -1, env); 
-  GLOBAL_PRIM_W_ARITY("make-shared-fxvector", make_fxvector, 1, 2, env);
-#endif
 
   p = scheme_make_immed_prim(fxvector_length, "fxvector-length", 1, 1);
   SCHEME_PRIM_PROC_FLAGS(p) |= SCHEME_PRIM_IS_UNARY_INLINED;
@@ -1327,6 +1352,44 @@ flonum_p (int argc, Scheme_Object *argv[])
     return scheme_false;
 }
 
+static Scheme_Object *
+single_flonum_p (int argc, Scheme_Object *argv[])
+{
+  Scheme_Object *n = argv[0];
+#ifdef MZ_USE_SINGLE_FLOATS
+  if (SCHEME_FLTP(n))
+    return scheme_true;
+  else
+#endif
+    return scheme_false;
+}
+
+static Scheme_Object *
+real_to_single_flonum (int argc, Scheme_Object *argv[])
+{
+  Scheme_Object *n = argv[0];
+
+  if (!SCHEME_REALP(n))
+    NEED_REAL(real->single-flonum);
+
+#ifdef MZ_USE_SINGLE_FLOATS
+  return TO_FLOAT(n);
+#else
+  return scheme_TO_DOUBLE(n);
+#endif
+}
+
+static Scheme_Object *
+real_to_double_flonum (int argc, Scheme_Object *argv[])
+{
+  Scheme_Object *n = argv[0];
+
+  if (!SCHEME_REALP(n))
+    NEED_REAL(real->double-flonum);
+
+  return scheme_TO_DOUBLE(n);
+}
+
 int scheme_is_exact(const Scheme_Object *n)
 {
   if (SCHEME_INTP(n)) {
@@ -1793,7 +1856,7 @@ static Scheme_Object *TO_FLOAT(const Scheme_Object *n)
 
 #define TO_DOUBLE_VAL scheme_get_val_as_double
 
-#ifdef USE_SINGLE_FLOATS_AS_DEFAULT
+#ifdef USE_SINGLE_FLOATS
 
 double TO_DOUBLE_VAL(const Scheme_Object *n)
 {
@@ -2146,8 +2209,8 @@ atan_prim (int argc, Scheme_Object *argv[])
   int dbl = 0;
 # define MZ_USE_SINGLE !dbl
 # else
-  int single = 0;
-# define MZ_USE_SINGLE single == 2
+  int sgl = 0;
+# define MZ_USE_SINGLE sgl == 2
 #endif
 #endif
 
@@ -2159,7 +2222,7 @@ atan_prim (int argc, Scheme_Object *argv[])
   else if (SCHEME_FLTP(n1)) {
     v = SCHEME_FLT_VAL(n1);
 # ifndef USE_SINGLE_FLOATS_AS_DEFAULT
-    single++;
+    sgl++;
 # endif
   }
 #endif
@@ -2196,7 +2259,8 @@ atan_prim (int argc, Scheme_Object *argv[])
         ESCAPED_BEFORE_HERE;
       }
       if ((SCHEME_INTP(n2) && (SCHEME_INT_VAL(n2) > 0))
-          || (SCHEME_BIGNUMP(n2) && (SCHEME_BIGPOS(n2))))
+          || (SCHEME_BIGNUMP(n2) && (SCHEME_BIGPOS(n2)))
+          || (SCHEME_RATIONALP(n2) && scheme_is_positive(n2)))
         return zeroi;
     }
 
@@ -2206,7 +2270,7 @@ atan_prim (int argc, Scheme_Object *argv[])
     else if (SCHEME_FLTP(n2)) {
       v2 = SCHEME_FLT_VAL(n2);
 # ifndef USE_SINGLE_FLOATS_AS_DEFAULT
-      single++;
+      sgl++;
 # endif
     }
 #endif
@@ -2244,7 +2308,7 @@ atan_prim (int argc, Scheme_Object *argv[])
 #endif
 
     v = atan2(v, v2);
-  } else {
+  } else { /* 1-argument case */
     if (argv[0] == zeroi)
       return zeroi;
 
@@ -2252,7 +2316,7 @@ atan_prim (int argc, Scheme_Object *argv[])
 
 #ifdef MZ_USE_SINGLE_FLOATS
 # ifndef USE_SINGLE_FLOATS_AS_DEFAULT
-    single++;
+    sgl++; /* sgl needs to be 2 to return a single-precision result */
 # endif
 #endif    
   }
@@ -2456,8 +2520,20 @@ static double sch_pow(double x, double y)
 	  return scheme_infinity_val;
       }
     }
-  } else
-    return pow(x, y);
+  } else {
+#ifdef ASM_DBLPREC_CONTROL_87
+    /* libm's pow() implementation seems to rely on
+       extended precision in pow(), so reset the control
+       word while calling pow(); note that the x87 control 
+       word is thread-specific */
+    to_extended_prec();
+#endif
+    x = pow(x, y);
+#ifdef ASM_DBLPREC_CONTROL_87
+    to_double_prec();
+#endif
+    return x;
+  }
 }
 #endif
 
@@ -2563,7 +2639,7 @@ scheme_expt(int argc, Scheme_Object *argv[])
 	if (!norm) {
 	  int isnonneg, iseven, negz;
 #ifdef MZ_USE_SINGLE_FLOATS
-	  int single = !SCHEME_DBLP(n) && !SCHEME_DBLP(e);
+	  int sgl = !SCHEME_DBLP(n) && !SCHEME_DBLP(e);
 #endif
 
 	  if (scheme_is_integer(e)) {
@@ -2578,13 +2654,13 @@ scheme_expt(int argc, Scheme_Object *argv[])
 	  if (isnonneg) {
 	    if (iseven || !negz) {
 #ifdef MZ_USE_SINGLE_FLOATS
-	      if (single)
+	      if (sgl)
 		return scheme_zerof;
 #endif
 	      return scheme_zerod;
 	    } else {
 #ifdef MZ_USE_SINGLE_FLOATS
-	      if (single)
+	      if (sgl)
 		return scheme_nzerof;
 #endif
 	      return scheme_nzerod;
@@ -2592,13 +2668,13 @@ scheme_expt(int argc, Scheme_Object *argv[])
 	  } else {
 	    if (iseven || !negz) {
 #ifdef MZ_USE_SINGLE_FLOATS
-	      if (single)
+	      if (sgl)
 		return scheme_single_inf_object;
 #endif
 	      return scheme_inf_object;
 	    } else {
 #ifdef MZ_USE_SINGLE_FLOATS
-	      if (single)
+	      if (sgl)
 		return scheme_single_minus_inf_object;
 #endif
 	      return scheme_minus_inf_object;
@@ -3274,20 +3350,22 @@ Scheme_Double_Vector *scheme_alloc_flvector(intptr_t size)
   return vec;
 }
 
-#if defined(MZ_USE_PLACES) && defined(MZ_PRECISE_GC)
 static Scheme_Double_Vector *alloc_shared_flvector(intptr_t size)
 {
   Scheme_Double_Vector *vec;
+#if defined(MZ_USE_PLACES) && defined(MZ_PRECISE_GC)
   void *original_gc;
 
   original_gc = GC_switch_to_master_gc();
+#endif
   vec = scheme_alloc_flvector(size);
   SHARED_ALLOCATED_SET(vec); 
+#if defined(MZ_USE_PLACES) && defined(MZ_PRECISE_GC)
   GC_switch_back_from_master(original_gc);
+#endif
 
   return vec;
 }
-#endif
 
 static Scheme_Object *do_flvector (const char *name, Scheme_Double_Vector *vec, int argc, Scheme_Object *argv[])
 {
@@ -3309,12 +3387,10 @@ static Scheme_Object *flvector (int argc, Scheme_Object *argv[])
   return do_flvector("flvector", scheme_alloc_flvector(argc), argc, argv);
 }
 
-#if defined(MZ_USE_PLACES) && defined(MZ_PRECISE_GC)
 static Scheme_Object *shared_flvector (int argc, Scheme_Object *argv[])
 {
   return do_flvector("shared-flvector", alloc_shared_flvector(argc), argc, argv);
 }
-#endif
 
 static Scheme_Object *flvector_p (int argc, Scheme_Object *argv[])
 {
@@ -3350,11 +3426,9 @@ static Scheme_Object *do_make_flvector (const char *name, int as_shared, int arg
       scheme_wrong_type(name, "flonum", 1, argc, argv);
   }
   
-#if defined(MZ_USE_PLACES) && defined(MZ_PRECISE_GC)
   if (as_shared)
     vec = alloc_shared_flvector(size);
   else
-#endif
     vec = scheme_alloc_flvector(size);
 
   if (argc > 1)
@@ -3373,12 +3447,10 @@ static Scheme_Object *make_flvector (int argc, Scheme_Object *argv[])
   return do_make_flvector("make-flvector", 0, argc, argv);
 }
 
-#if defined(MZ_USE_PLACES) && defined(MZ_PRECISE_GC)
 static Scheme_Object *make_shared_flvector (int argc, Scheme_Object *argv[])
 {
   return do_make_flvector("make-shared-flvector", 1, argc, argv);
 }
-#endif
 
 Scheme_Object *scheme_flvector_length(Scheme_Object *vec)
 {
@@ -3462,20 +3534,22 @@ Scheme_Vector *scheme_alloc_fxvector(intptr_t size)
   return vec;
 }
 
-#if defined(MZ_USE_PLACES) && defined(MZ_PRECISE_GC)
 static Scheme_Vector *alloc_shared_fxvector(intptr_t size)
 {
   Scheme_Vector *vec;
+#if defined(MZ_USE_PLACES) && defined(MZ_PRECISE_GC)
   void *original_gc;
 
   original_gc = GC_switch_to_master_gc();
+#endif
   vec = scheme_alloc_fxvector(size);
   SHARED_ALLOCATED_SET(vec); 
+#if defined(MZ_USE_PLACES) && defined(MZ_PRECISE_GC)
   GC_switch_back_from_master(original_gc);
+#endif
 
   return vec;
 }
-#endif
 
 static Scheme_Object *do_fxvector (const char *name, Scheme_Vector *vec, int argc, Scheme_Object *argv[])
 {
@@ -3497,12 +3571,10 @@ static Scheme_Object *fxvector (int argc, Scheme_Object *argv[])
   return do_fxvector("fxvector", scheme_alloc_fxvector(argc), argc, argv);
 }
 
-#if defined(MZ_USE_PLACES) && defined(MZ_PRECISE_GC)
 static Scheme_Object *shared_fxvector (int argc, Scheme_Object *argv[])
 {
   return do_fxvector("shared-fxvector", alloc_shared_fxvector(argc), argc, argv);
 }
-#endif
 
 static Scheme_Object *fxvector_p (int argc, Scheme_Object *argv[])
 {
@@ -3536,11 +3608,9 @@ static Scheme_Object *do_make_fxvector (const char *name, int as_shared, int arg
       scheme_wrong_type(name, "fixnum", 1, argc, argv);
   }
   
-#if defined(MZ_USE_PLACES) && defined(MZ_PRECISE_GC)
   if (as_shared)
     vec = alloc_shared_fxvector(size);
   else
-#endif
     vec = scheme_alloc_fxvector(size);
 
   {
@@ -3559,12 +3629,10 @@ static Scheme_Object *make_fxvector (int argc, Scheme_Object *argv[])
   return do_make_fxvector("make-fxvector", 0, argc, argv);
 }
 
-#if defined(MZ_USE_PLACES) && defined(MZ_PRECISE_GC)
 static Scheme_Object *make_shared_fxvector (int argc, Scheme_Object *argv[])
 {
   return do_make_fxvector("make-shared-fxvector", 1, argc, argv);
 }
-#endif
 
 Scheme_Object *scheme_fxvector_length(Scheme_Object *vec)
 {

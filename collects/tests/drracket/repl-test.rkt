@@ -73,13 +73,12 @@ This produces an ACK message
                                  backtrace-image-string
                                  " "
                                  file-image-string
-                                 " .*mred/private/snipfile.rkt:"))
+                                 " .*rkt:"))
                   "[0-9]+:[0-9]+: "
                   (regexp-quote str))))
 
 (define test-data
   (list
-
    ;; basic tests
    (mktest "1"
            ("1"
@@ -190,8 +189,8 @@ This produces an ACK message
             "{stop-multi.png} {stop-22x22.png} reference to undefined identifier: xx"
             "{stop-multi.png} {stop-22x22.png} repl-test-tmp3.rkt:1:0: reference to undefined identifier: xx"
             "reference to undefined identifier: xx"
-            #rx"{stop-multi.png} {stop-22x22.png} .*mred/private/snipfile.rkt:[0-9]+:[0-9]+: reference to undefined identifier: xx"
-            #rx"{stop-multi.png} {stop-22x22.png} .*mred/private/snipfile.rkt:[0-9]+:[0-9]+: reference to undefined identifier: xx")
+            #rx"{stop-multi.png} {stop-22x22.png} .*rkt:[0-9]+:[0-9]+: reference to undefined identifier: xx"
+            #rx"{stop-multi.png} {stop-22x22.png} .*rkt:[0-9]+:[0-9]+: reference to undefined identifier: xx")
            'definitions
            #f
            void
@@ -266,8 +265,8 @@ This produces an ACK message
             "define-values: cannot change constant variable: +"
             "define-values: cannot change constant variable: +"
             "define-values: cannot change constant variable: +"
-            #rx"{stop-multi.png} {stop-22x22.png} .*mred/private/snipfile.rkt:[0-9]+:[0-9]+: define-values: cannot change constant variable: \\+"
-            #rx"{stop-multi.png} {stop-22x22.png} .*mred/private/snipfile.rkt:[0-9]+:[0-9]+: define-values: cannot change constant variable: \\+")
+            #rx"{stop-multi.png} {stop-22x22.png} .*rkt:[0-9]+:[0-9]+: define-values: cannot change constant variable: \\+"
+            #rx"{stop-multi.png} {stop-22x22.png} .*rkt:[0-9]+:[0-9]+: define-values: cannot change constant variable: \\+")
            'interactions
            #f
            void
@@ -305,8 +304,8 @@ This produces an ACK message
             "{stop-multi.png} {stop-22x22.png} reference to undefined identifier: xx"
             "{stop-multi.png} {stop-22x22.png} repl-test-tmp3.rkt:1:7: reference to undefined identifier: xx"
             "reference to undefined identifier: xx"
-            #rx"{stop-multi.png} {stop-22x22.png} .*mred/private/snipfile.rkt:[0-9]+:[0-9]+: reference to undefined identifier: xx"
-            #rx"{stop-multi.png} {stop-22x22.png} .*mred/private/snipfile.rkt:[0-9]+:[0-9]+: reference to undefined identifier: xx")
+            #rx"{stop-multi.png} {stop-22x22.png} .*rkt:[0-9]+:[0-9]+: reference to undefined identifier: xx"
+            #rx"{stop-multi.png} {stop-22x22.png} .*rkt:[0-9]+:[0-9]+: reference to undefined identifier: xx")
            'definitions
            #f
            void
@@ -350,8 +349,8 @@ This produces an ACK message
             "{stop-multi.png} {stop-22x22.png} reference to undefined identifier: xx"
             "{stop-multi.png} {stop-22x22.png} repl-test-tmp3.rkt:2:0: reference to undefined identifier: xx"
             "reference to undefined identifier: xx"
-            #rx"{stop-multi.png} {stop-22x22.png} .*mred/private/snipfile.rkt:[0-9]+:[0-9]+: reference to undefined identifier: xx"
-            #rx"{stop-multi.png} {stop-22x22.png} .*mred/private/snipfile.rkt:[0-9]+:[0-9]+: reference to undefined identifier: xx")
+            #rx"{stop-multi.png} {stop-22x22.png} .*rkt:[0-9]+:[0-9]+: reference to undefined identifier: xx"
+            #rx"{stop-multi.png} {stop-22x22.png} .*rkt:[0-9]+:[0-9]+: reference to undefined identifier: xx")
            'definitions
            #f
            void
@@ -417,8 +416,8 @@ This produces an ACK message
             "{stop-multi.png} {stop-22x22.png} reference to undefined identifier: x"
             "{stop-multi.png} {stop-22x22.png} repl-test-tmp3.rkt:1:4: reference to undefined identifier: x"
             "reference to undefined identifier: x"
-            #rx"{stop-multi.png} {stop-22x22.png} .*mred/private/snipfile.rkt:[0-9]+:[0-9]+: reference to undefined identifier: x"
-            #rx"{stop-multi.png} {stop-22x22.png} .*mred/private/snipfile.rkt:[0-9]+:[0-9]+: reference to undefined identifier: x")
+            #rx"{stop-multi.png} {stop-22x22.png} .*rkt:[0-9]+:[0-9]+: reference to undefined identifier: x"
+            #rx"{stop-multi.png} {stop-22x22.png} .*rkt:[0-9]+:[0-9]+: reference to undefined identifier: x")
            'definitions
            #f
            void
@@ -457,8 +456,8 @@ This produces an ACK message
             "{stop-multi.png} {stop-22x22.png} expt: expected argument of type <number>; given #<void>"
             "{stop-multi.png} {stop-22x22.png} repl-test-tmp3.rkt:1:0: expt: expected argument of type <number>; given #<void>"
             "expt: expected argument of type <number>; given #<void>"
-            #rx"{stop-multi.png} {stop-22x22.png} .*mred/private/snipfile.rkt:[0-9]+:[0-9]+: expt: expected argument of type <number>; given #<void>"
-            #rx"{stop-multi.png} {stop-22x22.png} .*mred/private/snipfile.rkt:[0-9]+:[0-9]+: expt: expected argument of type <number>; given #<void>")
+            #rx"{stop-multi.png} {stop-22x22.png} .*rkt:[0-9]+:[0-9]+: expt: expected argument of type <number>; given #<void>"
+            #rx"{stop-multi.png} {stop-22x22.png} .*rkt:[0-9]+:[0-9]+: expt: expected argument of type <number>; given #<void>")
            'definitions
            #f
            void
@@ -507,8 +506,8 @@ This produces an ACK message
             "{stop-multi.png} {stop-22x22.png} reference to undefined identifier: x"
             "{stop-multi.png} {stop-22x22.png} repl-test-tmp3.rkt:1:4: reference to undefined identifier: x"
             "1\n2\nreference to undefined identifier: x"
-            #rx"{stop-multi.png} {stop-22x22.png} .*mred/private/snipfile.rkt:[0-9]+:[0-9]+: reference to undefined identifier: x"
-            #rx"{stop-multi.png} {stop-22x22.png} .*mred/private/snipfile.rkt:[0-9]+:[0-9]+: reference to undefined identifier: x")
+            #rx"{stop-multi.png} {stop-22x22.png} .*rkt:[0-9]+:[0-9]+: reference to undefined identifier: x"
+            #rx"{stop-multi.png} {stop-22x22.png} .*rkt:[0-9]+:[0-9]+: reference to undefined identifier: x")
            'definitions
            #f
            void
@@ -540,12 +539,12 @@ This produces an ACK message
    
    (mktest "(require lang/htdp-beginner)\n(cond [1 2 3 4])"
            
-           ("{stop-22x22.png} cond: expected a clause with one question and one answer, but found a clause with 4 parts in:\n  1\n  2\n  3\n  4"
-            "{stop-22x22.png} cond: expected a clause with one question and one answer, but found a clause with 4 parts in:\n  1\n  2\n  3\n  4"
-            "{stop-22x22.png} repl-test-tmp3.rkt:2:7: cond: expected a clause with one question and one answer, but found a clause with 4 parts in:\n  1\n  2\n  3\n  4"
-            "{stop-multi.png} {stop-22x22.png} cond: expected a clause with one question and one answer, but found a clause with 4 parts in:\n  1\n  2\n  3\n  4"
-            "{stop-multi.png} {stop-22x22.png} cond: expected a clause with one question and one answer, but found a clause with 4 parts in:\n  1\n  2\n  3\n  4"
-            "{stop-multi.png} {stop-22x22.png} repl-test-tmp3.rkt:2:7: cond: expected a clause with one question and one answer, but found a clause with 4 parts in:\n  1\n  2\n  3\n  4")
+           ("{stop-22x22.png} cond: expected a clause with a question and an answer, but found a clause with 4 parts in:\n  1\n  2\n  3\n  4"
+            "{stop-22x22.png} cond: expected a clause with a question and an answer, but found a clause with 4 parts in:\n  1\n  2\n  3\n  4"
+            "{stop-22x22.png} repl-test-tmp3.rkt:2:7: cond: expected a clause with a question and an answer, but found a clause with 4 parts in:\n  1\n  2\n  3\n  4"
+            "{stop-multi.png} {stop-22x22.png} cond: expected a clause with a question and an answer, but found a clause with 4 parts in:\n  1\n  2\n  3\n  4"
+            "{stop-multi.png} {stop-22x22.png} cond: expected a clause with a question and an answer, but found a clause with 4 parts in:\n  1\n  2\n  3\n  4"
+            "{stop-multi.png} {stop-22x22.png} repl-test-tmp3.rkt:2:7: cond: expected a clause with a question and an answer, but found a clause with 4 parts in:\n  1\n  2\n  3\n  4")
            'definitions
            #f
            void
@@ -611,7 +610,7 @@ This produces an ACK message
            #f
            void
            void)
-   
+
    ;; error escape handler test
    (mktest
     "(let ([old (error-escape-handler)])\n(+ (let/ec k\n(dynamic-wind\n(lambda () (error-escape-handler (lambda () (k 5))))\n(lambda () (expt 3 #f))\n(lambda () (error-escape-handler old))))\n10))"
@@ -620,8 +619,8 @@ This produces an ACK message
      "{stop-multi.png} {stop-22x22.png} expt: expected argument of type <number>; given #f\n15"
      "{stop-multi.png} {stop-22x22.png} repl-test-tmp3.rkt:5:19: expt: expected argument of type <number>; given #f\n15"
      "expt: expected argument of type <number>; given #f\n15"
-     #rx"{stop-multi.png} {stop-22x22.png} .*mred/private/snipfile.rkt:[0-9]+:[0-9]+: expt: expected argument of type <number>; given #f\n15"
-     #rx"{stop-multi.png} {stop-22x22.png} .*mred/private/snipfile.rkt:[0-9]+:[0-9]+: expt: expected argument of type <number>; given #f\n15")
+     #rx"{stop-multi.png} {stop-22x22.png} .*rkt:[0-9]+:[0-9]+: expt: expected argument of type <number>; given #f\n15"
+     #rx"{stop-multi.png} {stop-22x22.png} .*rkt:[0-9]+:[0-9]+: expt: expected argument of type <number>; given #f\n15")
     'definitions
     #f
     void
@@ -715,12 +714,12 @@ This produces an ACK message
     ;; comes and messes up the source location for the error.
     "(define s (make-semaphore 0))\n(queue-callback\n(lambda ()\n(dynamic-wind\nvoid\n(lambda () (expt 3 #f))\n(lambda () (semaphore-post s)))))\n(begin (yield s) (void))"
     
-    ("{stop-multi.png} {stop-22x22.png} expt: expected argument of type <number>; given #f"
-     "{stop-multi.png} {stop-22x22.png} expt: expected argument of type <number>; given #f"
-     "{stop-multi.png} {stop-22x22.png} repl-test-tmp3.rkt:6:15: expt: expected argument of type <number>; given #f"
-     "expt: expected argument of type <number>; given #f"
-     #rx"{stop-multi.png} {stop-22x22.png} .*mred/private/snipfile.rkt:[0-9]+:[0-9]+: expt: expected argument of type <number>; given #f"
-     #rx"{stop-multi.png} {stop-22x22.png} .*mred/private/snipfile.rkt:[0-9]+:[0-9]+: expt: expected argument of type <number>; given #f")
+    (#rx"expt: expected argument of type <number>; given #f"
+     #rx"expt: expected argument of type <number>; given #f"
+     #rx"expt: expected argument of type <number>; given #f"
+     #rx"expt: expected argument of type <number>; given #f"
+     #rx"expt: expected argument of type <number>; given #f"
+     #rx"expt: expected argument of type <number>; given #f")
     'definitions
     #f
     void
@@ -729,7 +728,7 @@ This produces an ACK message
    
    ;; breaking tests
    (mktest "(semaphore-wait (make-semaphore 0))"
-           ("{stop-multi.png} {stop-22x22.png} user break"
+           (#rx"user break"
             #rx"user break"
             #rx"user break"
             #rx"user break"
@@ -741,7 +740,7 @@ This produces an ACK message
            void)
    
    (mktest "(let l()(l))"
-           (#rx"{stop-multi.png} {stop-22x22.png} user break"
+           (#rx"user break"
             #rx"user break"
             #rx"user break"
             #rx"user break"
@@ -796,8 +795,8 @@ This produces an ACK message
             "{stop-multi.png} {stop-22x22.png} procedure application: expected procedure, given: 3; arguments were: 3"
             "{stop-multi.png} {stop-22x22.png} repl-test-tmp3.rkt:3:13: procedure application: expected procedure, given: 3; arguments were: 3"
             "procedure application: expected procedure, given: 3; arguments were: 3"
-            #rx"{stop-multi.png} {stop-22x22.png} .*mred/private/snipfile.rkt:[0-9]+:[0-9]+: procedure application: expected procedure, given: 3; arguments were: 3"
-            #rx"{stop-multi.png} {stop-22x22.png} .*mred/private/snipfile.rkt:[0-9]+:[0-9]+: procedure application: expected procedure, given: 3; arguments were: 3")
+            #rx"{stop-multi.png} {stop-22x22.png} .*rkt:[0-9]+:[0-9]+: procedure application: expected procedure, given: 3; arguments were: 3"
+            #rx"{stop-multi.png} {stop-22x22.png} .*rkt:[0-9]+:[0-9]+: procedure application: expected procedure, given: 3; arguments were: 3")
            'definitions
            #f
            void
@@ -898,8 +897,8 @@ This produces an ACK message
             "{stop-multi.png} {stop-22x22.png} reference to undefined identifier: xx"
             "{stop-multi.png} {stop-22x22.png} repl-test-tmp3.rkt:1:0: reference to undefined identifier: xx"
             "reference to undefined identifier: xx"
-            #rx"{stop-multi.png} {stop-22x22.png} .*mred/private/snipfile.rkt:[0-9]+:[0-9]+: reference to undefined identifier: xx"
-            #rx"{stop-multi.png} {stop-22x22.png} .*mred/private/snipfile.rkt:[0-9]+:[0-9]+: reference to undefined identifier: xx")
+            #rx"{stop-multi.png} {stop-22x22.png} .*rkt:[0-9]+:[0-9]+: reference to undefined identifier: xx"
+            #rx"{stop-multi.png} {stop-22x22.png} .*rkt:[0-9]+:[0-9]+: reference to undefined identifier: xx")
            'definitions
            #f
            void
@@ -1104,14 +1103,14 @@ This produces an ACK message
     
   (define drscheme-frame (wait-for-drscheme-frame))
   
-  (define interactions-text (send drscheme-frame get-interactions-text))
-  (define interactions-canvas (send drscheme-frame get-interactions-canvas))
-  (define definitions-text (send drscheme-frame get-definitions-text))
-  (define definitions-canvas (send drscheme-frame get-definitions-canvas))
-  (define execute-button (send drscheme-frame get-execute-button))
+  (define interactions-text (queue-callback/res (λ () (send drscheme-frame get-interactions-text))))
+  (define interactions-canvas (queue-callback/res (λ () (send drscheme-frame get-interactions-canvas))))
+  (define definitions-text (queue-callback/res (λ () (send drscheme-frame get-definitions-text))))
+  (define definitions-canvas (queue-callback/res (λ () (send drscheme-frame get-definitions-canvas))))
+  (define execute-button (queue-callback/res (λ () (send drscheme-frame get-execute-button))))
   
   (define wait-for-execute (lambda () (wait-for-button execute-button)))
-  (define get-int-pos (lambda () (get-text-pos interactions-text)))
+  (define get-int-pos (lambda () (queue-callback/res (λ () (get-text-pos interactions-text)))))
   
   
   (define short-tmp-load-filename
@@ -1127,17 +1126,14 @@ This produces an ACK message
     (clear-definitions drscheme-frame)
     (type-in-definitions drscheme-frame "1/2")
     (do-execute drscheme-frame)
-    (let ([s (make-semaphore 0)])
-      (queue-callback
-       (lambda ()
-         (let* ([start (send interactions-text paragraph-start-position 2)]
-                ;; since the fraction is supposed to be one char wide, we just
-                ;; select one char, so that, if the regular number prints out,
-                ;; this test will fail.
-                [end (+ start 1)])
-           (send interactions-text set-position start end)
-           (semaphore-post s))))
-      (semaphore-wait s))
+    (queue-callback/res
+     (lambda ()
+       (let* ([start (send interactions-text paragraph-start-position 2)]
+              ;; since the fraction is supposed to be one char wide, we just
+              ;; select one char, so that, if the regular number prints out,
+              ;; this test will fail.
+              [end (+ start 1)])
+         (send interactions-text set-position start end))))
     (test:menu-select "Edit" "Copy")
     (clear-definitions drscheme-frame)
     (type-in-definitions drscheme-frame "(+ ")
@@ -1182,16 +1178,19 @@ This produces an ACK message
             (cond
               [(string? item) (insert-in-definitions/newlines drscheme-frame item)]
               [(eq? item 'left)
-               (send definitions-text 
-                     set-position
-                     (- (send definitions-text get-start-position) 1)
-                     (- (send definitions-text get-start-position) 1))]
+               (queue-callback/res
+                (λ ()
+                  (send definitions-text 
+                        set-position
+                        (- (send definitions-text get-start-position) 1)
+                        (- (send definitions-text get-start-position) 1))))]
               [(pair? item) (apply test:menu-select item)]))
           program)])
       
       (do-execute drscheme-frame #f)
+      (queue-callback/res void) ;; make sure that the execute callback has really completed (is this necc w/ test:run-one below?)
       (when breaking-test?
-        (test:run-one (lambda () (send (send drscheme-frame get-break-button) command))))
+        (test:run-one (λ () (send (send drscheme-frame get-break-button) command))))
       (wait-for-execute)
       
       (let* ([execute-text-end (max 0 (- (get-int-pos) 1))] ;; subtract one to skip last newline
@@ -1213,10 +1212,10 @@ This produces an ACK message
                 (fprintf (current-error-port)
                          "FAILED execute test for ~s\n  expected interactions to have the focus\n"
                          program))]
-             [(send definitions-canvas has-focus?)
+             [(queue-callback/res (λ () (send definitions-canvas has-focus?)))
               (let ([start (car source-location)]
                     [finish (cdr source-location)])
-                (let* ([error-ranges (send interactions-text get-error-ranges)]
+                (let* ([error-ranges (queue-callback/res (λ () (send interactions-text get-error-ranges)))]
                        [error-range (and error-ranges
                                          (not (null? error-ranges))
                                          (car error-ranges))])
@@ -1254,12 +1253,14 @@ This produces an ACK message
         (test:menu-select "File" "Save Definitions")
         
         ; make sure that a prompt is available at end of the REPL
-        (unless (and (char=? #\>
-                             (send interactions-text get-character
-                                   (- (send interactions-text last-position) 2)))
-                     (char=? #\space
-                             (send interactions-text get-character
-                                   (- (send interactions-text last-position) 1))))
+        (unless (queue-callback/res
+                 (λ () 
+                   (and (char=? #\>
+                                (send interactions-text get-character
+                                      (- (send interactions-text last-position) 2)))
+                        (char=? #\space
+                                (send interactions-text get-character
+                                      (- (send interactions-text last-position) 1))))))
           (test:keystroke #\return))
           
         (let ([load-test
@@ -1276,12 +1277,12 @@ This produces an ACK message
                  (insert-in-interactions drscheme-frame (format "(load ~s)" short-filename))
                  
                  ;; record current text position, then stuff a CR into the REPL
-                 (let ([load-text-start (+ 1 (send interactions-text last-position))])
+                 (let ([load-text-start (+ 1 (queue-callback/res (λ () (send interactions-text last-position))))])
                    
                    (test:keystroke #\return)
                    
                    (when breaking-test?
-                     (test:run-one (lambda () (send (send drscheme-frame get-break-button) command))))
+                     (test:run-one (λ () (send (send drscheme-frame get-break-button) command))))
                    (wait-for-execute)
                    
                    (let* ([load-text-end (- (get-int-pos) 1)] ;; subtract one to eliminate newline
@@ -1407,9 +1408,8 @@ This produces an ACK message
     (test:keystroke #\return)
     (wait-for-execute)
     
-    
     (for-each test:keystroke (string->list "x"))
-    (let ([start (+ 1 (send interactions-text last-position))])
+    (let ([start (+ 1 (queue-callback/res (λ () (send interactions-text last-position))))])
       (test:keystroke #\return)
       (wait-for-execute)
       
@@ -1428,12 +1428,12 @@ This produces an ACK message
     (wait-for-execute)
     
     (insert-in-interactions drscheme-frame expression)
-    (let ([start1 (+ 1 (send interactions-text last-position))])
+    (let ([start1 (+ 1 (queue-callback/res (λ () (send interactions-text last-position))))])
       (test:keystroke #\return)
       (wait-for-execute)
       (let ([output1 (fetch-output drscheme-frame start1 (- (get-int-pos) 1))])
         (insert-in-interactions drscheme-frame expression)
-        (let ([start2 (+ 1 (send interactions-text last-position))])
+        (let ([start2 (+ 1 (queue-callback/res (λ () (send interactions-text last-position))))])
           (test:keystroke #\return)
           (wait-for-execute)
           (let ([output2 (fetch-output drscheme-frame start2 (- (get-int-pos) 1))])
@@ -1448,7 +1448,7 @@ This produces an ACK message
     (clear-definitions drscheme-frame)
     (do-execute drscheme-frame)
     (wait-for-execute)
-    (let ([ints-just-after-welcome (+ 1 (send interactions-text last-position))])
+    (let ([ints-just-after-welcome (queue-callback/res (λ () (+ 1 (send interactions-text last-position))))])
       
       (type-in-definitions drscheme-frame "(define-syntax #%top-interaction (syntax-rules () [(_ . e) 'e]))\n(+ 1 2)\n")
       (test:menu-select "File" "Save Definitions")
@@ -1458,7 +1458,7 @@ This produces an ACK message
       (wait-for-execute)
       
       (for-each test:keystroke (string->list (format "(load ~s)" tmp-load-short-filename)))
-      (let ([start (+ 1 (send interactions-text last-position))])
+      (let ([start (+ 1 (queue-callback/res (λ () (send interactions-text last-position))))])
         (test:keystroke #\return)
         (wait-for-execute)
         (let* ([end (- (get-int-pos) 1)]
@@ -1469,7 +1469,7 @@ This produces an ACK message
           (next-test)))
       
       (for-each test:keystroke (string->list "(+ 4 5)"))
-      (let ([start (+ 1 (send interactions-text last-position))])
+      (let ([start (+ 1 (queue-callback/res (λ () (send interactions-text last-position))))])
         (test:keystroke #\return)
         (wait-for-execute)
         (let* ([end (- (get-int-pos) 1)]

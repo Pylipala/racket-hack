@@ -1,5 +1,6 @@
 #lang racket/base
-(require ffi/unsafe)
+(require ffi/unsafe
+	 ffi/winapi)
 
 (provide
  (protect-out _wfun
@@ -50,11 +51,8 @@
               MAKELONG
               MAKELPARAM))
 
-(define win64? (equal? "win32\\x86_64" (path->string (system-library-subpath #f))))
-(define win_abi (if win64? #f 'stdcall))
-
 (define-syntax-rule (_wfun . a)
-  (_fun #:abi win_abi . a))
+  (_fun #:abi winapi . a))
 
 (define _WORD _int16)
 (define _DWORD _int32)
@@ -127,10 +125,15 @@
 		      [time _DWORD]
 		      [pt _POINT]))
 
+(define (short v)
+  (if (zero? (bitwise-and #x8000 v))
+      v
+      (bitwise-ior v (arithmetic-shift -1 15))))
+
 (define (HIWORD v)
-  (arithmetic-shift v -16))
+  (short (arithmetic-shift v -16)))
 (define (LOWORD v)
-  (bitwise-and v #xFFFF))
+  (short (bitwise-and v #xFFFF)))
 
 (define (MAKELONG a b)
   (bitwise-ior (arithmetic-shift b 16) 

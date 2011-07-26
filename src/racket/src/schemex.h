@@ -1,6 +1,6 @@
 /*
   Racket
-  Copyright (c) 2004-2010 PLT Scheme Inc.
+  Copyright (c) 2004-2011 PLT Scheme Inc.
   Copyright (c) 1995-2001 Matthew Flatt
   All rights reserved.
 
@@ -11,16 +11,6 @@
   Copyright (c) 1994 Brent Benson
   All rights reserved.
 */
-
-/* Racket function prototypes */
-/* Macros generally shouldn't go in this file; it is used both to
-   prototype functions, and as a parsing source for
-   declaring scheme_extension_table */
-
-/* The scheme_extension_table "parser" is picky; don't leave a space
-   between a function name and it's opening parameter parenthesis. */
-
-/* After this START tag, all comments should start & end on same line */
 
 typedef struct {
 /*========================================================================*/
@@ -103,6 +93,7 @@ int (*scheme_in_main_thread)(void);
 void (*scheme_cancel_sleep)(void);
 void (*scheme_start_sleeper_thread)(void (*mzsleep)(float seconds, void *fds), float secs, void *fds, int hit_fd);
 void (*scheme_end_sleeper_thread)();
+void (*scheme_set_place_sleep)(Scheme_Sleep_Proc slp);
 void (*scheme_notify_sleep_progress)();
 Scheme_Object *(*scheme_make_thread_cell)(Scheme_Object *def_val, int inherited);
 Scheme_Object *(*scheme_thread_cell_get)(Scheme_Object *cell, Scheme_Thread_Cell_Table *cells);
@@ -158,10 +149,14 @@ void (*scheme_warning)(char *msg, ...);
 void (*scheme_raise)(Scheme_Object *exn);
 int (*scheme_log_level_p)(Scheme_Logger *logger, int level);
 void (*scheme_log)(Scheme_Logger *logger, int level, int flags,
-                          char *msg, ...);
+                          const char *msg, ...);
+void (*scheme_log_w_data)(Scheme_Logger *logger, int level, int flags,
+                                 Scheme_Object *data,
+                                 const char *msg, ...);
 void (*scheme_log_message)(Scheme_Logger *logger, int level, char *buffer, intptr_t len, Scheme_Object *data);
 void (*scheme_log_abort)(char *buffer);
 void (*scheme_log_warning)(char *buffer);
+void (*scheme_glib_log_message)(const char *log_domain, int log_level, const char *message, void *user_data);
 void (*scheme_out_of_memory_abort)();
 void (*scheme_wrong_count)(const char *name, int minc, int maxc,
 				  int argc, Scheme_Object **argv);
@@ -216,6 +211,7 @@ int *scheme_uchar_downs;
 int *scheme_uchar_titles;
 int *scheme_uchar_folds;
 unsigned char *scheme_uchar_combining_classes;
+void *scheme_on_demand_jit_code;
 /*========================================================================*/
 /*                              evaluation                                */
 /*========================================================================*/
@@ -313,6 +309,7 @@ void *(*GC_malloc_uncollectable)(size_t size_in_bytes);
 # endif
 #endif
 void *(*scheme_malloc_code)(intptr_t size);
+void *(*scheme_malloc_permanent_code)(intptr_t size);
 void (*scheme_free_code)(void *p);
 #ifndef MZ_PRECISE_GC
 void *(*scheme_malloc_gcable_code)(intptr_t size);
@@ -343,6 +340,7 @@ void (*scheme_remove_all_finalization)(void *p);
 void (*scheme_dont_gc_ptr)(void *p);
 void (*scheme_gc_ptr_ok)(void *p);
 void (*scheme_collect_garbage)(void);
+void (*scheme_enable_garbage_collection)(int on);
 #ifdef MZ_PRECISE_GC
 # ifndef USE_THREAD_LOCAL
 void **GC_variable_stack;
@@ -383,6 +381,7 @@ Scheme_Hash_Table *(*scheme_clone_hash_table)(Scheme_Hash_Table *bt);
 Scheme_Hash_Tree *(*scheme_make_hash_tree)(int kind);
 Scheme_Hash_Tree *(*scheme_hash_tree_set)(Scheme_Hash_Tree *tree, Scheme_Object *key, Scheme_Object *val);
 Scheme_Object *(*scheme_hash_tree_get)(Scheme_Hash_Tree *tree, Scheme_Object *key);
+Scheme_Object *(*scheme_eq_hash_tree_get)(Scheme_Hash_Tree *tree, Scheme_Object *key);
 intptr_t (*scheme_hash_tree_next)(Scheme_Hash_Tree *tree, intptr_t pos);
 int (*scheme_hash_tree_index)(Scheme_Hash_Tree *tree, intptr_t pos, Scheme_Object **_key, Scheme_Object **_val);
 int (*scheme_hash_tree_equal)(Scheme_Hash_Tree *t1, Scheme_Hash_Tree *t2);
@@ -663,6 +662,7 @@ intptr_t (*scheme_output_tell)(Scheme_Object *port);
 intptr_t (*scheme_tell_line)(Scheme_Object *port);
 intptr_t (*scheme_tell_column)(Scheme_Object *port);
 void (*scheme_tell_all)(Scheme_Object *port, intptr_t *line, intptr_t *col, intptr_t *pos);
+void (*scheme_set_port_location)(int argc, Scheme_Object **argv);
 void (*scheme_count_lines)(Scheme_Object *port);
 void (*scheme_close_input_port)(Scheme_Object *port);
 void (*scheme_close_output_port)(Scheme_Object *port);
@@ -701,6 +701,8 @@ void (*scheme_set_port_location_fun)(Scheme_Port *port,
 					    Scheme_Location_Fun location_fun);
 void (*scheme_set_port_count_lines_fun)(Scheme_Port *port,
 					       Scheme_Count_Lines_Fun count_lines_fun);
+void (*scheme_port_count_lines)(Scheme_Port *ip, const char *buffer, 
+                                       intptr_t offset, intptr_t got);
 Scheme_Object *(*scheme_progress_evt_via_get)(Scheme_Input_Port *port);
 int (*scheme_peeked_read_via_get)(Scheme_Input_Port *port,
 					 intptr_t size,
@@ -936,8 +938,10 @@ void (*scheme_signal_received_at)(void *);
 void *(*scheme_get_signal_handle)();
 intptr_t (*scheme_char_strlen)(const mzchar *s);
 Scheme_Object *(*scheme_stx_extract_marks)(Scheme_Object *stx);
-Scheme_Object *(*scheme_get_place_table)(void);
+Scheme_Hash_Table *(*scheme_get_place_table)(void);
 void *(*scheme_register_process_global)(const char *key, void *val);
+Scheme_Object *(*scheme_malloc_key)(void);
+void (*scheme_free_key)(Scheme_Object *k);
 #ifndef SCHEME_EX_INLINE
 } Scheme_Extension_Table;
 #endif

@@ -1,4 +1,3 @@
-
 #lang scheme/unit
 
   (require mzlib/class
@@ -7,8 +6,8 @@
   (require racket/draw/draw-sig
            racket/gui/dynamic)
 
-  (require "mrpict-sig.ss"
-	   "common-sig.ss")
+  (require "mrpict-sig.rkt"
+           "common-sig.rkt")
 
   (import draw^
           texpict-common^
@@ -60,7 +59,7 @@
           (send f show #t)))
       
       (define dc-for-text-size (make-parameter 
-				#f
+				(make-object bitmap-dc% (make-bitmap 1 1))
 				(lambda (x)
 				  (unless (or (not x)
 					      (is-a? x dc<%>))
@@ -410,7 +409,7 @@
 			       (unless requested-color
 				 (fprintf (current-error-port)
 					  "WARNING: couldn't find color: ~s\n" (cadr x)))
-			       (set-pen (find-or-create-pen color (send p get-width) 'solid))
+                               (set-pen (find-or-create-pen color (send p get-width) (send p get-style)))
 			       (set-brush (find-or-create-brush color 'solid))
 			       (set-text-foreground color))
 			     (loop dx dy (caddr x))
@@ -425,7 +424,9 @@
 							  (if (eq? (cadr x) 'thicklines)
 							      1
 							      0))
-						      'solid))
+                                                      (if (eq? (cadr x) #f)
+                                                          'transparent
+                                                          'solid)))
 			 (loop dx dy (caddr x))
 			 (set-pen p))]
 		      [(prog)
@@ -445,6 +446,18 @@
 
 
       (define (convert-pict p format default)
+        (if (eq? format 'pdf-bytes+bounds)
+            (let ([xscale (box 1.0)]
+                  [yscale (box 1.0)])
+              (send (current-ps-setup) get-scaling xscale yscale)
+              (list (convert-pict/bytes p 'pdf-bytes default)
+                    (* (unbox xscale) (pict-width p))
+                    (* (unbox yscale) (pict-height p))
+                    (* (unbox yscale) (pict-descent p))
+                    0))
+            (convert-pict/bytes p format default)))
+      
+      (define (convert-pict/bytes p format default)
         (case format
           [(png-bytes)
            (let* ([bm (make-bitmap (max 1 (inexact->exact (ceiling (pict-width p))))
@@ -457,12 +470,15 @@
                (send bm save-file s 'png)
                (get-output-bytes s)))]
           [(eps-bytes pdf-bytes)
-           (let ([s (open-output-bytes)])
+           (let ([s (open-output-bytes)]
+                 [xs (box 1)]
+                 [ys (box 1)])
+             (send (current-ps-setup) get-scaling xs ys)
              (let ([dc (new (if (eq? format 'eps-bytes) post-script-dc% pdf-dc%)
                             [interactive #f]
                             [as-eps #t]
-                            [width (pict-width p)]
-                            [height (pict-height p)]
+                            [width (* (pict-width p) (unbox xs))]
+                            [height (* (pict-height p) (unbox ys))]
                             [output s])])
                (send dc start-doc "pict")
                (send dc start-page)

@@ -1,8 +1,12 @@
-#lang racket
-(require racket/serialize)
+#lang racket/base
+(require racket/contract
+         racket/serialize)
 
 (define (read/string str)
-  (read (open-input-string str)))
+  (define r (read (open-input-string str)))
+  (cond [(eof-object? r) (raise-type-error 'read/string "nonempty string" str)]
+        [else r]))
+
 ;; Eli: Same comments as `read/bytes'.
 
 (define (write/string v)

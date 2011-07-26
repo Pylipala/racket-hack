@@ -32,14 +32,15 @@
 
 (define white (send the-color-database find-color "white"))
 
-;; A Drawing is (make-drawing number number (??? -> void) (box boolean))
-(define-struct drawing (start end draw tacked?))
+;; A Drawing is (make-drawing (??? -> void) (box boolean))
+(define-struct drawing (draw tacked?))
 
 (define-struct idloc (start end id))
 
 (define (mean x y)
   (/ (+ x y) 2))
 
+;; save+restore pen, brush, also smoothing
 (define-syntax with-saved-pen&brush
   (syntax-rules ()
     [(with-saved-pen&brush dc . body)
@@ -47,10 +48,13 @@
 
 (define (save-pen&brush dc thunk)
   (let ([old-pen (send dc get-pen)]
-        [old-brush (send dc get-brush)])
+        [old-brush (send dc get-brush)]
+        [old-smoothing (send dc get-smoothing)])
     (begin0 (thunk)
-      (send dc set-pen old-pen)
-      (send dc set-brush old-brush))))
+      (send* dc
+        (set-pen old-pen)
+        (set-brush old-brush)
+        (set-smoothing old-smoothing)))))
 
 (define-syntax with-saved-text-config
   (syntax-rules ()
@@ -63,10 +67,11 @@
         [old-background (send dc get-text-background)]
         [old-mode (send dc get-text-mode)])
     (begin0 (thunk)
-            (send dc set-font old-font)
-            (send dc set-text-foreground old-color)
-            (send dc set-text-background old-background)
-            (send dc set-text-mode old-mode))))
+      (send* dc
+        (set-font old-font)
+        (set-text-foreground old-color)
+        (set-text-background old-background)
+        (set-text-mode old-mode)))))
 
 ;; Interfaces
 
@@ -101,12 +106,12 @@
     (define/augment (after-delete start len)
       (for ([im (in-hash-values table)])
         (interval-map-contract! im start (+ start len)))
-      (inner (void) after-delete))
+      (inner (void) after-delete start len))
 
     (define/augment (after-insert start len)
       (for ([im (in-hash-values table)])
         (interval-map-expand! im start (+ start len)))
-      (inner (void) after-insert))
+      (inner (void) after-insert start len))
 
     (super-new)))
 
@@ -153,7 +158,7 @@
         (invalidate-bitmap-cache 0.0 0.0 +inf.0 +inf.0)))
 
     (define/public (add-hover-drawing start end draw [tack-box (box #f)])
-      (let ([drawing (make-drawing start end draw tack-box)])
+      (let ([drawing (make-drawing draw tack-box)])
         (interval-map-cons*! drawings-list
                              start (add1 end)
                              drawing
@@ -194,6 +199,15 @@
              (super on-local-event ev)))
         (else
          (super on-local-event ev))))
+
+    ;; Clear tacked-table on any modification.
+    ;; FIXME: possible to be more precise? (but not needed for macro stepper)
+    (define/augment (after-delete start len)
+      (set! tacked-table (make-hasheq))
+      (inner (void) after-delete start len))
+    (define/augment (after-insert start len)
+      (set! tacked-table (make-hasheq))
+      (inner (void) after-insert start len))
 
     (define/override (on-paint before? dc left top right bottom dx dy draw-caret)
       (super on-paint before? dc left top right bottom dx dy draw-caret)
@@ -254,6 +268,7 @@
                                   [(adj-y) fh]
                                   [(mini) _d])
                        (send* dc
+                         (set-smoothing 'smoothed)
                          (draw-rounded-rectangle
                           (+ x dx)
                           (+ y dy adj-y)
@@ -291,6 +306,7 @@
                              (set-brush billboard-brush)
                              (set-font (billboard-font dc))
                              (set-text-foreground color)
+                             (set-smoothing 'smoothed)
                              (draw-rounded-rectangle (- lx ld) (- ly ld)
                                                      (+ lw ld ld) (+ lh ld ld))
                              (draw-text label lx ly))))))))])

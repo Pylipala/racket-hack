@@ -29,10 +29,10 @@
 (define (common-signatures-*sl)
   (test-expression "(: foo Integer) (define foo 5)"
 		   ""
-		   #:repl-expected "define: cannot redefine name: foo")
+		   #:repl-expected "foo: this name was defined previously and cannot be re-defined")
   (test-expression "(: foo Integer) (define foo \"bar\")"
 		   ""
-		   #:repl-expected "define: cannot redefine name: foo"
+		   #:repl-expected "foo: this name was defined previously and cannot be re-defined"
 		   #:signature-violations-expected
 		   (list (make-signature-violation "\"bar\"" 1 7))))
 
@@ -325,8 +325,8 @@
 			 #:check-failures-expected (check-failures-expected '())
 			 #:signature-violations-expected (signature-violations-expected '()))
   (let* ([drs (wait-for-drscheme-frame)]
-         [interactions-text (send drs get-interactions-text)]
-         [definitions-text (send drs get-definitions-text)]
+         [interactions-text (queue-callback/res (λ () (send drs get-interactions-text)))]
+         [definitions-text (queue-callback/res (λ () (send drs get-definitions-text)))]
          [handle-insertion
           (lambda (item)
             (cond
@@ -367,14 +367,16 @@
     (let ([got
            (fetch-output
             drs
-            (send interactions-text paragraph-start-position 2)
-            (send interactions-text paragraph-end-position
-                  (- (send interactions-text last-paragraph) 1)))])
+            (queue-callback/res (λ () (send interactions-text paragraph-start-position 2)))
+            (queue-callback/res
+             (λ ()
+               (send interactions-text paragraph-end-position
+                     (- (send interactions-text last-paragraph) 1)))))])
       (when (regexp-match re:out-of-sync got)
         (error 'test-expression "got out of sync message"))
       (unless (check-expectation defs-expected got)
-        (printf (make-err-msg defs-expected) 
-                'definitions (language) expression defs-expected got)))
+        (eprintf (make-err-msg defs-expected) 
+                 'definitions (language) expression defs-expected got)))
 
     (let ((text
 	   (cond
@@ -390,47 +392,48 @@
        ((and (null? signature-violations-expected)
 	     (null? check-failures-expected))
 	(when text
-	  (printf "FAILED: ~s ~s expected ~s to produce no check failures or signature violations:\ngot:\n~a\ninstead\n"
-		  'definitions (language) expression text)))
+	  (eprintf "FAILED: ~s ~s expected ~s to produce no check failures or signature violations:\ngot:\n~a\ninstead\n"
+                   'definitions (language) expression text)))
        (text
 	(let-values (((test-count test-passed-count signature-violation-count check-failures signature-violations)
 		      (parse-test-failures text)))
 	  (when (not (equal? check-failures check-failures-expected))
-	    (printf "FAILED: ~s ~s expected ~s to produce check failures:\n~s\ngot:\n~s\ninstead\n"
-		    'definitions (language) expression check-failures-expected check-failures))
+	    (eprintf "FAILED: ~s ~s expected ~s to produce check failures:\n~s\ngot:\n~s\ninstead\n"
+                     'definitions (language) expression check-failures-expected check-failures))
 	  (when (not (equal? signature-violations signature-violations-expected))
-	    (printf "FAILED: ~s ~s expected ~s to produce signature violations:\n~s\ngot:\n~s\ninstead\n"
-		    'definitions (language) expression signature-violations-expected signature-violations))))
+	    (eprintf "FAILED: ~s ~s expected ~s to produce signature violations:\n~s\ngot:\n~s\ninstead\n"
+                     'definitions (language) expression signature-violations-expected signature-violations))))
        (else
-	(printf "expected ~a check failures and ~a signature violations but got none"
-		(length check-failures-expected) (length signature-violations-expected)))))
+        (eprintf "expected ~a check failures and ~a signature violations but got none"
+                 (length check-failures-expected) (length signature-violations-expected)))))
     ; #### do same for REPL
     
-    (let ([s (make-semaphore 0)])
-      (queue-callback
-       (λ ()
-         (send definitions-text select-all)
-         (send definitions-text copy)
-         (send interactions-text set-position
-               (send interactions-text last-position)
-               (send interactions-text last-position))
-         (send interactions-text paste)
-         (semaphore-post s)))
-      (semaphore-wait s))
+    (queue-callback/res
+     (λ ()
+	(send definitions-text select-all)
+	(send definitions-text copy)
+	(send interactions-text set-position
+	      (send interactions-text last-position)
+	      (send interactions-text last-position))
+	(send interactions-text paste)))
     
-    (let ([last-para (send interactions-text last-paragraph)])
+    (let ([last-para (queue-callback/res (lambda () (send interactions-text last-paragraph)))])
       (alt-return-in-interactions drs)
       (wait-for-computation drs)
       (let ([got
              (fetch-output
               drs
-              (send interactions-text paragraph-start-position (+ last-para 1))
-              (send interactions-text paragraph-end-position
-                    (- (send interactions-text last-paragraph) 1)))])
+              (queue-callback/res
+               (λ ()
+                 (send interactions-text paragraph-start-position (+ last-para 1))))
+              (queue-callback/res
+               (λ ()
+                 (send interactions-text paragraph-end-position
+                       (- (send interactions-text last-paragraph) 1)))))])
         (when (regexp-match re:out-of-sync got)
           (error 'test-expression "got out of sync message"))
         (unless (check-expectation repl-expected got)
-          (printf (make-err-msg repl-expected) 'interactions (language) expression repl-expected got))))))
+          (eprintf (make-err-msg repl-expected) 'interactions (language) expression repl-expected got))))))
 
 
 
@@ -438,12 +441,12 @@
   (syntax-case stx ()
     [(_ arg)
      (identifier? (syntax arg))
-     (syntax (begin (printf ">> starting ~a\n" (syntax->datum #'arg))
+     (syntax (begin (printf ">> starting ~a\n" 'arg)
                     (arg)
-                    (printf ">> finished ~a\n" (syntax->datum #'arg))))]))
+                    (printf ">> finished ~a\n" 'arg)))]))
 
 (define (run-test)
-  (put-preferences '(test:test-window:docked?) '(#t))
+  (preferences:set 'test-engine:test-window:docked? #t)
   (go beginner)
   (go beginner/abbrev)
   (go intermediate)

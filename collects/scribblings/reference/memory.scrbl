@@ -1,5 +1,5 @@
 #lang scribble/doc
-@(require "mz.ss")
+@(require "mz.rkt")
 
 @title[#:tag "memory" #:style 'toc]{Memory Management}
 
@@ -39,9 +39,9 @@ Returns @racket[#t] if @racket[v] is a weak box, @racket[#f] otherwise.}
 
 An @deftech{ephemeron} @cite{Hayes97} is a generalization of a
 @tech{weak box} (see @secref["weakbox"]). Instead of just containing
-one value, an emphemeron holds two values: one that is considered the
+one value, an ephemeron holds two values: one that is considered the
 value of the ephemeron and another that is the ephemeron's key. Like
-the value in a weak box, the value in and ephemeron may be replaced by
+the value in a weak box, the value in an ephemeron may be replaced by
 @racket[#f], but when the @emph{key} is no longer reachable (except
 possibly via weak references) instead of when the value is no longer
 reachable.
@@ -170,21 +170,25 @@ execution. Otherwise, @racket[#f] is returned.}
 @;------------------------------------------------------------------------
 @section[#:tag "garbagecollection"]{Garbage Collection}
 
+Set the @as-index{@envvar{PLTDISABLEGC}} environment variable (to any
+value) before Racket starts to disable @tech{garbage collection}.
+
 @defproc[(collect-garbage) void?]{
 
-Forces an immediate garbage collection. Some effectively unreachable
-data may remain uncollected, because the collector cannot prove that
-it is unreachable.
+Forces an immediate @tech{garbage collection} (unless garbage
+collection is disabled by setting @envvar{PLTDISABLEGC}). Some
+effectively unreachable data may remain uncollected, because the
+collector cannot prove that it is unreachable.
 
 The @racket[collect-garbage] procedure provides some control over the
 timing of collections, but garbage will obviously be collected even if
-this procedure is never called.}
+this procedure is never called (unless garbage collection is disabled).}
 
 @defproc[(current-memory-use [cust custodian? #f]) exact-nonnegative-integer?]{
 
 Returns an estimate of the number of bytes of memory occupied by
 reachable data from @racket[cust].  This estimate is calculated by the
-last garbage colection, and can be 0 if none occured (or if none occured
+last garbage colection, and can be 0 if none occurred (or if none occurred
 since the given custodian was created).  The @racket[current-memory-use]
 function does @italic{not} perform a collection by itself; doing one
 before the call will generally decrease the result (or increase it from

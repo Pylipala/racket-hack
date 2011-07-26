@@ -1,17 +1,22 @@
 #lang racket/base
 
-(require "../../mrlib/image-core.ss"
-         "img-err.ss"
+(require mrlib/image-core
+         "img-err.rkt"
          racket/match
          racket/contract
          racket/class
-         racket/gui/base
+         racket/draw
+         ;(only-in racket/gui/base frame% canvas% slider% horizontal-panel% button%)
          htdp/error
          racket/math
          (for-syntax racket/base
                      racket/list)
-         lang/posn)
+         lang/posn
+         net/url)
 
+;; for testing
+; (require racket/gui/base)
+#;
 (define (show-image arg [extra-space 0])
   (letrec ([g (to-img arg)]
            [f (new frame% [label ""])]
@@ -62,16 +67,14 @@
                         filename 
                         [width (if (image? image) (image-width image) 0)] 
                         [height (if (image? image) (image-height image) 0)])
-  (let* ([bm (make-object bitmap% 
-               (inexact->exact (ceiling width)) 
-               (inexact->exact (ceiling height)))]
+  (let* ([bm (make-bitmap (inexact->exact (ceiling width)) 
+                          (inexact->exact (ceiling height)))]
          [bdc (make-object bitmap-dc% bm)])
     (send bdc set-smoothing 'aligned)
-    (send bdc clear)
+    (send bdc erase)
     (render-image image bdc 0 0)
     (send bdc set-bitmap #f)
     (send bm save-file filename 'png)))
-
 
 (define (get-right img) (bb-right (send img get-bb)))
 (define (get-bottom img) (bb-bottom (send img get-bb)))
@@ -93,12 +96,6 @@
 ;                                          ;   
 ;                                         ;;   
                                                                             
-
-;; bitmap : string -> image
-;; gets one of the bitmaps that comes with drracket, scales it down by 1/8 or something
-;; so that later scaling /translation/whatever will look reasonable.
-;; (the error message for a bad argument will list all of the currently installed example images;
-;; we may want to have some way teachers can stick new ones in there)
 
 ;; scale : number image -> image
 (define/chk (scale factor image)
@@ -331,6 +328,33 @@
                           #t)
                (cdr rst)))])))
 
+(define/chk (overlay/offset image1 dx dy image2)
+  (overlay/offset/internal 'middle 'middle image1 dx dy image2))
+
+(define/chk (overlay/align/offset x-place y-place image1 dx dy image2)
+  (overlay/offset/internal x-place y-place image1 dx dy image2))
+
+(define/chk (underlay/offset image1 dx dy image2)
+  (overlay/offset/internal 'middle 'middle  image2 (- dx) (- dy) image1))
+
+(define/chk (underlay/align/offset x-place y-place image1 dx dy image2)
+  (overlay/offset/internal x-place y-place image2 (- dx) (- dy) image1))
+
+(define (overlay/offset/internal x-place y-place fst orig-dx orig-dy snd)
+  (let* ([fst-x-spot (find-x-spot x-place fst)]
+         [fst-y-spot (find-y-spot y-place fst)]
+         [snd-x-spot (find-x-spot x-place snd)]
+         [snd-y-spot (find-y-spot y-place snd)]
+         [dx (+ (- fst-x-spot snd-x-spot) orig-dx)]
+         [dy (+ (- fst-y-spot snd-y-spot) orig-dy)])
+    (overlay/δ fst
+               (if (< dx 0) (- dx) 0) 
+               (if (< dy 0) (- dy) 0)
+               snd
+               (if (< dx 0) 0 dx)
+               (if (< dy 0) 0 dy)
+               #t)))
+
 
 ;                                                                                                  
 ;                                                                                                  
@@ -352,19 +376,7 @@
 ;; crop : number number number number image -> image
 ;; crops an image to be w x h from (x,y)
 (define/chk (crop x1 y1 width height image)
-  (check-arg 'crop
-             (<= 0 x1 (image-width image))
-             (format "number that is between 0 than the width (~a)" (image-width image))
-             1
-             x1)
-  (check-arg 'crop
-             (<= 0 y1 (image-height image))
-             (format "number that is between 0 and the height (~a)" (image-height image))
-             2
-             y1)
-  (let ([w (min width (- (image-width image) x1))]
-        [h (min height (- (image-height image) y1))])
-    (crop/internal x1 y1 w h image)))
+  (crop/internal x1 y1 width height image))
 
 (define (crop/internal x1 y1 width height image)
   (let ([points (rectangle-points width height)]
@@ -385,9 +397,8 @@
 (define/chk (place-image/align image1 x1 y1 x-place y-place image2)
   (when (or (eq? x-place 'pinhole) (eq? y-place 'pinhole))
     (check-dependencies 'place-image/align
-                        (and (send image1 get-pinhole)
-                             (send image2 get-pinhole))
-                        "when x-place or y-place is ~e or ~e, then both of the image arguments must have pinholes"
+                        (send image1 get-pinhole)
+                        "when x-place or y-place is ~e or ~e, the the first image argument must have a pinhole"
                         'pinhole "pinhole"))
   (place-image/internal image1 x1 y1 image2 x-place y-place))
 
@@ -871,10 +882,10 @@
   (check-mode/color-combination 'square 3 mode color)
   (make-a-polygon (rectangle-points side-length side-length) mode color))
 
-(define/chk (empty-scene width height)
+(define/chk (empty-scene width height [color 'white])
   (crop 0 0 width height
         (overlay (rectangle width height 'outline (pen "black" 2 'solid 'round 'round))
-                 (rectangle width height 'solid 'white))))
+                 (rectangle width height 'solid color))))
 
 (define/chk (rhombus side-length angle mode color)
   (check-mode/color-combination 'rhombus 3 mode color)
@@ -1259,46 +1270,82 @@
                 (path->complete-path 
                  arg
                  (or (current-load-relative-directory)
-                     (current-directory)))])])
-       #`(make-object image-snip% (make-object bitmap% #,path 'unknown/mask)))]))
+                     (current-directory)))]
+               [else (raise-syntax-error 
+                      'bitmap 
+                      "expected the argument to specify a local path (via a string) or a module path (e.g. `icons/b-run.png')"
+                      stx)])])
+       #`(bitmap/proc #,path))]))
+
+(define (bitmap/proc arg)
+  (when (and (path? arg)
+             (not (file-exists? arg)))
+    (error 'bitmap "could not find the file ~a" (path->string arg)))
+  ;; the rotate does a coercion to a 2htdp/image image
+  (rotate 0 (make-object image-snip% (make-object bitmap% arg 'unknown/mask))))
+
+(define/chk (bitmap/url string)
+  ;; the rotate does a coercion to a 2htdp/image image
+  (rotate
+   0
+   (call/input-url (string->url string)
+                   get-pure-port
+                   (λ (port)
+                     (make-object bitmap% port 'unknown #f #t)))))
+                      
 
 (define/chk (image->color-list image)
   (let* ([w (image-width image)]
          [h (image-height image)]
-         [bm (make-object bitmap% w h)]
+         [bm (make-bitmap w h)]
          [bdc (make-object bitmap-dc% bm)]
-         [c (make-object color%)])
-    (send bdc clear)
+         [c (make-object color%)]
+         [bytes (make-bytes (* w h 4))])
+    (send bdc erase)
     (render-image image bdc 0 0)
-    (for/list ([i (in-range 0 (* w h))])
-      (send bdc get-pixel (remainder i w) (quotient i w) c)
-      (color (send c red) (send c green) (send c blue)))))
+    (send bdc get-argb-pixels 0 0 w h bytes)
+    (for/list ([i (in-range 0 (* w h 4) 4)])
+      (color (bytes-ref bytes (+ i 1))
+             (bytes-ref bytes (+ i 2))
+             (bytes-ref bytes (+ i 3))
+             (bytes-ref bytes i)))))
 
 (define/chk (color-list->bitmap color-list width height)
   (check-dependencies 'color-list->bitmap
                       (= (* width height) (length color-list))
                       "the length of the color list to match the product of the width and the height, but the list has ~a elements and the width and height are ~a and ~a respectively"
                       (length color-list) width height)
-  (let* ([bmp (make-object bitmap% width height)]
-         [bdc (make-object bitmap-dc% bmp)]
+  (let* ([bmp (make-bitmap width height)]
+         [bytes (make-bytes (* width height 4) 0)]
          [o (make-object color%)])
     (for ([c (in-list color-list)]
           [i (in-naturals)])
+      (define j (* i 4))
       (cond
         [(color? c)
-         (send o set (color-red c) (color-green c) (color-blue c))
-         (send bdc set-pixel (remainder i width) (quotient i width) o)]
+         (bytes-set! bytes j (color-alpha c))
+         (bytes-set! bytes (+ j 1) (color-red c))
+         (bytes-set! bytes (+ j 2) (color-green c))
+         (bytes-set! bytes (+ j 3) (color-blue c))]
         [else
          (let* ([str (if (string? c) c (symbol->string c))]
                 [clr (or (send the-color-database find-color str)
                          (send the-color-database find-color "black"))])
-           (send bdc set-pixel (remainder i width) (quotient i width) clr))]))
+           (bytes-set! bytes j 255)  ;; this should probably (send clr alpha) when that's possible
+           (bytes-set! bytes (+ j 1) (send clr red))
+           (bytes-set! bytes (+ j 2) (send clr green))
+           (bytes-set! bytes (+ j 3) (send clr blue)))]))
+    (send bmp set-argb-pixels 0 0 width height bytes)
     (bitmap->image bmp)))
       
 (define build-color/make-color
   (let ([orig-make-color make-color])
-    (define/chk (make-color int0-255-1 int0-255-2 int0-255-3) 
-      (orig-make-color int0-255-1 int0-255-2 int0-255-3))
+    (define/chk make-color
+      (case-lambda 
+        [(int0-255-1 int0-255-2 int0-255-3) 
+         (orig-make-color int0-255-1 int0-255-2 int0-255-3)]
+        [(int0-255-1 int0-255-2 int0-255-3 int0-255-4) 
+         (orig-make-color int0-255-1 int0-255-2 int0-255-3 int0-255-4)]))
     make-color))
 
 (define/chk (pinhole-x image) (let ([ph (send image get-pinhole)]) (and ph (point-x ph))))
@@ -1315,27 +1362,49 @@
 
 (define build-color/color
   (let ([orig-make-color make-color])
-    (define/chk (color int0-255-1 int0-255-2 int0-255-3) 
-      (orig-make-color int0-255-1 int0-255-2 int0-255-3))
+    (define/chk color
+      (case-lambda
+        [(int0-255-1 int0-255-2 int0-255-3) 
+         (orig-make-color int0-255-1 int0-255-2 int0-255-3)]
+        [(int0-255-1 int0-255-2 int0-255-3 int0-255-4) 
+         (orig-make-color int0-255-1 int0-255-2 int0-255-3 int0-255-4)]))
     color))
 
 (define build-pen/make-pen
   (let ([orig-make-pen make-pen])
-    (define/chk (make-pen color real-0-255 pen-style pen-cap pen-join)
-      (orig-make-pen color real-0-255 pen-style pen-cap pen-join))
+    (define/chk (make-pen color int-0-255 pen-style pen-cap pen-join)
+      (orig-make-pen color int-0-255 pen-style pen-cap pen-join))
     make-pen))
 
 (define build-pen/pen
   (let ([orig-make-pen make-pen])
-    (define/chk (pen color real-0-255 pen-style pen-cap pen-join)
-      (orig-make-pen color real-0-255 pen-style pen-cap pen-join))
+    (define/chk (pen color int-0-255 pen-style pen-cap pen-join)
+      (orig-make-pen color int-0-255 pen-style pen-cap pen-join))
     pen))
+
+(define/chk freeze
+  (case-lambda 
+    [(image) (freeze/internal 0 0 (image-width image) (image-height image) image)]
+    [(width height image) (freeze/internal 0 0 width height image)]
+    [(x y width height image) (freeze/internal x y width height image)]))
+
+(define (freeze/internal x y w h image)
+  (define bm (make-bitmap w h))
+  (define bdc (make-object bitmap-dc% bm))
+  (render-image image bdc (- x) (- y))
+  (send bdc set-bitmap #f)
+  (to-img bm))
 
 (provide overlay
          overlay/align
+         overlay/offset
+         overlay/align/offset
          overlay/xy
+         
          underlay
          underlay/align
+         underlay/align/offset
+         underlay/offset
          underlay/xy
          
          beside
@@ -1353,7 +1422,6 @@
          place-image/align
          
          
-         show-image
          save-image
          bring-between
          
@@ -1401,6 +1469,7 @@
          color-list->bitmap
          
          bitmap
+         bitmap/url
          
          swizzle
          
@@ -1418,6 +1487,8 @@
          build-color/color
          build-pen/make-pen
          build-pen/pen
+         
+         freeze
          
          render-image)
 

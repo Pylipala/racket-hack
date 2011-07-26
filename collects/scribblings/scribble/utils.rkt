@@ -101,7 +101,7 @@
                       (map as-flow (list spacer @expr reads-as sexpr))))
                   r))))))))
 
-;; stuff for the preprocessor examples
+;; stuff for the scribble/text examples
 
 (require racket/list (for-syntax racket/base racket/list))
 
@@ -220,3 +220,10 @@
                   #,(if hidden? #'""
                         #'(textsample line in-text out-text more))))))]
       [_ (raise-syntax-error #f "no separator found in example text")])))
+
+(provide ltx ltxe ltxd)
+(define (ltx s) (tt "\\" s)) ; command
+(define (ltxe s) (tt s)) ; enviornment
+(define (ltxd n s)
+  (make-element #f (cons (index (list s) (ltx s))
+                         (for/list ([i (in-range n)]) (tt "{}")))))

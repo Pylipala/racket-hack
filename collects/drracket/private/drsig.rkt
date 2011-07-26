@@ -76,6 +76,8 @@
 
    srcloc->edition/pair
    
+   test-coverage-on-style-name
+   test-coverage-off-style-name
    
    ;show-error-and-highlight
    ;print-bug-to-stderr
@@ -190,7 +192,8 @@
    forget-saved-bug-report
    record-saved-bug-report
    (struct teachpack-callbacks (get-names remove add))
-   make-teachpack-callbacks))
+   make-teachpack-callbacks
+   add-search-help-desk-menu-item))
 
 (define-signature drracket:frame-cm^
   (<%>
@@ -319,6 +322,7 @@
   ())
 (define-signature drracket:module-overview^ extends drracket:module-overview-cm^
   (module-overview
+   module-overview/file
    make-module-overview-pasteboard
    fill-pasteboard))
 

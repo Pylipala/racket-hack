@@ -3,7 +3,7 @@
 (require rackunit rackunit/text-ui unstable/port "helpers.rkt")
 
 (run-tests
- (test-suite "port.ss"
+ (test-suite "port.rkt"
    (test-suite "read-all"
      (test-ok (check-equal? (read-all read (open-input-string "1 2 3"))
                             (list 1 2 3)))
@@ -31,13 +31,4 @@
                             (make-srcloc 'string 1 0 1 0))
               (read port)
               (check-equal? (port->srcloc port 'here 1)
-                            (make-srcloc 'here 2 2 4 1))))
-
-   (test-suite "read-available-bytes"
-     (test-ok (define-values [in out] (make-pipe))
-              (check-equal? (read-available-bytes in) #"")
-              (write-byte (char->integer #\c) out)
-              (check-equal? (read-available-bytes in) #"c")
-              (close-output-port out)
-              (check-equal? (read-available-bytes in) eof)))))
-
+                            (make-srcloc 'here 2 2 4 1))))))

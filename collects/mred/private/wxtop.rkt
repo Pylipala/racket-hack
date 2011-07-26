@@ -1,19 +1,19 @@
 (module wxtop mzscheme
   (require mzlib/class
-	   mzlib/class100
-	   mzlib/etc
-	   mzlib/list
-	   (prefix wx: "kernel.ss")
-           (prefix wx: "wxme/editor-canvas.ss")
-           (prefix wx: "wxme/editor-snip.ss")
-	   "lock.ss"
-	   "helper.ss"
-	   "const.ss"
-	   "kw.ss"
-	   "check.ss"
-	   "wx.ss"
-	   "wxwindow.ss"
-	   "wxcontainer.ss")
+           mzlib/class100
+           mzlib/etc
+           mzlib/list
+           (prefix wx: "kernel.rkt")
+           (prefix wx: "wxme/editor-canvas.rkt")
+           (prefix wx: "wxme/editor-snip.rkt")
+           "lock.rkt"
+           "helper.rkt"
+           "const.rkt"
+           "kw.rkt"
+           "check.rkt"
+           "wx.rkt"
+           "wxwindow.rkt"
+           "wxcontainer.rkt")
 
   (provide (protect active-main-frame
                     set-root-menu-wx-frame!)
@@ -70,7 +70,7 @@
     (class100 (wx-make-container% (wx-make-window% base% #t)) (parent . args)
       (inherit get-x get-y get-width get-height set-size
 	       get-client-size is-shown? on-close enforce-size
-               get-eventspace)
+               get-eventspace get-focus-window)
       (private-field
        ;; have we had any redraw requests while the window has been
        ;; hidden?
@@ -90,11 +90,10 @@
        [panel #f]
 
        [use-default-position? (and (= -11111 (list-ref args 2))
-                                   (= -11111 (list-ref args (if dlg? 3 1))))]
+                                   (= -11111 (list-ref args 1)))]
        
        [enabled? #t]
        [focus #f]
-       [target #f]
 
        [border-buttons null]
 
@@ -132,21 +131,17 @@
 							  (eq? b w))))))
 			     border-buttons)
 		   (when (w . is-a? . wx:button%)
-		     (send w defaulting #t)))))
-	   (set! focus w)
-	   (when w
-	     (set! target w)))]
+		     (send w defaulting #t))))
+             (set! focus w)))]
 	
-	[get-focus-window
-	 (lambda () focus)]
 	[get-edit-target-window
-	 (lambda () (and target (send (wx->proxy target) is-shown?) target))]
+	 (lambda () (get-focus-window #t))]
 	[get-focus-object
 	 (lambda ()
-	   (window->focus-object focus))]
+	   (window->focus-object (get-focus-window)))]
 	[get-edit-target-object
 	 (lambda ()
-	   (window->focus-object target))]
+	   (window->focus-object (get-focus-window #t)))]
 
 	[window->focus-object
 	 (lambda (w)
@@ -351,6 +346,17 @@
 				  1 1)
 		    (set! already-trying? #f)
 		    (resized)]))))))])
+
+      (public
+        [call-show
+	 (lambda (on? do-show)
+           (when on?
+             (position-for-initial-show))
+	   (if on?
+	       (hash-table-put! top-level-windows this #t)
+	       (hash-table-remove! top-level-windows this))
+	   (as-exit ; as-exit because there's an implicit wx:yield for dialogs
+            do-show))])
       
       (override
 	;; show: add capability to set perform-updates
@@ -361,12 +367,8 @@
 	;;          pass now to superclass's show.
 	[show
 	 (lambda (on?)
-           (when on?
-             (position-for-initial-show))
-	   (if on?
-	       (hash-table-put! top-level-windows this #t)
-	       (hash-table-remove! top-level-windows this))
-	   (as-exit ; as-exit because there's an implicit wx:yield for dialogs
+           (call-show
+            on?
 	    (lambda () (super show on?))))]
 
 	[on-visible
@@ -393,8 +395,8 @@
 	;;            aren't stretchable, frame resized to size of
 	;;            contents.  Each direction is handled
 	;;            independently.
-	[on-size
-	 (lambda (bad-width bad-height)
+	[queue-on-size
+	 (lambda ()
 	   (unless (and already-trying? (not (eq? 'unix (system-type))))
 	     (parameterize ([wx:current-eventspace (get-eventspace)])
 	       (wx:queue-callback (lambda () (resized)) #t))))])

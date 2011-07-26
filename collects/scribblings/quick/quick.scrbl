@@ -1,6 +1,6 @@
 #lang scribble/doc
 
-@title{@bold{Quick}: An Introduction to Racket with Pictures}
+@title{Quick: An Introduction to Racket with Pictures}
 
 @author["Matthew Flatt"]
 
@@ -541,6 +541,8 @@ the picture to a drawing context, such as a canvas in a frame. The
 exposes a picture's drawing function. We can use
 @racket[make-pict-drawer] in a canvas-painting callback to draw a
 picture into a canvas:
+
+@(mr-interaction-eval (require slideshow/flash))
 
 @mr-def+int[
 (define (add-drawing p)

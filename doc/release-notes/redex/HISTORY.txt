@@ -1,3 +1,53 @@
+  * added support for typsetting define-relation relations
+
+  * made apply-reduction-relation* call remove-duplicates
+    on the result of apply-reduction-relation
+
+  * added the #:cache-all? argument to apply-reduction-relation*
+    and the current-cache-all? parameter
+
+v5.1.1
+
+  * changed pattern language to disallow unquote
+
+  * fixed matching of ..._x and ..._!_x within ellipses
+
+  * fixed bugs in stepper's diff highlighting
+
+  * improved rendering of arrows in typesetting
+
+  * added support for unioned metafunction codomains
+
+  * fixed typesetting of the pattern (hole p_0 p_1 ...)
+
+  * added arrow->pict, which shows how reduction relation are rendered
+    in typesetting
+
+  * added a parameter that provides the default for redex-check's
+    #:attempts argument
+
+  * changed the random term generator to produce shorter sequences
+
+  * added a Redex model of the system in Jay McCarthy's ICFP '09 paper
+    "Automatically RESTful Web Applications Or, Marking Modular
+    Serializable Continuations" to the examples directory
+
+  * resolved PRs 10665, 11174, 11579, 11041, 10837, and 11853
+
+v5.1
+
+  * adds an optional #:pred keyword argument to `test-->>' form
+
+  * added the `redex-pseudo-random-generator' parameter
+
+  * added option `::=' syntax to non-terminal definitions
+
+  * added contract support to `define-relation'
+
+  * added the `test-->∃' form
+
+  * fixed minor bugs
+
 v5.0.2
 
   * added `pretty-print-parameters' to control term pretty-printing

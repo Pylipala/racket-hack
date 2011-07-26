@@ -1,10 +1,18 @@
-#lang scheme/base
+#lang racket/base
 (require (prefix-in 2: 2htdp/image)
+         (prefix-in 2-core: mrlib/image-core)
          (prefix-in 1: htdp/image)
+         racket/class
          htdp/error)
 
 (provide image? scene? image-width image-height text 2:image?
-         check-image check-scene check-scene-result)
+         check-image check-scene check-scene-result check-scene-dimensions
+         disable-cache)
+
+(define (disable-cache x)
+  (if (is-a? x 2-core:image%)
+      (2-core:un/cache-image x #f)
+      x))
 
 (define (scene? x)
   ;; be sure to check 2:image? first so that
@@ -52,5 +60,10 @@
           (check-result tname 1:scene? "scene" i (image-pins i))
           (check-result tname (lambda _ #f) "scene" i))))
 
+(define (check-scene-dimensions name width height)
+  (unless(and (<= 0 width 2000) (<= 0 height 2000))
+    (define basics "cannot render images larger than 2000 x 2000 pixels")
+    (error 'big-bang "~a; the dimension demanded by ~a are ~a by ~a" basics name width height)))
+      
 (define (image-pins i)
   (format "image with pinhole at (~s,~s)" (1:pinhole-x i) (1:pinhole-y i)))

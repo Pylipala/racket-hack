@@ -201,7 +201,8 @@
       `(select (,@(if multiple? '([multiple "true"]) empty)
                 [name ,name]
                 ,@attrs)
-               ,@(for/list ([(vn e) (in-hash value->element)])
+               ,@(for/list ([vn (in-range i)])
+                   (define e (hash-ref value->element vn))
                    (define v (number->string vn))
                    `(option ([value ,v]
                              ,@(if (selected? e)
@@ -222,6 +223,8 @@
                       #:display display)))
 
 (define (textarea-input
+         #:value [value #f]
+         #:attributes [attrs empty]
          #:rows [rows #f]
          #:cols [cols #f])   
   (make-input
@@ -231,8 +234,11 @@
                   (append
                    (filter list?
                            (list (and rows (list 'rows (number->string rows)))
-                                 (and cols (list 'cols (number->string cols)))))))                      
-           ""))))
+                                 (and cols (list 'cols (number->string cols)))))
+                   attrs))
+           (if value
+               (bytes->string/utf-8 value)
+               "")))))
 
 (provide/contract
  [text-input (() 
@@ -306,8 +312,11 @@
                 . ->* .
                 (formlet/c any/c))]
  [textarea-input (()
-                  (#:rows number?
-                          #:cols number?)
+                  (#:attributes 
+                   (listof (list/c symbol? string?))
+                   #:value (or/c false/c bytes?)
+                   #:rows number?
+                   #:cols number?)
                   . ->* .
                   (formlet/c (or/c false/c binding?)))])
 

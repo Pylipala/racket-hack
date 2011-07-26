@@ -954,11 +954,13 @@
         (open-current-language)
         (send languages-hier-list min-client-width (text-width (send languages-hier-list get-editor)))
         (send languages-hier-list min-client-height (text-height (send languages-hier-list get-editor)))
-        (when get/set-selected-language-settings
-          (get/set-selected-language-settings settings-to-show))
         (when details-shown?
           (do-construct-details))
         (update-show/hide-details)
+        (when get/set-selected-language-settings
+          ;; this call to get/set-selected-language-settings has to come after the call to do-construct-details above
+          ;; because do-construct-details sets all of the controls to the language's default settings
+          (get/set-selected-language-settings settings-to-show))
         (size-discussion-canvas in-source-discussion-editor-canvas)
         (values
          (λ () selected-language)
@@ -1008,6 +1010,8 @@
                              (send (send t get-style-list) basic-style)
                              before (send t last-position))])
                     (send t change-style size-sd before (send t last-position))))])
+          (when (send normal-control-font get-size-in-pixels)
+            (send size-sd set-size-in-pixels-on #t))
           (let loop ([strs (regexp-split #rx"#lang" sc-lang-in-source-discussion)])
             (do-insert (car strs) #f)
             (unless (null? (cdr strs))

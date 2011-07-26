@@ -2,7 +2,6 @@
 @(require "../utils.rkt"
           (for-label racket/gui
                      drracket/tool-lib
-                     unstable/class
                      unstable/gui/language-level))
 
 @title{DrRacket Language Levels}
@@ -13,7 +12,7 @@
 
 @defthing[language-level@ unit?]{
 
-This unit imports @scheme[drracket:tool^] and exports @scheme[language-level^].
+This unit imports @racket[drracket:tool^] and exports @racket[language-level^].
 
 }
 
@@ -30,12 +29,12 @@ This unit imports @scheme[drracket:tool^] and exports @scheme[language-level^].
           [#:reader reader
                     (->* [] [any/c input-port?] (or/c syntax? eof-object?))
                     read-syntax])
-         (object-provides/c drracket:language:language<%>)]{
+         (is-a?/c drracket:language:language<%>)]{
 
 Constructs a language level as an instance of
-@scheme[drracket:language:language<%>] with the given @scheme[name] based on the
-language defined by the module at @scheme[path].  Applies
-@scheme[(drracket:language:get-default-mixin)] and the given @scheme[mixin]s to
+@racket[drracket:language:language<%>] with the given @racket[name] based on the
+language defined by the module at @racket[path].  Applies
+@racket[(drracket:language:get-default-mixin)] and the given @racket[mixin]s to
 @sigelem[language-level^ simple-language-level%] to construct the class, and
 uses the optional keyword arguments to fill in the language's description and
 reader.
@@ -43,12 +42,12 @@ reader.
 }
 
 @defthing[simple-language-level%
-          (class-provides/c drracket:language:language<%>
-                            drracket:language:module-based-language<%>
-                            drracket:language:simple-module-based-language<%>)]{
+          (and/c (implementation?/c drracket:language:language<%>)
+                 (implementation?/c drracket:language:module-based-language<%>)
+                 (implementation?/c drracket:language:simple-module-based-language<%>))]{
 
 Equal to
-@scheme[
+@racket[
 (drracket:language:module-based-language->language-mixin
  (drracket:language:simple-module-based-language->module-based-language-mixin
   drracket:language:simple-module-based-language%))].
@@ -57,27 +56,27 @@ Equal to
 
 @defproc[(language-level-render-mixin [to-sexp (-> any/c any/c)]
                                       [show-void? boolean?])
-         (mixin-provides/c [drracket:language:language<%>] [])]{
+         (make-mixin-contract drracket:language:language<%>)]{
 
 Produces a mixin that overrides @method[drracket:language:language<%>
-render-value/format] to apply @scheme[to-sexp] to each value before printing it,
-and to skip @scheme[void?] values (pre-transformation) if @scheme[show-void?] is
-@scheme[#f].
+render-value/format] to apply @racket[to-sexp] to each value before printing it,
+and to skip @racket[void?] values (pre-transformation) if @racket[show-void?] is
+@racket[#f].
 
 }
 
 @defproc[(language-level-capability-mixin [dict dict?])
-         (mixin-provides/c [drracket:language:language<%>] [])]{
+         (make-mixin-contract drracket:language:language<%>)]{
 
 Produces a mixin that augments @method[drracket:language:language<%>
-capability-value] to look up each key in @scheme[dict], producing the
-corresponding value if the key is found and deferring to @scheme[inner]
+capability-value] to look up each key in @racket[dict], producing the
+corresponding value if the key is found and deferring to @racket[inner]
 otherwise.
 
 }
 
 @defthing[language-level-no-executable-mixin
-          (mixin-provides/c [drracket:language:language<%>] [])]{
+          (make-mixin-contract drracket:language:language<%>)]{
 
 Overrides @method[drracket:language:language<%> create-executable] to print an
 error message in a dialog box.
@@ -85,9 +84,8 @@ error message in a dialog box.
 }
 
 @defthing[language-level-eval-as-module-mixin
-          (mixin-provides/c [drracket:language:language<%>
-                             drracket:language:module-based-language<%>]
-                            [])]{
+          (make-mixin-contract drracket:language:language<%>
+                               drracket:language:module-based-language<%>)]{
 
 Overrides @method[drracket:language:language<%> front-end/complete-program] to
 wrap terms from the definition in a module based on the language level's
@@ -97,18 +95,17 @@ for instance.
 }
 
 @defthing[language-level-macro-stepper-mixin
-          (mixin-provides/c [drracket:language:language<%>]
-                            [])]{
+          (make-mixin-contract drracket:language:language<%>)]{
 
 This mixin enables the macro stepper for its language level.
 
 }
 
 @defthing[language-level-check-expect-mixin
-          (mixin-provides/c [drracket:language:language<%>] [])]{
+          (make-mixin-contract drracket:language:language<%>)]{
 
 This mixin overrides @method[drracket:language:language<%> on-execute] to set up
-the @scheme[check-expect] test engine to a language level similarly to the HtDP
+the @racket[check-expect] test engine to a language level similarly to the HtDP
 teaching languages.
 
 }
@@ -118,7 +115,7 @@ teaching languages.
           [meta-lines exact-nonnegative-integer?]
           [meta->settings (-> string? any/c any/c)]
           [settings->meta (-> symbol? any/c string?)])
-         (mixin-provides/c [drracket:language:language<%>] [])]{
+         (make-mixin-contract drracket:language:language<%>)]{
 
 This mixin constructs a language level that stores metadata in saved files
 allowing Drracket to automatically switch back to this language level upon
@@ -127,12 +124,12 @@ get-reader-module], @method[drracket:language:language<%> get-metadata],
 @method[drracket:language:language<%> metadata->settings], and
 @method[drracket:language:language<%> get-metadata-lines].
 
-The resulting language level uses the reader from @scheme[reader-module], and is
+The resulting language level uses the reader from @racket[reader-module], and is
 recognized in files that start with a reader directive for that module path
-within the first @scheme[meta-lines] lines.  Metadata about the language's
+within the first @racket[meta-lines] lines.  Metadata about the language's
 settings is marshalled between a string and a usable value (based on a default
-value) by @scheme[meta->settings], and between a usable value for a current
-module (with a symbolic name) by @scheme[settings->meta].
+value) by @racket[meta->settings], and between a usable value for a current
+module (with a symbolic name) by @racket[settings->meta].
 
 }
 

@@ -34,6 +34,12 @@
 #if !defined(MACOS) && !defined(_WIN32_WCE)
 #  include <sys/types.h>
 #endif
+#ifdef __APPLE__
+#include <TargetConditionals.h>
+#endif
+#ifndef TARGET_OS_IPHONE
+#define TARGET_OS_IPHONE 0
+#endif
 #include "private/gc_priv.h"
 
 /* BTL: avoid circular redefinition of dlopen if GC_SOLARIS_THREADS defined */
@@ -1125,7 +1131,7 @@ void GC_register_dynamic_libraries() {
    allocation lock held. */
 
 void GC_init_dyld() {
-#ifndef IPHONE
+#if !TARGET_OS_IPHONE
   static GC_bool initialized = FALSE;
   char *bind_fully_env = NULL;
 
@@ -1195,7 +1201,7 @@ void GC_register_dynamic_libraries()
           PCR_IL_LoadedFile * p = PCR_IL_GetLastLoadedFile();
           PCR_IL_LoadedSegment * q;
           
-          /* Skip uncommited files */
+          /* Skip uncommitted files */
           while (p != NIL && !(p -> lf_commitPoint)) {
               /* The loading of this file has not yet been committed	*/
               /* Hence its description could be inconsistent.  		*/

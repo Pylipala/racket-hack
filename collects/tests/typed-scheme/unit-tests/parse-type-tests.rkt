@@ -1,13 +1,13 @@
 #lang scheme/base
-(require "test-utils.ss" (for-syntax scheme/base)
+(require "test-utils.rkt" (for-syntax scheme/base)
          racket/set
          (utils tc-utils)
-	 (env type-alias-env type-env-structs tvar-env type-name-env init-envs)
-	 (rep type-rep)
-	 (rename-in (types comparison subtype union utils convenience)
-                    [Un t:Un] [-> t:->])
-         (private base-types base-types-extra colon)
-         (for-template (private base-types base-types-extra base-env colon))
+         (env type-alias-env type-env-structs tvar-env type-name-env init-envs)
+         (rep type-rep)
+         (rename-in (types comparison subtype union utils convenience)
+                    [Un t:Un] [-> t:->] [->* t:->*])
+         (base-env base-types base-types-extra colon)
+         (for-template (base-env base-types base-types-extra base-env colon))
          (private parse-type)
          rackunit)
 
@@ -15,7 +15,7 @@
 
 ;; HORRIBLE HACK!
 ;; We are solving the following problem:
-;; when we require "base-env.ss" for template, it constructs the type-alias-env
+;; when we require "base-env.rkt" for template, it constructs the type-alias-env
 ;; in phase 0 (relative to this module), but populates it with phase -1 identifiers
 ;; The identifiers are also bound in this module at phase -1, but the comparison for
 ;; the table is phase 0, so they don't compare correctly
@@ -23,8 +23,8 @@
 ;; The solution is to add the identifiers to the table at phase 0.
 ;; We do this by going through the table, constructing new identifiers based on the symbol
 ;; of the old identifier.
-;; This relies on the identifiers being bound at phase 0 in this module (which they are, 
-;; because we have a phase 0 require of "base-env.ss").
+;; This relies on the identifiers being bound at phase 0 in this module (which they are,
+;; because we have a phase 0 require of "base-env.rkt").
 (for ([pr (type-alias-env-map cons)])
   (let ([nm (car pr)]
         [ty (cdr pr)])
@@ -61,9 +61,9 @@
 (define B -Boolean)
 (define Sym -Symbol)
 
-(define (parse-type-tests)  
+(define (parse-type-tests)
   (pt-tests
-   "parse-type tests" 
+   "parse-type tests"
    [Number N]
    [Any Univ]
    [(List Number String) (-Tuple (list N -String))]
@@ -83,7 +83,7 @@
    ;; requires transformer time stuff that doesn't work
    #;[(Refinement even?) (make-Refinement #'even?)]
    [(Number Number Number Boolean -> Number) (N N N B . t:-> . N)]
-   [(Number Number Number * -> Boolean) ((list N N) N . ->* . B)]
+   [(Number Number Number * -> Boolean) ((list N N) N . t:->* . B)]
    ;[((. Number) -> Number) (->* (list) N N)] ;; not legal syntax
    [(U Number Boolean) (t:Un N B)]
    [(U Number Boolean Number) (t:Un N B)]
@@ -98,22 +98,30 @@
     (-polydots (a) (t:-> (make-ValuesDots (list) a 'a)))]
    [(case-lambda (Number -> Boolean) (Number Number -> Number)) (cl-> [(N) B]
                                                                       [(N N) N])]
+   [(case-> (Number -> Boolean) (Number Number -> Number)) (cl-> [(N) B]
+                                                                 [(N N) N])]
    [1 (-val 1)]
    [#t (-val #t)]
    [#f (-val #f)]
    ["foo" (-val "foo")]
    ['(1 2 3) (-Tuple (map -val '(1 2 3)))]
-   
+
    [(Listof Number) (make-Listof  N)]
-   
+
    [a (-v a) (set-add initial-tvar-env 'a)]
    [(All (a ...) (a ... -> Number))
     (-polydots (a) ((list) [a a] . ->... . N))]
-   
+
    [(Any -> Boolean : Number) (make-pred-ty -Number)]
+   [(Any -> Boolean : #:+ (Number @ 0) #:- (! Number @ 0))
+    (make-pred-ty -Number)]
+   [(Any -> Boolean : #:+ (! Number @ 0) #:- (Number @ 0))
+    (t:->* (list Univ) -Boolean : (-FS (-not-filter -Number 0 null) (-filter -Number 0 null)))]
+   [(Number -> Number -> Number)
+    (t:-> -Number (t:-> -Number -Number))]
    [(Integer -> (All (X) (X -> X)))
     (t:-> -Integer (-poly (x) (t:-> x x)))]
-   
+
    ))
 
 ;; FIXME - add tests for parse-values-type, parse-tc-results

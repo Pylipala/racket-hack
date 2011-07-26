@@ -108,7 +108,7 @@ LaTeX output
 
 The LaTeX texpict function set is loaded by the _texpict_ library.
 The library is available in unit form via _texpict-unit.ss_, which
-provides a `texpict@' unit with no imports and taht exports
+provides a `texpict@' unit with no imports and that exports
 `texpict-common^' and `texpict-extra^'. The _texpict-sig.ss_ library
 provides both signatures.
 
@@ -162,7 +162,7 @@ A pict is an instance of the `pict' structure type:
 
 The `children' field is a list of `child' structures:
 
-> struct:child :: (struct child (pict dx dy sx sy))
+> struct:child :: (struct child (pict dx dy sx sy sxy syx))
 
 ------------------------------------------------------------
 Procedures

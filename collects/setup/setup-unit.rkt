@@ -24,7 +24,7 @@
          "getinfo.rkt"
          "dirs.rkt"
          "main-collects.rkt"
-         "private/path-utils.rkt"
+         "path-to-relative.rkt"
          "private/omitted-paths.rkt"
          "parallel-build.rkt"
          "collects.rkt")
@@ -88,9 +88,15 @@
 
   (define (relative-path-string? x) (and (path-string? x) (relative-path? x)))
 
-
   (define (call-info info flag mk-default test)
     (let ([v (info flag mk-default)]) (test v) v))
+
+  (define path->relative-string/console-bin
+    (make-path->relative-string
+     (list (cons find-console-bin-dir "<console-bin>/"))))
+  (define path->relative-string/gui-bin
+    (make-path->relative-string
+     (list (cons find-gui-bin-dir "<gui-bin>/"))))
 
   ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
   ;;                   Errors                      ;;
@@ -124,7 +130,6 @@
         (when (not (zero? (string-length err))) (eprintf "STDERR:\n~a=====\n" err)))))
 
   (define (done)
-    (setup-printf #f "done")
     (unless (null? errors)
       (setup-printf #f "")
       (show-errors (current-error-port))
@@ -175,7 +180,7 @@
            (error name-sym
                   "'name' result from collection ~e is not a string: ~e"
                   path x)))))
-    (define path-name (path->name path))
+    (define path-name (path->relative-string/setup path))
     (when (info 'compile-subcollections (lambda () #f))
       (setup-printf "WARNING"
                     "ignoring `compile-subcollections' entry in info ~a"
@@ -183,7 +188,9 @@
     ;; this check is also done in compiler/compiler-unit, in compile-directory
     (and (not (eq? 'all (omitted-paths path getinfo)))
          (make-cc collection path
-                  (if name (string-append path-name " (" name ")") path-name)
+                  (if name
+                      (format "~a (~a)" path-name name)
+                      path-name)
                   info root-dir info-path shadowing-policy)))
 
   (define ((warning-handler v) exn)
@@ -465,7 +472,7 @@
                 (unless printed?
                   (set! printed? #t)
                   (setup-printf "deleting" "in ~a"
-                                (path->name (cc-path cc)))))])
+                                (path->relative-string/setup (cc-path cc)))))])
         (for ([path paths])
           (let ([full-path (build-path (cc-path cc) path)])
             (when (or (file-exists? full-path) (directory-exists? full-path))
@@ -515,7 +522,8 @@
                         [dep (build-path dir mode-dir (path-add-suffix name #".dep"))])
                    (when (and (file-exists? dep) (file-exists? zo))
                      (set! did-something? #t)
-                     (setup-printf "deleting" "~a" (path->name zo))
+                     (setup-printf "deleting" "~a"
+                                   (path->relative-string/setup zo))
                      (delete-file/record-dependency zo dependencies)
                      (delete-file/record-dependency dep dependencies))))))
             (when did-something? (loop dependencies))))
@@ -578,10 +586,9 @@
   ;;                  Make zo                      ;;
   ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-  (define-syntax-rule (control-io print-verbose body ...)
+  (define (control-io print-verbose thunk)
     (if (make-verbose)
-      (begin 
-        body ...)
+      (thunk)
       (let* ([oop (current-output-port)]
              [dir-table (make-hash)]
              [doing-path (lambda (path)
@@ -592,7 +599,7 @@
                                  (print-verbose oop path)))))])
         (parameterize ([current-output-port (if (verbose) (current-output-port) (open-output-nowhere))]
                        [compile-notify-handler doing-path])
-          body ...))))
+          (thunk)))))
 
   (define (clean-cc dir info)
     ;; Clean up bad .zos:
@@ -611,8 +618,7 @@
                 (setup-fprintf (current-error-port) #f " deleting ~a" (build-path c p))
                 (delete-file (build-path c p)))))))))
 
-  (define-syntax-rule (with-specified-mode body ...)
-    (let ([thunk (lambda () body ...)])
+  (define (with-specified-mode thunk)
       (if (not (compile-mode))
         (thunk)
         ;; Use the indicated mode
@@ -637,22 +643,31 @@
                                            [use-compiled-file-paths orig-kinds]
                                            [current-compile orig-compile])
                               (thunk)))])
-            (thunk))))))
+            (thunk)))))
+
+  ;; We keep timestamp information for all files that we try to compile.
+  ;; That's O(N) for an installation of size N, but the constant is small,
+  ;; and it makes a do-nothing setup complete much faster.
+  (define caching-managed-compile-zo (make-caching-managed-compile-zo))
 
   (define (compile-cc cc gcs)
     (parameterize ([current-namespace (make-base-empty-namespace)])
       (begin-record-error cc "making"
         (setup-printf "making" "~a" (cc-name cc))
         (control-io
-          (lambda (p where) 
-            (set! gcs 2) 
-            (setup-fprintf p #f " in ~a" (path->name (path->complete-path where (cc-path cc)))))
+         (lambda (p where)
+            (set! gcs 2)
+            (setup-fprintf p #f " in ~a"
+                           (path->relative-string/setup
+                            (path->complete-path where (cc-path cc)))))
+         (lambda ()
           (let ([dir (cc-path cc)]
                 [info (cc-info cc)])
             (clean-cc dir info)
             (compile-directory-zos dir info 
+                                   #:managed-compile-zo caching-managed-compile-zo
                                    #:skip-path (and (avoid-main-installation) (find-collects-dir))
-                                   #:skip-doc-sources? (not (make-docs)))))))
+                                   #:skip-doc-sources? (not (make-docs))))))))
     (match gcs
       [0 0]
       [else 
@@ -669,26 +684,40 @@
       (map (lambda (x) (thunk (first x)) (loop (third x))) cct)))
 
   (define (make-zo-step)
-    (define (move-drscheme-to-end cct)
-      (call-with-values (lambda () (partition (lambda (x) (not (string=? (cc-name (car x)) "drscheme"))) cct)) append))
+    (define (partition-cct name cct)
+      (partition (lambda (x) (not (string=? (cc-name (car x)) name))) cct))
+    (define (move-to-begining names cct)
+      (let loop ([names (reverse (if (list? names) names (list names)))]
+                 [cct cct])
+        (match names
+          [(list) cct]
+          [(cons name names)
+            (loop names
+                  (call-with-values (lambda () (define-values (a b) (partition-cct name cct)) (values b a)) append))])))
+    (define (move-to-end name cct) (call-with-values (lambda () (partition-cct name cct)) append))
     (setup-printf #f "--- compiling collections ---")
     (match (parallel-workers)
       [(? (lambda (x) (x . > . 1)))
         (compile-cc (collection->cc (list (string->path "racket"))) 0)
-        (managed-compile-zo (build-path main-collects-dir  "setup/parallel-build-worker.rkt"))
+        (managed-compile-zo (collection-file-path "parallel-build-worker.rkt" "setup"))
         (with-specified-mode
-          (let ([cct (move-drscheme-to-end (sort-collections-tree (collection-tree-map top-level-plt-collects)))])
+         (lambda ()
+          (let ([cct (move-to-begining (list "compiler" "raco" "racket") 
+                                       (move-to-end "drscheme" 
+                                                    (sort-collections-tree 
+                                                     (collection-tree-map top-level-plt-collects))))])
             (iterate-cct (lambda (cc)
               (let ([dir (cc-path cc)]
                     [info (cc-info cc)])
                   (clean-cc dir info))) cct)
             (parallel-compile (parallel-workers) setup-fprintf handle-error cct))
           (for/fold ([gcs 0]) ([cc planet-dirs-to-compile])
-            (compile-cc cc gcs)))]
+            (compile-cc cc gcs))))]
       [else
         (with-specified-mode
+         (lambda ()
           (for/fold ([gcs 0]) ([cc ccs-to-compile])
-            (compile-cc cc gcs)))]))
+            (compile-cc cc gcs))))]))
 
   ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
   ;;               Info-Domain Cache               ;;
@@ -778,7 +807,7 @@
                        info-path))
               (make-directory* base)
               (let ([p info-path])
-                (setup-printf "updating" "~a" (path->name p))
+                (setup-printf "updating" "~a" (path->relative-string/setup p))
                 (with-handlers ([exn:fail? (warning-handler (void))])
                   (with-output-to-file p
                     #:exists 'truncate/replace
@@ -900,10 +929,10 @@
                      (setup-printf
                       "launcher"
                       "~a~a"
-                      (path->name p #:prefix (format "~a-bin" kind)
-                                    #:base (if (equal? kind 'console)
-                                             find-console-bin-dir
-                                             find-gui-bin-dir))
+                      (case kind
+                        [(gui)     (path->relative-string/gui-bin p)]
+                        [(console) (path->relative-string/console-bin p)]
+                        [else (error 'make-launcher "internal error (~s)" kind)])
                       (let ([v (current-launcher-variant)])
                         (if (eq? v (system-type 'gc)) "" (format " [~a]" v))))
                      (make-launcher

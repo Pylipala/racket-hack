@@ -1,6 +1,5 @@
 #lang scribble/doc
-@(require "mz.ss"
-          racket/file)
+@(require "mz.rkt" racket/file)
 
 @(begin
   ;; ignore expressions at the top-level so that they don't print #<void>
@@ -74,13 +73,13 @@ translated on input:
   ]}
 ]
 
-Under Windows, @racket['text] mode works only with regular files;
+On Windows, @racket['text] mode works only with regular files;
 attempting to use @racket['text] with other kinds of files triggers an
 @racket[exn:fail:filesystem] exception.
 
 Otherwise, the file specified by @racket[path] need not be a regular
-file. It might a device that is connected through the filesystem, such
-as @filepath{aux} under Windows or @filepath{/dev/null} under Unix. In all
+file. It might be a device that is connected through the filesystem, such
+as @filepath{aux} on Windows or @filepath{/dev/null} on Unix. In all
 cases, the port is buffered by default.
 
 The port produced by @racket[open-input-file] should be explicitly
@@ -88,7 +87,7 @@ closed, either though @racket[close-input-port] or indirectly via
 @racket[custodian-shutdown-all], to release the OS-level file
 handle. The input port will not be closed automatically if it is
 otherwise available for garbage collection (see
-@secref["gc-model"]); a @tech{will} could be associated input port
+@secref["gc-model"]); a @tech{will} could be associated with an input port
 to close it more automatically (see @secref["willexecutor"]).
 
 A @tech{path} value that is the @tech{cleanse}d version of
@@ -119,13 +118,13 @@ are translated when written to the file:
  @item{@racket['binary] --- bytes are written to the file exactly
  as written to the port.}
 
- @item{@racket['text] --- under Windows, a linefeed byte (10) written
+ @item{@racket['text] --- on Windows, a linefeed byte (10) written
  to the port is translated to a return-linefeed combination in the
  file; no filtering occurs for returns.}
 
 ]
 
-Under Windows, @racket['text] mode works only with regular files;
+On Windows, @racket['text] mode works only with regular files;
 attempting to use @racket['text] with other kinds of files triggers an
 @racket[exn:fail:filesystem] exception.
 
@@ -160,7 +159,7 @@ files that already exist:
        truncating it, or create the file if it does not exist.}
 
  @item{@indexed-racket['append] --- append to the end of the file,
-       whether it already exists or not; under Windows,
+       whether it already exists or not; on Windows,
        @racket['append] is equivalent to @racket['update], except that
        the file is not required to exist, and the file position is
        immediately set to the end of the file after opening it.}
@@ -168,17 +167,17 @@ files that already exist:
 ]
 
 The file specified by @racket[path] need not be a regular file. It
-might a device that is connected through the filesystem, such as
-@filepath{aux} under Windows or @filepath{/dev/null} under Unix. The output
+might be a device that is connected through the filesystem, such as
+@filepath{aux} on Windows or @filepath{/dev/null} on Unix. The output
 port is block-buffered by default, unless the file corresponds to a
-terminal, in which case is it line buffered bu default.
+terminal, in which case it is line-buffered by default.
 
-The port produced by @racket[open-output-port] should be explicitly
+The port produced by @racket[open-output-file] should be explicitly
 closed, either though @racket[close-output-port] or indirectly via
 @racket[custodian-shutdown-all], to release the OS-level file
 handle. The output port will not be closed automatically if it is
 otherwise available for garbage collection (see
-@secref["gc-model"]); a @tech{will} could be associated input port
+@secref["gc-model"]); a @tech{will} could be associated with an output port
 to close it more automatically (see @secref["willexecutor"]).
 
 A @tech{path} value that is the @tech{cleanse}d version of
@@ -215,13 +214,13 @@ Calls @racket[open-input-file] with the @racket[path] and
 @racket[mode-flag] arguments, and passes the resulting port
 to @racket[proc]. The result of @racket[proc] is the result of the
 @racket[call-with-input-file] call, but the newly opened port is closed
-when @racket[thunk] return.
+when @racket[proc] returns.
 
 @file-examples[
 (with-output-to-file some-file
   (lambda () (printf "text in a file")))
 (call-with-input-file some-file
-  (lambda (in) (read-string 15 in)))
+  (lambda (in) (read-string 14 in)))
 ]}
 
 @defproc[(call-with-output-file [path path-string?]
@@ -297,6 +296,41 @@ the current output port (see @racket[current-output-port]) using
   (lambda () (read-string 5)))
 ]}
 
+
+@defproc[(port-try-file-lock? [port file-stream-port?]
+                              [mode (or/c 'shared 'exclusive)])
+         boolean?]{
+
+Attempts to acquire a lock on the file using the current platform's 
+facilities for file locking. Multiple
+processes can acquire a @racket['shared] lock on a file, but at most
+one process can hold an @racket['exclusive] lock, and @racket['shared]
+and @racket['exclusive] locks are mutually exclusive.
+
+The result is @racket[#t] if the requested lock is acquired,
+@racket[#f] otherwise. When a lock is acquired, it is held until
+either it is released with @racket[port-file-unlock] or the port is closed
+(perhaps because the process terminates).
+
+Depending on the platform, locks may be merely advisory (i.e., locks
+affect only the ability of processes to acquire locks) or they may
+correspond to mandatory locks that prevent reads and writes to the
+locked file. Specifically, locks are mandatory on Windows and
+advisory on other platforms.
+
+Typically, locking is supported only for file ports, and attempting to
+acquire a lock with other kinds of file-stream ports raises an
+@racket[exn:fail:filesystem] exception. Locking is not supported on Solaris,
+where the @racket[exn:fail:unsupported] exception is raised.}
+
+
+@defproc[(port-file-unlock [port file-stream-port?])
+         void?]{
+
+Releases a lock held by the current process on the file of
+@racket[port].}
+
+
 @defproc[(port-file-identity [port file-stream-port?]) exact-positive-integer?]{
 
 @index['("inode")]{Returns} a number that represents
@@ -307,7 +341,7 @@ and only if the ports access the same device and file. For ports whose
 open times do not overlap, no guarantee can be provided for the port
 identities (even if the ports actually access the same file)---except
 as can be inferred through relationships with other ports. If
-@racket[port] is closed, the @exnraise[exn:fail].  Under
+@racket[port] is closed, the @exnraise[exn:fail].  On
 Windows 95, 98, and Me, if @racket[port] is connected to a
 pipe instead of a file, the @exnraise[exn:fail:filesystem].
 

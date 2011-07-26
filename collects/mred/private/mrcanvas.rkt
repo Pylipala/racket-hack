@@ -1,22 +1,22 @@
-(module mrcanvas mzscheme
+(module mrcanvas racket/base
   (require mzlib/class
-	   mzlib/class100
-	   mzlib/list
-	   (prefix wx: "kernel.ss")
-	   "lock.ss"
-	   "const.ss"
-	   "kw.ss"
-	   "helper.ss"
-	   "check.ss"
-	   "wx.ss"
-	   "wxcanvas.ss"
-	   "mrwindow.ss"
-	   "mrcontainer.ss"
-	   "mrtop.ss")
+           mzlib/class100
+           mzlib/list
+           (prefix-in wx: "kernel.rkt")
+           "lock.rkt"
+           "const.rkt"
+           "kw.rkt"
+           "helper.rkt"
+           "check.rkt"
+           "wx.rkt"
+           "wxcanvas.rkt"
+           "mrwindow.rkt"
+           "mrcontainer.rkt"
+           "mrtop.rkt")
 
   (provide canvas<%>
-	   canvas%
-	   editor-canvas%)
+           canvas%
+           editor-canvas%)
 
   (define canvas-default-size 20) ; a default size for canvases tht fits borders without losing client sizes
   (define canvas-scroll-size 10)
@@ -38,7 +38,7 @@
     area%-keywords)
 
   (define basic-canvas%
-    (class100* (make-window% #f (make-subarea% area%)) (canvas<%>) (mk-wx mismatches parent)
+    (class100* (make-subwindow% (make-window% #f (make-subarea% area%))) (canvas<%>) (mk-wx mismatches parent)
       (public
 	[on-char (lambda (e) (send wx do-on-char e))]
 	[on-event (lambda (e) (send wx do-on-event e))]
@@ -103,7 +103,9 @@
       (private-field [paint-cb paint-callback]
 		     [has-x? (and (list? style) (memq 'hscroll style))]
 		     [has-y? (and (list? style) (memq 'vscroll style))])
-      (inherit get-client-size get-dc set-label)
+      (inherit get-client-size get-dc set-label 
+               suspend-flush resume-flush flush
+               get-canvas-background)
       (rename [super-on-paint on-paint])
       (sequence 
 	(let ([cwho '(constructor canvas)])
@@ -152,8 +154,8 @@
 	[init-manual-scrollbars 
 	 (lambda (x-len y-len x-page y-page x-val y-val)
 	   (let ([who '(method canvas% init-auto-scrollbars)])
-	     (when x-len (check-range-integer who x-len))
-	     (when y-len (check-range-integer who y-len))
+	     (when x-len (check-gauge-integer who x-len))
+	     (when y-len (check-gauge-integer who y-len))
 	     (check-gauge-integer who x-page)
 	     (check-gauge-integer who y-page)
 	     (check-range-integer who x-val)
@@ -196,6 +198,29 @@
 		    (if (eq? paint-cb default-paint-cb)
 			(super-on-paint)
 			(paint-cb this (get-dc))))])
+      (private-field [no-clear? (memq 'no-autoclear style)])
+      (public
+        [refresh-now (lambda ([do-paint (lambda (dc) (on-paint))]
+                              #:flush? [flush? #t])
+                       (let ([dc (get-dc)])
+                         (dynamic-wind
+                             (lambda ()
+                               (suspend-flush))
+                             (lambda ()
+                               (unless no-clear?
+                                 (let ([bg (get-canvas-background)])
+                                   (if bg
+                                       (let ([old-bg (send dc get-background)])
+                                         (as-entry
+                                          (lambda ()
+                                            (send dc set-background bg)
+                                            (send dc clear)
+                                            (send dc set-background old-bg))))
+                                       (send dc erase))))
+                               (do-paint dc))
+                             (lambda ()
+                               (resume-flush)))
+                         (when flush? (flush))))])
       (private-field
        [wx #f])
       (sequence

@@ -28,9 +28,10 @@ racket
 (require web-server/servlet
          web-server/servlet-env)
 
-(define (start request)
-  `(html (head (title "Hello world!"))
-         (body (p "Hey out there!"))))
+(define (start req)
+  (response/xexpr
+   `(html (head (title "Hello world!"))
+          (body (p "Hey out there!")))))
                                       
 (serve/servlet start)
 ]
@@ -41,9 +42,10 @@ racket
 (require web-server/servlet
          web-server/servlet-env)
 
-(define (my-app request)
-  `(html (head (title "Hello world!"))
-         (body (p "Hey out there!"))))
+(define (my-app req)
+  (response/xexpr
+   `(html (head (title "Hello world!"))
+          (body (p "Hey out there!")))))
 
 (serve/servlet my-app)
 ]
@@ -117,7 +119,8 @@ You can also put the call to @racket[serve/servlet] in the @racketmodname[web-se
    (start
     (send/suspend
      (lambda (k-url)
-       `(html (body (a ([href ,k-url]) "Hello world!")))))))
+       (response/xexpr
+        `(html (body (a ([href ,k-url]) "Hello world!"))))))))
  
  (serve/servlet start #:stateless? #t)
 ]
@@ -125,7 +128,7 @@ Like always, you don't even need to save the file.
 
 @section{Full API}
 
-@defproc[(serve/servlet [start (request? . -> . response/c)]
+@defproc[(serve/servlet [start (request? . -> . can-be-response?)]
                         [#:command-line? command-line? boolean? #f]
                         [#:connection-close? connection-close? boolean? #f]
                         [#:launch-browser? launch-browser? boolean? (not command-line?)]
@@ -149,7 +152,7 @@ Like always, you don't even need to save the file.
                         [#:servlets-root servlets-root path-string? (build-path server-root-path "htdocs")]
                         [#:servlet-current-directory servlet-current-directory path-string? servlets-root]
                         [#:file-not-found-responder file-not-found-responder
-                                                    (request? . -> . response/c)
+                                                    (request? . -> . can-be-response?)
                                                     (gen-file-not-found-responder 
                                                      (build-path
                                                       server-root-path
@@ -189,7 +192,7 @@ Like always, you don't even need to save the file.
  as its continuation manager. (The default manager limits the amount of memory to 64 MB and
  deals with memory pressure as discussed in the @racket[make-threshold-LRU-manager] documentation.)
  
- The server files are rooted at @racket[server-root-path] (which is defaultly the distribution root.)
+ The server files are rooted at @racket[server-root-path] (which is the distribution root by default.)
  File paths, in addition to the @filepath["htdocs"] directory under @racket[server-root-path] may be
  provided with @racket[extra-files-paths]. These paths are checked first, in the order they appear in the list.
  
@@ -212,4 +215,3 @@ Like always, you don't even need to save the file.
  If @racket[connection-close?] is @racket[#t], then every connection is closed after one
  request. Otherwise, the client decides based on what HTTP version it uses.
 }
-              

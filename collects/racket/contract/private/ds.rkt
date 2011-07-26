@@ -18,24 +18,17 @@ it around flattened out.
 |#
 
 (require "guts.rkt"
-         "opt.rkt")
+         "prop.rkt"
+         "blame.rkt"
+         "opt.rkt"
+         "misc.rkt")
 (require (for-syntax scheme/base)
          (for-syntax "ds-helpers.rkt")
          (for-syntax "helpers.rkt")
          (for-syntax "opt-guts.rkt"))
 
 (provide define-contract-struct
-         contract-struct
-         
-         make-opt-contract/info
-         ;set-opt-contract/info-enforcer!
-         opt-contract/info-contract
-         opt-contract/info-id
-         opt-contract/info-enforcer
-         lazy-depth-to-look
-         
-         unknown?
-         synthesized-value)
+         contract-struct)
 
 ;; main : syntax syntax[list-of-identifier] syntax boolean -> syntax
 ;; define-struct? tells us if this is a 'contract-struct' or a 'define-contract-struct'
@@ -253,7 +246,7 @@ it around flattened out.
                     (raise-blame-error
                      blame
                      val
-                     "expected <~a>, got ~e" 'name val))
+                     "expected: ~s, got ~e" 'name val))
                   (cond
                     [(already-there? contract/info val lazy-depth-to-look)
                      val]
@@ -306,7 +299,7 @@ it around flattened out.
                    (do-selection struct (+ i 1))
                    (wrap-get struct (+ i 1)))]
               [else
-               (error selector-name "expected <~a>, got ~e" 'name struct)]))
+               (error selector-name "expected: ~s, got ~e" 'name struct)]))
           
           (define (lazy-contract-name ctc)
             (do-contract-name 'struct/c
@@ -459,7 +452,7 @@ it around flattened out.
                                 (raise-blame-error
                                  blame
                                  val
-                                 "expected <~a>, got ~e"
+                                 "expected: ~s, got ~e"
                                  (contract-name ctc)
                                  val)]))
                             lifts

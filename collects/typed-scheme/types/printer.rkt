@@ -1,10 +1,11 @@
 #lang scheme/base
 
 (require unstable/sequence racket/require racket/match
-         (path-up "rep/type-rep.rkt" "rep/filter-rep.rkt" "rep/object-rep.rkt" "types/abbrev.rkt"
-                  "rep/rep-utils.rkt" "utils/utils.rkt" "utils/tc-utils.rkt"))
+         (path-up "rep/type-rep.rkt" "rep/filter-rep.rkt" "rep/object-rep.rkt" "rep/rep-utils.rkt"
+                  "types/abbrev.rkt" "types/numeric-tower.rkt" "types/subtype.rkt"
+                  "utils/utils.rkt" "utils/tc-utils.rkt"))
 
-;; do we attempt to find instantiations of polymorphic types to print? 
+;; do we attempt to find instantiations of polymorphic types to print?
 ;; FIXME - currently broken
 (define print-poly-types? #t)
 ;; do we use simple type aliases in printing
@@ -16,7 +17,7 @@
 
 ;; does t have a type name associated with it currently?
 ;; has-name : Type -> Maybe[Symbol]
-(define (has-name? t) 
+(define (has-name? t)
   (and print-aliases
        (for/first ([(n t*) (in-pairs (in-list ((current-type-names))))]
                    #:when (and (Type? t*) (type-equal? t t*)))
@@ -55,13 +56,13 @@
   (match c
     [(NoObject:) (fp "-")]
     [(Empty:) (fp "-")]
-    [(Path: pes i) (fp "~a" (append pes (list i)))]    
+    [(Path: pes i) (fp "~a" (append pes (list i)))]
     [else (fp "(Unknown Object: ~a)" (struct->vector c))]))
 
 ;; print out a type
 ;; print-type : Type Port Boolean -> Void
 (define (print-type c port write?)
-  (define (fp . args) (apply fprintf port args)) 
+  (define (fp . args) (apply fprintf port args))
   (define (fp/filter fmt ret . rest)
     (if (print-complex-filters?)
         (apply fp fmt ret rest)
@@ -82,7 +83,7 @@
        (when rest
          (fp "~a ~a " rest (if (special-dots-printing?) "...*" "*")))
        (when drest
-         (fp "~a ...~a~a " 
+         (fp "~a ...~a~a "
              (car drest) (if (special-dots-printing?) "" " ") (cdr drest)))
        (match rng
          [(Values: (list (Result: t (FilterSet: (Top:) (Top:)) (Empty:))))
@@ -90,18 +91,18 @@
          [(Values: (list (Result: t
 				  (FilterSet: (TypeFilter: ft pth id)
 					      (NotTypeFilter: ft pth id))
-				  (Empty:)))) 
+				  (Empty:))))
           (if (null? pth)
               (fp "-> ~a : ~a" t ft)
               (begin (fp "-> ~a : ~a @" t ft)
                      (for ([pe pth]) (fp " ~a" pe))))]
-         [(Values: (list (Result: t fs (Empty:)))) 
+         [(Values: (list (Result: t fs (Empty:))))
           (fp/filter "-> ~a : ~a" t fs)]
          [(Values: (list (Result: t lf lo)))
           (fp/filter "-> ~a : ~a ~a" t lf lo)]
          [_
           (fp "-> ~a" rng)])
-       (fp ")")]      
+       (fp ")")]
       [else (fp "(Unknown Function Type: ~a)" (struct->vector a))]))
   (define (tuple? t)
     (match t
@@ -124,9 +125,10 @@
     [(StructTop: st) (fp "~a" st)]
     [(BoxTop:) (fp "Box")]
     [(ChannelTop:) (fp "Channel")]
+    [(ThreadCellTop:) (fp "ThreadCell")]
     [(VectorTop:) (fp "Vector")]
     [(MPairTop:) (fp "MPair")]
-    [(App: rator rands stx) 
+    [(App: rator rands stx)
      (fp "~a" (list* rator rands))]
     ;; special cases for lists
     [(Mu: var (Union: (list (Value: '()) (Pair: elem-ty (F: var)))))
@@ -142,7 +144,7 @@
                       [else (fp "~a" v)])]
     [(? tuple? t)
      (fp "~a" (cons 'List (tuple-elems t)))]
-    [(Base: n cnt) (fp "~s" n)]      
+    [(Base: n cnt _ _) (fp "~s" n)]
     [(Opaque: pred _) (fp "(Opaque ~a)" (syntax->datum pred))]
     [(Struct: (== promise-sym) #f  (list (fld: t _ _)) _    _ _ _ _) (fp "(Promise ~a)" t)]
     [(Struct: nm       par (list (fld: t _ _) ...)       proc _ _ _ _)
@@ -151,42 +153,46 @@
        (fp " ~a" proc))
      (fp ")")]
     [(Function: arities)
-     (let ()         
+     (let ()
        (match arities
          [(list) (fp "(case-lambda)")]
          [(list a) (print-arr a)]
          [(list a b ...) (fp "(case-lambda ")
-                         (print-arr a) 
-                         (for-each 
+                         (print-arr a)
+                         (for-each
                           (lambda (e) (fp " ") (print-arr e))
                           b)
                          (fp ")")]))]
     [(arr: _ _ _ _ _) (fp "(arr ") (print-arr c) (fp ")")]
     [(Vector: e) (fp "(Vectorof ~a)" e)]
-    [(HeterogenousVector: e) (fp "(Vector") 
+    [(HeterogenousVector: e) (fp "(Vector")
                              (for ([i (in-list e)])
                                (fp " ~a" i))
                              (fp ")")]
     [(Box: e) (fp "(Boxof ~a)" e)]
     [(Future: e) (fp "(Futureof ~a)" e)]
     [(Channel: e) (fp "(Channelof ~a)" e)]
+    [(ThreadCell: e) (fp "(ThreadCellof ~a)" e)]
+    [(Ephemeron: e) (fp "(Ephemeronof ~a)" e)]
+    [(CustodianBox: e) (fp "(CustodianBoxof ~a)" e)]
+    [(Set: e) (fp "(Setof ~a)" e)]
     [(Union: elems) (fp "~a" (cons 'U elems))]
     [(Pair: l r) (fp "(Pairof ~a ~a)" l r)]
-    [(ListDots: dty dbound) 
+    [(ListDots: dty dbound)
      (fp "(List ~a ...~a~a)" dty (if (special-dots-printing?) "" " ") dbound)]
-    [(F: nm) (fp "~a" nm)]   
+    [(F: nm) (fp "~a" nm)]
     ;; FIXME
     [(Values: (list v)) (fp "~a" v)]
     [(Values: (list v ...)) (fp "~s" (cons 'values v))]
     [(ValuesDots: v dty dbound) (fp "~s" (cons 'values (append v (list dty '... dbound))))]
-    [(Param: in out) 
+    [(Param: in out)
      (if (equal? in out)
-         (fp "(Parameterof ~a)" in)           
+         (fp "(Parameterof ~a)" in)
          (fp "(Parameterof ~a ~a)" in out))]
     [(Hashtable: k v) (fp "(HashTable ~a ~a)" k v)]
-    
+
     #;[(Poly-unsafe: n b) (fp "(unsafe-poly ~a ~a ~a)" (Type-seq c) n b)]
-    [(Poly-names: names body) 
+    [(Poly-names: names body)
      #;(fprintf (current-error-port) "POLY SEQ: ~a\n" (Type-seq body))
      (fp "(All ~a ~a)" names body)]
     #;[(PolyDots-unsafe: n b) (fp "(unsafe-polydots ~a ~a ~a)" (Type-seq c) n b)]
@@ -195,10 +201,10 @@
     #;
     [(Mu-unsafe: b) (fp "(unsafe-mu ~a ~a)" (Type-seq c) b)]
     [(Mu: x (Syntax: (Union: (list
-                              (Base: 'Number _) 
-                              (Base: 'Boolean _)
-                              (Base: 'Symbol _)
-                              (Base: 'String _)
+                              (Base: 'Number _ _ _)
+                              (Base: 'Boolean _ _ _)
+                              (Base: 'Symbol _ _ _)
+                              (Base: 'String _ _ _)
                               (Mu: var (Union: (list (Value: '()) (Pair: (F: x) (F: var)))))
                               (Mu: y (Union: (list (F: x) (Pair: (F: x) (F: y)))))
                               (Vector: (F: x))
@@ -208,8 +214,8 @@
     ;; FIXME - this should not be used
     #;
     [(Scope: sc) (fp "(Scope ~a)" sc)]
-    
-    [(B: idx) (fp "(B ~a)" idx)]      
+
+    [(B: idx) (fp "(B ~a)" idx)]
     [(Syntax: t) (fp "(Syntaxof ~a)" t)]
     [(Instance: t) (fp "(Instance ~a)" t)]
     [(Class: pf nf ms) (fp "(Class)")]

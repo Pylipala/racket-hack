@@ -10,10 +10,6 @@
 (define PAUSE  1/2)     ;; # secs to wait between attempts to connect to server 
 (define SQPORT 4567) ;; the port on which universe traffic flows
 
-(define (K w . r) w)
-(define (False w) #f)
-(define (True w) #t)
-
 ;                                                                               
 ;                                                                               
 ;                                                                               
@@ -31,6 +27,10 @@
 ;                                                                               
 
 ;; -----------------------------------------------------------------------------
+
+;; Any -> Boolean
+(define (nat? x)
+  (and (number? x) (integer? x) (>= x 0)))
 
 ;; Number Symbol Symbol -> Integer
 (define (number->integer x [t ""] [p ""])
@@ -124,23 +124,23 @@
           (read-line in) ;; read the newline 
           x))))
 
-(define REGISTER '***register***)
-(define OKAY '***okay***)
-
 ;; InPort OutPort (X -> Y) -> (U Y Void)
 ;; process a registration from a potential client, invoke k if it is okay
 (define (tcp-process-registration in out k)
   (define next (tcp-receive in))
-  (when (and (pair? next) (eq? REGISTER (car next))) 
-    (tcp-send out OKAY)
-    (k (cdr next))))
+  (match next
+    [`(REGISTER ((name ,name)))
+     (tcp-send out '(OKAY))
+     (k name)]))
   
-
 ;; InPort OutPort (U #f String) -> Void 
 ;; register with the server 
 (define (tcp-register in out name)
-  (tcp-send out `(,REGISTER ,(if name name (symbol->string (gensym 'world)))))
-  (unless (eq? (tcp-receive in) OKAY) (raise tcp-eof)))
+  (define msg `(REGISTER ((name ,(if name name (symbol->string (gensym 'world)))))))
+  (tcp-send out msg)
+  (define ackn (tcp-receive in))
+  (unless (equal? ackn '(OKAY))
+    (raise tcp-eof)))
 
 ;                                                   
 ;                                                   

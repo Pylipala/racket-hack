@@ -1,26 +1,26 @@
 (module mrpanel mzscheme
   (require mzlib/class
-	   mzlib/class100
-	   (prefix wx: "kernel.ss")
-	   "lock.ss"
-	   "const.ss"
-	   "check.ss"
-	   "helper.ss"
-	   "wx.ss"
-	   "kw.ss"
-	   "wxpanel.ss"
-	   "mrwindow.ss"
-	   "mrcontainer.ss")
+           mzlib/class100
+           (prefix wx: "kernel.rkt")
+           "lock.rkt"
+           "const.rkt"
+           "check.rkt"
+           "helper.rkt"
+           "wx.rkt"
+           "kw.rkt"
+           "wxpanel.rkt"
+           "mrwindow.rkt"
+           "mrcontainer.rkt")
 
   (provide pane%
-	   vertical-pane%
-	   horizontal-pane%
-	   grow-box-spacer-pane%
-	   panel%
-	   vertical-panel%
-	   horizontal-panel%
-	   tab-panel%
-	   group-box-panel%)
+           vertical-pane%
+           horizontal-pane%
+           grow-box-spacer-pane%
+           panel%
+           vertical-panel%
+           horizontal-panel%
+           tab-panel%
+           group-box-panel%)
 
   (define-keywords pane%-keywords
     subarea%-keywords
@@ -71,7 +71,10 @@
     area%-keywords)
 
   (define panel%
-    (class100*/kw (make-area-container-window% (make-window% #f (make-subarea% (make-container% area%)))) (subwindow<%>) 
+    (class100*/kw (make-subwindow%
+                   (make-area-container-window% 
+                    (make-window% #f (make-subarea% (make-container% area%)))) )
+                  (subwindow<%>)
 		  [(parent [style null]) panel%-keywords]
       (private-field [wx #f])
       (public [get-initial-label (lambda () #f)])
@@ -82,18 +85,38 @@
 		     [(is-a? this vertical-panel%) 'vertical-panel]
 		     [(is-a? this horizontal-panel%) 'horizontal-panel]
 		     [else 'panel])]
-	       [cwho `(constructor ,who)])
+	       [cwho `(constructor ,who)]
+               [can-canvas? (memq who '(vertical-panel
+                                        horizontal-panel
+                                        panel))]
+               [as-canvas? (lambda () (or (memq 'vscroll style)
+                                          (memq 'auto-vscroll style)
+                                          (memq 'hscroll style)
+                                          (memq 'auto-hscroll style)))])
 	  (check-container-parent cwho parent)
-	  (check-style cwho #f '(border deleted) style)
+	  (check-style cwho #f (append '(border deleted)
+                                       (if can-canvas? 
+                                           '(hscroll vscroll auto-hscroll auto-vscroll)
+                                           null)) 
+                       style)
 	  (as-entry
 	   (lambda ()
 	     (super-init (lambda () (set! wx (make-object (case who
-							    [(vertical-panel) wx-vertical-panel%]
+							    [(vertical-panel) 
+                                                             (if (as-canvas?)
+                                                                 wx-vertical-canvas-panel%
+                                                                 wx-vertical-panel%)]
 							    [(tab-panel) wx-vertical-tab-panel%]
 							    [(group-box-panel) wx-vertical-group-panel%]
-							    [(horizontal-panel) wx-horizontal-panel%]
-							    [else wx-panel%])
-							  this this (mred->wx-container parent) style
+							    [(horizontal-panel) 
+                                                             (if (as-canvas?)
+                                                                 wx-horizontal-canvas-panel%
+                                                                 wx-horizontal-panel%)]
+							    [else (if (as-canvas?)
+                                                                      wx-canvas-panel%
+                                                                      wx-panel%)])
+							  this this (mred->wx-container parent) 
+                                                          (cons 'transparent style)
                                                           (get-initial-label)))
                                  wx)
 			 (lambda () wx) 
@@ -138,7 +161,7 @@
                                    (cdr style)
                                    (list (car style)))
                                (cons 'border style)))
-        (send (mred->wx this) set-callback callback))
+        (send (mred->wx this) set-callback (lambda (wx e) (callback (wx->mred wx) e))))
 
       (public
 	[get-number (lambda () (length save-choices))]

@@ -1,12 +1,12 @@
 #lang scheme
 
-(require "test-util.ss"
-         "../private/reduction-semantics.ss"
-         "../private/matcher.ss"
-         "../private/term.ss"
-         "../private/rg.ss"
-         "../private/keyword-macros.ss"
-         "../private/error.ss")
+(require "test-util.rkt"
+         "../private/reduction-semantics.rkt"
+         "../private/matcher.rkt"
+         "../private/term.rkt"
+         "../private/rg.rkt"
+         "../private/keyword-macros.rkt"
+         "../private/error.rkt")
 
 (define-namespace-anchor nsa)
 (define ns (namespace-anchor->namespace nsa))
@@ -29,24 +29,28 @@
       (get-output-string p)
       (close-output-port p))))
 
-(define-syntax (test-contract-violation stx)
+(define-syntax (test-contract-violation/client stx)
   (syntax-case stx ()
-    [(form expr)
+    [(form expr) 
      (syntax/loc stx (form "" expr))]
     [(_ name expr)
-     (with-syntax ([expected 
-                    (syntax/loc stx
-                      (regexp (format "rg-test.*broke the contract .* ~a" name)))])
-       #'(test (raised-exn-msg 
-                exn:fail? 
-                (begin (output (λ () expr)) 'no-violation))
-               expected))]))
+     (syntax/loc stx
+       (test-contract-violation 
+        (output (λ () expr))
+        #:blaming "rg-test"
+        #:message name
+        #:extract (match-lambda
+                    [(exn:fail:redex:test _ _ (? exn:fail:contract:blame? e) _) e]
+                    [x x])))]))
+
+(define find-base-cases/unparsed
+  (compose find-base-cases parse-language))
 
 (let ()
   (define-language lc
     (e x (e e) (λ (x) e))
     (x variable))
-  (let ([bc (find-base-cases lc)])
+  (let ([bc (find-base-cases/unparsed lc)])
     (test (to-table (base-cases-non-cross bc))
           '((e . (1 2 2)) (x . (0))))
     (test (to-table (base-cases-cross bc))
@@ -55,7 +59,7 @@
 (let ()
   (define-language lang
     (e (e e)))
-  (let ([bc (find-base-cases lang)])
+  (let ([bc (find-base-cases/unparsed lang)])
     (test (to-table (base-cases-non-cross bc)) '((e . (inf))))
     (test (to-table (base-cases-cross bc)) '((e-e . (0 inf inf))))))
 
@@ -63,7 +67,7 @@
   (define-language lang
     (a 1 2 3)
     (b a (a_1 b_!_1)))
-  (let ([bc (find-base-cases lang)])
+  (let ([bc (find-base-cases/unparsed lang)])
     (test (to-table (base-cases-non-cross bc))
           '((a . (0 0 0)) (b . (1 2))))
     (test (to-table (base-cases-cross bc))
@@ -78,7 +82,7 @@
     (v (λ (x) e)
        number)
     (x variable))
-  (let ([bc (find-base-cases lc)])
+  (let ([bc (find-base-cases/unparsed lc)])
     (test (to-table (base-cases-non-cross bc)) 
           '((e . (2 2 1 1)) (v . (2 0)) (x . (0))))
     (test (to-table (base-cases-cross bc))
@@ -88,10 +92,12 @@
 (let ()
   (define-language L
     (x (variable-prefix x)
-       (variable-except y))
+       (variable-except y)
+       (name x 1)
+       (name y 1))
     (y y))
-  (test (hash-ref (base-cases-non-cross (find-base-cases L)) 'x)
-        '(0 0)))
+  (test (hash-ref (base-cases-non-cross (find-base-cases/unparsed L)) 'x)
+        '(0 0 0 0)))
 
 (define (make-random . nums)
   (let ([nums (box nums)])
@@ -214,14 +220,57 @@
 (let ()
   (define-language L
     (n 1))
+  
   (test ((generate-term L n) 0) 1)
   (test ((generate-term L n) 0 #:retries 0) 1)
   (test ((generate-term L n) 0 #:attempt-num 0) 1)
+
   (test (with-handlers ([exn:fail:syntax? exn-message])
           (parameterize ([current-namespace ns])
             (expand #'(generate-term M n))))
         #rx"generate-term: expected a identifier defined by define-language( in: M)?$")
-  (test-contract-violation (generate-term L n 1.5)))
+  (test-contract-violation/client (generate-term L n 1.5))
+  (test-contract-violation/client (generate-term L n 1 #:retries .5))
+  (test-contract-violation/client (generate-term L n 1 #:attempt-num .5))
+  (test-contract-violation/client "#:source" (generate-term #:source 'not-a-reduction-relation)))
+
+(let ([set-rand-2 
+       (λ (to-be prg)
+         (parameterize ([current-pseudo-random-generator prg])
+           (random-seed 
+            (case to-be
+              [(0) 5]
+              [(1) 0]))))])
+  
+  (set-rand-2 0 (current-pseudo-random-generator))
+  (test (random 2) 0)
+  (set-rand-2 1 (current-pseudo-random-generator))
+  (test (random 2) 1)
+  
+  (define-language L)
+  (define R
+    (reduction-relation 
+     L
+     (--> a 1)
+     (--> b 2)))
+  (define-metafunction L
+    [(F a) 1]
+    [(F b) 2])
+  
+  (set-rand-2 0 (redex-pseudo-random-generator))
+  (test (generate-term #:source R 0) 'a)
+  (set-rand-2 1 (redex-pseudo-random-generator))
+  (test ((generate-term #:source R) 0) 'b)
+  
+  (set-rand-2 0 (redex-pseudo-random-generator))
+  (test ((generate-term #:source F) 0) '(a))
+  (set-rand-2 1 (redex-pseudo-random-generator))
+  (test (generate-term #:source F 0) '(b))
+  
+  (let ([before (pseudo-random-generator->vector (redex-pseudo-random-generator))])
+    (generate-term L () 0)
+    (test (pseudo-random-generator->vector (redex-pseudo-random-generator))
+          before)))
 
 ;; variable-except pattern
 (let ()
@@ -438,29 +487,20 @@
     (C (c hole))
     (D (d hole))
     (E (e hole))
-    (F (f hole)))
+    (F (f hole))
+    
+    (p (in-hole (hole hole) 4))
+    (q (in-hole (hole ... hole) 4)))
   
   (test (generate-term L (in-hole 3 4) 5) 3)
-  (test (generate-term L (in-hole (hole hole) 4) 5) '(4 4))
-  (test (generate-term/decisions L (in-hole (hole ... hole) 4) 5 0 (decisions #:seq (list (λ (_) 1))))
-        '(4 4))
-  
-  (let-syntax ([test-sequence-holes 
-                (λ (stx)
-                  (syntax-case stx ()
-                    [(_ l)
-                     #`(let ([length l]
-                             [bindings #f])
-                         (test (generate-term/decisions 
-                                L
-                                (side-condition (in-hole ((name x (q C)) (... ...)) 4)
-                                                (set! bindings (term ((x C) (... ...)))))
-                                5 0 (decisions #:seq (list (λ (_) length))))
-                               #,(syntax/loc stx (build-list length (λ (_) '(q (c 4))))))
-                         (test bindings 
-                               #,(syntax/loc stx (build-list length (λ (_) (term ((q (c hole)) (c hole))))))))]))])
-    (test-sequence-holes 3)
-    (test-sequence-holes 0))
+  (test (raised-exn-msg 
+         exn:fail? 
+         (test-match L p (generate-term L p 5)))
+        #rx"two holes")
+  (test (raised-exn-msg 
+         exn:fail?
+         (test-match L q (generate-term/decisions L q 5 0 (decisions #:seq (list (λ (_) 1))))))
+        #rx"two holes")
   
   (let ([bindings #f])
     (test (generate-term 
@@ -470,7 +510,22 @@
            0)
           (term (c (d (e (f hole))))))
     (test bindings (term ((c hole) (d hole) (e hole) (f hole) 
-                                   (c (d hole)) (c (d (e hole))) (c (d (e (f hole)))))))))
+                                   (c (d hole)) (c (d (e hole))) (c (d (e (f hole))))))))
+  
+  (test
+   (let/ec return
+     (generate-term
+      L
+      (side-condition (name C (hide-hole hole))
+                      (return (term (in-hole C 1))))
+      0))
+   (term hole))
+  
+  (test (generate-term 
+         L
+         (in-hole ((hide-hole (in-hole hole hole)) hole) 1)
+         0)
+        (term (hole 1))))
 
 (let ()
   (define-language lc
@@ -506,7 +561,13 @@
          empty any 5 0 (decisions #:nt (patterns first)
                                   #:any (λ (langc sexpc) (values sexpc 'sexp))
                                   #:var (list (λ _ 'x))))
-        'x))
+        'x)
+  (test 
+   (generate-term/decisions 
+    empty (in-hole (any hole) 7) 5 0
+    (decisions #:any (list (λ (_ sexp) (values sexp 'sexp)))
+               #:nt (patterns fourth)))
+   (term (hole 7))))
 
 ;; `hide-hole' pattern
 (let ()
@@ -542,7 +603,7 @@
                                  (decisions #:nt (patterns first)))
         47)
   
-  (test (hash-ref (base-cases-non-cross (find-base-cases name-collision)) 'e-e)
+  (test (hash-ref (base-cases-non-cross (find-base-cases/unparsed name-collision)) 'e-e)
         '(0)))
 
 (let ()
@@ -609,6 +670,11 @@
     (e e 4)
     (n number))
   
+  (test (let ([checked 0])
+          (parameterize ([default-check-attempts 1])
+            (redex-check lang () (set! checked (add1 checked)) #:print? #f))
+          checked)
+        1)
   (test (redex-check lang d #t #:attempts 1 #:print? (not #t)) #t)
   (test (redex-check lang d #f #:print? #f)
         (make-counterexample 5))
@@ -765,16 +831,16 @@
                      #:print? #f)
         (counterexample 1))
   
-  (test-contract-violation
+  (test-contract-violation/client
    "#:attempts argument"
    (redex-check lang natural #t #:attempts 3.5))
-  (test-contract-violation
+  (test-contract-violation/client
    "#:retries argument"
    (redex-check lang natural #t #:retries 3.5))
-  (test-contract-violation
+  (test-contract-violation/client
    "#:attempt-size argument"
    (redex-check lang natural #t #:attempt-size -))
-  (test-contract-violation
+  (test-contract-violation/client
    "#:prepare argument"
    (redex-check lang natural #t #:prepare (λ (_) (values))))
   
@@ -921,13 +987,12 @@
           #:prepare (λ (_) (error 'fixer))
           #:print? #f))
         #rx"fixing 0")
-  (test (raised-exn-msg 
-         exn:fail:contract:blame?
-         (check-reduction-relation 
-          (reduction-relation L (--> 0 0))
-          void
-          #:prepare (λ () 0)))
-        #rx"rg-test broke the contract")
+  (test-contract-violation/client
+   "#:prepare argument" 
+   (check-reduction-relation 
+    (reduction-relation L (--> 0 0))
+    void
+    #:prepare (λ () 0)))
   
   (let ([S (reduction-relation L (--> 1 2 name) (--> 3 4))])
     (test (output (λ () (check-reduction-relation S (λ (x) #t) #:attempts 1)))
@@ -978,19 +1043,19 @@
           #rx"^check-reduction-relation: unable"))
 
   (let ([R (reduction-relation L (--> any any))])
-    (test-contract-violation
+    (test-contract-violation/client
      "#:attempts argument"
      (check-reduction-relation R values #:attempts -1))
-    (test-contract-violation
+    (test-contract-violation/client
      "#:retries argument"
      (check-reduction-relation R values #:retries -1))
-    (test-contract-violation
+    (test-contract-violation/client
      "#:attempt-size argument"
      (check-reduction-relation R values #:attempt-size (λ (_) (values 1 2))))
-    (test-contract-violation
+    (test-contract-violation/client
      "#:prepare argument"
      (check-reduction-relation R values #:prepare (λ (_) (values 1 2))))
-    (test-contract-violation (check-reduction-relation R #t))))
+    (test-contract-violation/client (check-reduction-relation R #t))))
 
 ; check-metafunction
 (let ()
@@ -1104,19 +1169,19 @@
   (let ()
     (define-metafunction empty
       [(f 0) 0])
-    (test-contract-violation
+    (test-contract-violation/client
      "#:attempts argument"
      (check-metafunction f void #:attempts 3.5))
-    (test-contract-violation
+    (test-contract-violation/client
      "#:retries argument"
      (check-metafunction f void #:retries 3.5))
-    (test-contract-violation
+    (test-contract-violation/client
      "#:attempt-size argument"
      (check-metafunction f void #:attempt-size 3.5))
-    (test-contract-violation
+    (test-contract-violation/client
      "#:prepare argument"
      (check-metafunction f void #:prepare car #:print? #f))
-    (test-contract-violation (check-metafunction f (λ () #t))))
+    (test-contract-violation/client (check-metafunction f (λ () #t))))
   
   ; Extension reinterprets the LHSs of the base metafunction
   ; relative to the new language.
@@ -1249,7 +1314,7 @@
    (hash-map 
     (class-reassignments (parse-pattern '(x_1 ... x_1 ..._!_1 x_1 ..._1) lang 'top-level)) 
     (λ (_ cls) cls))
-   '(..._1 ..._1))
+   '(..._1 ..._1))    
   (test-class-reassignments
    '((3 ..._1) ..._2 (4 ..._1) ..._3)
    '((..._2 . ..._3)))
@@ -1261,7 +1326,7 @@
 (let ([seed 0])
   (define-language L)
   (define (generate)
-    (generate-term L (number ...) 10000000 #:attempt-num 10000000))
+    (generate-term L (number ...) 100 #:attempt-num 10000000))
   (test (begin (random-seed seed) (generate))
         (begin (random-seed seed) (generate)))
   (let ([prg (make-pseudo-random-generator)])
@@ -1275,4 +1340,4 @@
     (test (seed-effect-generate void)
           (seed-effect-generate random))))
 
-(print-tests-passed 'rg-test.ss)
+(print-tests-passed 'rg-test.rkt)

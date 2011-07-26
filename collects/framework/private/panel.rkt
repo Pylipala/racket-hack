@@ -1,7 +1,7 @@
-#lang scheme/unit
+#lang racket/unit
 
   (require mzlib/class
-           "sig.ss"
+           "sig.rkt"
            mred/mred-sig
            mzlib/list
            mzlib/etc)
@@ -182,9 +182,15 @@
   (define dragable-mixin
     (mixin (window<%> area-container<%>) (dragable<%>)
       (init parent)
-      
-      (define/public (get-vertical?)
-        (error 'get-vertical "abstract method"))
+
+      (init-field vertical?)
+
+      (define/public-final (get-vertical?) vertical?)
+      (define/public-final (set-orientation h?) 
+        (define v? (not h?))
+        (unless (eq? vertical? v?)
+          (set! vertical? v?) 
+          (container-flow-modified)))
       (define/private (min-extent child) 
         (let-values ([(w h) (send child get-graphical-min-size)])
           (if (get-vertical?)
@@ -299,91 +305,165 @@
       (define cursor-gaps null)
       
       (define/override (place-children _infos width height)
-        (set! cursor-gaps null)
         (update-percentages)
-        (cond
-          [(null? _infos) null]
-          [(null? (cdr _infos)) (list (list 0 0 width height))]
-          [else
-           (let ([available-extent (get-available-extent)]
-                 [show-error
-                  (λ (n)
-                    (error 'panel.ss::dragable-panel "internal error.~a" n))])
-             (let loop ([percentages percentages]
-                        [children (get-children)]
-                        [infos _infos]
-                        [dim 0])
-               (cond
-                 [(null? percentages)
-                  (unless (null? infos) (show-error 1))
-                  (unless (null? children) (show-error 2))
-                  null]
-                 [(null? (cdr percentages))
-                  (when (null? infos) (show-error 3))
-                  (when (null? children) (show-error 4))
-                  (unless (null? (cdr infos)) (show-error 5))
-                  (unless (null? (cdr children)) (show-error 6))
-                  (if (get-vertical?)
-                      (list (list 0 dim width (- height dim)))
-                      (list (list dim 0 (- width dim) height)))]
-                 [else
-                  (when (null? infos) (show-error 7))
-                  (when (null? children) (show-error 8))
-                  (when (null? (cdr infos)) (show-error 9))
-                  (when (null? (cdr children)) (show-error 10))
-                  (let* ([info (car infos)]
-                         [percentage (car percentages)]
-                         [this-space (floor (* (percentage-% percentage) available-extent))])
-                    (set! cursor-gaps (cons (make-gap (car children)
-                                                      (+ dim this-space)
-                                                      percentage
-                                                      (cadr children)
-                                                      (+ dim this-space bar-thickness)
-                                                      (cadr percentages))
-                                            cursor-gaps))
-                    (cons (if (get-vertical?)
-                              (list 0 dim width this-space)
-                              (list dim 0 this-space height))
-                          (loop (cdr percentages)
-                                (cdr children)
-                                (cdr infos)
-                                (+ dim this-space bar-thickness))))])))]))
+        (define-values (results gaps) 
+          (dragable-place-children _infos width height
+                                   (map percentage-% percentages)
+                                   bar-thickness
+                                   (get-vertical?)))        
+        (set! cursor-gaps
+              (let loop ([children (get-children)]
+                         [percentages percentages]
+                         [gaps gaps])
+                (cond
+                  [(null? children) '()]
+                  [(null? (cdr children)) '()]
+                  [else
+                   (define gap (car gaps))
+                   (cons (make-gap (car children)
+                                   (list-ref gap 0)
+                                   (car percentages)
+                                   (cadr children)
+                                   (list-ref gap 1)
+                                   (cadr percentages))
+                         (loop (cdr children)
+                               (cdr percentages)
+                               (cdr gaps)))])))
+        
+        results)
       
       (define/override (container-size children-info)
         (update-percentages)
-        (let loop ([percentages percentages]
-                   [children-info children-info]
-                   [major-size 0]
-                   [minor-size 0])
-          (cond
-            [(null? children-info)
-             (if (get-vertical?)
-                 (values (ceiling minor-size) (ceiling major-size))
-                 (values (ceiling major-size) (ceiling minor-size)))]
-            [(null? percentages)
-             (error 'panel.ss::dragable-panel "internal error.12")]
-            [else
-             (let ([child-info (car children-info)]
-                   [percentage (car percentages)])
-               (let-values ([(child-major major-stretch? child-minor minor-stretch?)
-                             (if (get-vertical?)
-                                 (values (list-ref child-info 1)
-                                         (list-ref child-info 3)
-                                         (list-ref child-info 0)
-                                         (list-ref child-info 2))
-                                 (values (list-ref child-info 0)
-                                         (list-ref child-info 2)
-                                         (list-ref child-info 1)
-                                         (list-ref child-info 3)))])
-                 (loop (cdr percentages)
-                       (cdr children-info)
-                       (max (if (zero? (percentage-% percentage))
-                                0
-                                (/ child-major (percentage-% percentage)))
-                            major-size)
-                       (max child-minor minor-size))))])))
+        (dragable-container-size children-info bar-thickness (get-vertical?)))
       
       (super-instantiate (parent))))
+
+  ;; this function repeatedly checks to see if the current set of percentages and children
+  ;; would violate any minimum size constraints. If not, the percentages are used and the
+  ;; function termiantes. If some minimum sizes would be violated, the function pulls those 
+  ;; children out of the list under consideration, gives them their minimum sizes, rescales
+  ;; the remaining percentages back to 1, adjusts the available space after removing those
+  ;; panels, and tries again.
+  (define (dragable-place-children infos width height percentages bar-thickness vertical?)
+    (define original-major-dim-tot (- (if vertical? height width)
+                                      (* (max 0 (- (length infos) 1)) bar-thickness)))
+    ;; vec : id -o> major-dim size (width)
+    (define vec (make-vector (length infos) 0))
+    (let loop ([percentages percentages] ;; sums to 1.
+               [major-dim-mins (map (λ (info) (if vertical? (list-ref info 1) (list-ref info 0)))
+                                    infos)]
+               [major-dim-tot original-major-dim-tot]
+               [ids (build-list (length percentages) values)])
+      (define fitting-ones (extract-fitting-percentages percentages major-dim-mins major-dim-tot))
+      (cond
+        [(andmap not fitting-ones)
+         ;; all of them (perhaps none) fit, terminate.
+         (for ([id (in-list ids)]
+               [percentage (in-list percentages)])
+           (vector-set! vec id (* percentage major-dim-tot)))]
+        [else
+         ;; something doesn't fit; remove them and try again
+         (let ([next-percentages '()]
+               [next-major-dim-mins '()]
+               [next-major-dim-tot major-dim-tot]
+               [next-ids '()])
+           (for ([percentage (in-list percentages)]
+                 [major-dim-min (in-list major-dim-mins)]
+                 [id (in-list ids)]
+                 [fitting-one (in-list fitting-ones)])
+             (cond
+               [fitting-one
+                (vector-set! vec id fitting-one)
+                (set! next-major-dim-tot (- major-dim-tot fitting-one))]
+               [else
+                (set! next-percentages (cons percentage next-percentages))
+                (set! next-major-dim-mins (cons major-dim-min next-major-dim-mins))
+                (set! next-ids (cons id next-ids))]))
+           (define next-percentage-sum (apply + next-percentages))
+           (loop (map (λ (x) (/ x next-percentage-sum)) next-percentages)
+                 next-major-dim-mins
+                 next-major-dim-tot
+                 next-ids))]))
+
+    ;; adjust the contents of the vector if there are any fractional values
+    (let loop ([i 0]
+               [maj-val 0])
+      (cond
+        [(= i (vector-length vec))
+         (unless (= maj-val original-major-dim-tot)
+           (unless (zero? (vector-length vec))
+             (define last-index (- (vector-length vec) 1))
+             (vector-set! vec last-index (+ (vector-ref vec last-index) (- original-major-dim-tot maj-val)))))]
+        [else
+         (vector-set! vec i (floor (vector-ref vec i)))
+         (loop (+ i 1)
+               (+ maj-val (vector-ref vec i)))]))
+    
+    ;; build the result for the function from the major dim sizes
+    (let loop ([i 0]
+               [infos '()]
+               [gaps '()]
+               [maj-start 0])
+      (cond
+        [(= i (vector-length vec))
+         (values (reverse infos)
+                 (reverse gaps))]
+        [else
+         (define maj-stop (+ maj-start (vector-ref vec i)))
+         (define has-gap? (not (= i (- (vector-length vec) 1))))
+         (loop (+ i 1)
+               (cons (if vertical?
+                         (list 0
+                               maj-start
+                               width
+                               (- maj-stop maj-start))
+                         (list maj-start
+                               0
+                               (- maj-stop maj-start)
+                               height))
+                     infos)
+               (if has-gap?
+                   (cons (list maj-stop (+ maj-stop bar-thickness)) gaps)
+                   gaps)
+               (if has-gap?
+                   (+ maj-stop bar-thickness)
+                   maj-stop))])))
+  
+  (define (extract-fitting-percentages percentages major-dim-mins major-dim-tot)
+    (for/list ([percentage (in-list percentages)]
+               [major-dim-min (in-list major-dim-mins)])
+      (if (<= major-dim-min (* percentage major-dim-tot))
+          #f
+          major-dim-min)))
+  
+  (define (dragable-container-size orig-children-info bar-thickness vertical?)
+    (let loop ([children-info orig-children-info]
+               [major-size 0]
+               [minor-size 0])
+      (cond
+        [(null? children-info)
+         (let ([major-size (+ major-size 
+                              (* (max 0 (- (length orig-children-info) 1)) 
+                                 bar-thickness))])
+           (if vertical?
+               (values (ceiling minor-size) (ceiling major-size))
+               (values (ceiling major-size) (ceiling minor-size))))]
+        [else
+         (let ([child-info (car children-info)])
+           (let-values ([(child-major major-stretch? child-minor minor-stretch?)
+                         (if vertical?
+                             ;; 0 = width/horiz, 1 = height/vert
+                             (values (list-ref child-info 1)
+                                     (list-ref child-info 3)
+                                     (list-ref child-info 0)
+                                     (list-ref child-info 2))
+                             (values (list-ref child-info 0)
+                                     (list-ref child-info 2)
+                                     (list-ref child-info 1)
+                                     (list-ref child-info 3)))])
+             (loop (cdr children-info)
+                   (+ child-major major-size)
+                   (max child-minor minor-size))))])))
   
   (define three-bar-pen-bar-width 8)
   
@@ -408,23 +488,136 @@
               (send dc draw-line sx 5 (+ sx three-bar-pen-bar-width) 5)
               (send dc draw-line sx 8 (+ sx three-bar-pen-bar-width) 8)))))
       
-      (super-instantiate ())
+      (super-new [style '(no-focus)])
       (inherit stretchable-height min-height)
       (stretchable-height #f)
       (min-height 10)))
   
-  
   (define vertical-dragable-mixin
     (mixin (dragable<%>) (vertical-dragable<%>)
-      (define/override (get-vertical?) #t)
-      (super-instantiate ())))
+      (super-new [vertical? #t])))
   
   (define horizontal-dragable-mixin
-    (mixin (dragable<%>) (vertical-dragable<%>)
-      (define/override (get-vertical?) #f)
-      (super-instantiate ())))
+    (mixin (dragable<%>) (horizontal-dragable<%>)
+      (super-new [vertical? #f])))
   
-  (define vertical-dragable% (vertical-dragable-mixin (dragable-mixin vertical-panel%)))
+  (define vertical-dragable% (vertical-dragable-mixin (dragable-mixin panel%)))
   
-  (define horizontal-dragable% (horizontal-dragable-mixin (dragable-mixin horizontal-panel%)))
+  (define horizontal-dragable% (horizontal-dragable-mixin (dragable-mixin panel%)))
 
+(define splitter<%> (interface () split-horizontal split-vertical collapse))
+;; we need a private interface so we can use `generic' because `generic'
+;; doesn't work on mixins
+(define splitter-private<%> (interface () self-vertical? self-horizontal?))
+
+(define splitter-mixin
+  (mixin (area-container<%> dragable<%>) (splitter<%> splitter-private<%>)
+    (super-new)
+    (inherit get-children add-child
+             delete-child
+             change-children
+             begin-container-sequence
+             end-container-sequence)
+
+    (field [horizontal-panel% horizontal-dragable%]
+           [vertical-panel% vertical-dragable%])
+
+    (define/public (self-vertical?)
+      (send this get-vertical?))
+    
+    (define/public (self-horizontal?)
+      (not (send this get-vertical?)))
+
+    ;; insert an item into a list after some element
+    ;; FIXME: this is probably a library function somewhere
+    (define/private (insert-after list before item)
+      (let loop ([so-far '()]
+                 [list list])
+        (cond
+          [(null? list) (reverse so-far)]
+          [(eq? (car list) before) (loop (cons item (cons before so-far))
+                                         (cdr list))]
+          [else (loop (cons (car list) so-far) (cdr list))])))
+
+    ;; replace an element with a list of stuff
+    ;; FIXME: this is probably a library function somewhere
+    (define/private (replace list at stuff)
+      (let loop ([so-far '()]
+                 [list list])
+        (cond
+          [(null? list) (reverse so-far)]
+          [(eq? (car list) at) (append (reverse so-far) stuff (cdr list))]
+          [else (loop (cons (car list) so-far) (cdr list))])))
+
+    ;; remove a canvas and merge split panels if necessary
+    ;; TODO: restore percentages
+    (define/public (collapse canvas)
+      (begin-container-sequence)
+      (for ([child (get-children)])
+        (cond
+          [(eq? child canvas)
+           (when (> (length (get-children)) 1)
+             (change-children
+               (lambda (old-children)
+                 (remq canvas old-children))))]
+          [(is-a? child splitter<%>)
+           (send child collapse canvas)]))
+      (change-children
+        (lambda (old-children)
+          (for/list ([child old-children])
+            (if (and (is-a? child splitter<%>)
+                     (= (length (send child get-children)) 1))
+              (let ()
+                (define single (car (send child get-children)))
+                (send single reparent this)
+                single)
+              child))))
+      (end-container-sequence))
+
+    ;; split a canvas by creating a new editor and either
+    ;; 1) adding it to the panel if the panel is already using the same
+    ;;   orientation as the split that is about to occur
+    ;; 2) create a new panel with the orientation of the split about to
+    ;;   occur and add a new editor
+    ;;
+    ;; in both cases the new editor is returned
+    (define/private (do-split canvas maker orientation? orientation% split)
+      (define new-canvas #f)
+      (for ([child (get-children)])
+        (cond
+          [(eq? child canvas)
+           (begin-container-sequence)
+           (change-children
+             (lambda (old-children)
+               (if (send-generic this orientation?)
+                 (let ([new (maker this)])
+                   (set! new-canvas new)
+                   (insert-after old-children child new))
+                 (let ()
+                   (define container (new (splitter-mixin orientation%)
+                                          [parent this]))
+                   (send canvas reparent container)
+                   (define created (maker container))
+                   (set! new-canvas created)
+                   ;; this throws out the old child but we should probably
+                   ;; try to keep it
+                   (replace old-children child (list container))))))
+           (end-container-sequence)]
+
+          [(is-a? child splitter<%>)
+           (let ([something (send-generic child split canvas maker)])
+             (when something
+               (set! new-canvas something)))]))
+        new-canvas)
+
+    ;; canvas (widget -> editor) -> editor
+    (define/public (split-horizontal canvas maker)
+      (do-split canvas maker (generic splitter-private<%> self-horizontal?)
+                horizontal-panel% (generic splitter<%> split-horizontal)))
+
+    ;; canvas (widget -> editor) -> editor
+    (define/public (split-vertical canvas maker)
+      (do-split canvas maker (generic splitter-private<%> self-vertical?)
+                vertical-panel% (generic splitter<%> split-vertical)))
+
+    ))

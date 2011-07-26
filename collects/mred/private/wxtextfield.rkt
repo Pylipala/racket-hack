@@ -1,22 +1,22 @@
 (module wxtextfield racket/base
   (require mzlib/class
-	   mzlib/class100
-	   (prefix-in wx: "kernel.ss")
-           (prefix-in wx: "wxme/text.ss")
-           (prefix-in wx: "wxme/snip.ss")
-           (prefix-in wx: "wxme/editor-canvas.ss")
-	   "lock.ss"
-	   "const.ss"
-	   "check.ss"
-	   "helper.ss"
-	   "gdi.ss"
-	   "wx.ss"
-	   "wxwindow.ss"
-	   "wxitem.ss"
-	   "wxcanvas.ss"
-	   "wxpanel.ss"
-	   "editor.ss"
-	   "mrpopup.ss")
+           mzlib/class100
+           (prefix-in wx: "kernel.rkt")
+           (prefix-in wx: "wxme/text.rkt")
+           (prefix-in wx: racket/snip)
+           (prefix-in wx: "wxme/editor-canvas.rkt")
+           "lock.rkt"
+           "const.rkt"
+           "check.rkt"
+           "helper.rkt"
+           "gdi.rkt"
+           "wx.rkt"
+           "wxwindow.rkt"
+           "wxitem.rkt"
+           "wxcanvas.rkt"
+           "wxpanel.rkt"
+           "editor.rkt"
+           "mrpopup.rkt")
 
   (provide (protect-out wx-text-field%))
 
@@ -30,13 +30,14 @@
                get-text)
       (super-new)
 
-      (define delta 2)
+      (define delta 3)
+      (define hdelta 2)
       (define (get-size)
         (max 4 (send (send (get-style) get-font) get-point-size)))
                
       (define/override (get-extent dc x y [w #f] [h #f] [descent #f] [space #f] [lspace #f] [rspace #f])
         (let ([s (get-size)])
-          (when w (set-box! w (* s (get-count))))
+          (when w (set-box! w (* (max 1.0 (- s hdelta hdelta)) (get-count))))
           (when h (set-box! h (+ s 2.0)))
           (when descent (set-box! descent 1.0))
           (when space (set-box! space 1.0))
@@ -44,7 +45,7 @@
           (when rspace (set-box! rspace 0.0))))
       (define/override (partial-offset dc x y pos)
         (let ([s (get-size)])
-          (* s pos)))
+          (* (max 1.0 (- s hdelta hdelta)) pos)))
       (define/override (draw dc x y left top right bottom dx dy draw-caret)
         (let ([s (get-size)]
               [b (send dc get-brush)]
@@ -54,8 +55,8 @@
           (send dc set-brush black-brush)
           (send dc set-smoothing 'aligned)
           (for/fold ([x x]) ([i (in-range (get-count))])
-            (send dc draw-ellipse (+ x delta) (+ y delta 1) (- s delta delta) (- s delta delta))
-            (+ x s))
+            (send dc draw-ellipse (- (+ x delta) hdelta) (+ y delta 1) (- s delta delta) (- s delta delta))
+            (+ x (- s hdelta hdelta)))
           (send dc set-pen p)
           (send dc set-brush b)
           (send dc set-smoothing m)))
@@ -89,7 +90,9 @@
 	 (entry-point
 	  (lambda (e)
 	    (let ([c (send e get-key-code)])
-	      (unless (and (or (eq? c #\return) (eq? c #\newline))
+	      (unless (and (or (eq? c #\return) 
+                               (eq? c #\newline)
+                               (eq? c #\u3)) ; numpad enter
 			   return-cb
 			   (return-cb (lambda () (callback 'text-field-enter) #t)))
 		(as-exit (lambda () (super-on-char e)))))))]
@@ -128,6 +131,8 @@
 
   (define wx-text-field%
     (class100 wx-horizontal-panel% (mred proxy parent fun label value style _font)
+      (sequence
+       (send (send parent get-top-level) begin-container-sequence))
       ;; Make text field first because we'll have to exit
       ;;  for keymap initializer
       (private-field
@@ -221,6 +226,7 @@
       (private-field
        [l (and label
 	       (make-object wx-message% #f proxy p label -1 -1 null font))]
+       [combo-callback #f]
        [c (make-object (class wx-text-editor-canvas% 
                          (define/override (on-combo-select i)
                            (let ([len (length callbacks)])
@@ -239,8 +245,31 @@
 				'(hide-hscroll))
 			    '(hide-vscroll hide-hscroll))))]
        [callbacks null])
+      (override 
+        [pre-on-event (lambda (w e)
+                        (or (super pre-on-event w e)
+                            (and combo-callback
+                                 (eq? w c)
+                                 (send e button-down?)
+                                 (let ([w (box 0)]
+                                       [h (box 0)])
+                                   (send c get-client-size w h)
+                                   (not (and (<= 0 (send e get-x) (unbox w))
+                                             (<= 0 (send e get-y) (unbox h)))))
+                                 (begin
+                                   (do-popup-callback)
+                                   #t))))])
+      (private
+        [do-popup-callback (lambda ()
+                             (wx:queue-callback (lambda ()
+                                                  (when (send c is-enabled-to-root?)
+                                                    (combo-callback)
+                                                    (send c popup-combo)))
+                                                wx:middle-queue-key))])
       (public
-        [set-on-popup (lambda (proc) (send c set-on-popup proc))]
+        [set-on-popup (lambda (proc) 
+                        (set! combo-callback proc) 
+                        (send c set-on-popup (lambda () (do-popup-callback))))]
         [clear-combo-items (lambda () (set! callbacks null) (send c clear-combo-items))]
         [append-combo-item (lambda (s cb)
                              (and (send c append-combo-item s)
@@ -309,4 +338,5 @@
 	(let ([min-size (get-min-size)])
 	  (set-min-width (car min-size))
 	  (set-min-height (cadr min-size)))
+	(send (send parent get-top-level) end-container-sequence)
 	(callback-ready)))))

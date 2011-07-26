@@ -50,7 +50,10 @@
       (let ([wx (->wx wxb)])
         (and wx
              (not (other-modal? wx))))]
-  [-a _BOOL (canBecomeMainWindow)  #t]
+  [-a _BOOL (canBecomeMainWindow)
+      (let ([wx (->wx wxb)])
+        (or (not wx)
+            (not (send wx floating?))))]
   [-a _BOOL (windowShouldClose: [_id win])
       (queue-window*-event wxb (lambda (wx)
                                  (unless (other-modal? wx)
@@ -63,18 +66,18 @@
         (let ([wx (->wx wxb)])
           (when wx
             (queue-window-event wx (lambda ()
-                                     (send wx on-size 0 0)
+                                     (send wx queue-on-size)
                                      (send wx clean-up)))
             ;; Live resize:
             (constrained-reply (send wx get-eventspace)
                                (lambda () 
                                  (pre-event-sync #t)
-                                 (let loop () (when (yield) (loop))))
+                                 (let loop () (when (yield/no-sync) (loop))))
                                (void)))))]
   [-a _void (windowDidMove: [_id notification])
       (when wxb
         (queue-window*-event wxb (lambda (wx)
-                                   (send wx on-size 0 0))))]
+                                   (send wx queue-on-size))))]
   [-a _void (windowDidBecomeMain: [_id notification])
       ;; We check whether the window is visible because
       ;; clicking the dock item tries to resurrect a hidden
@@ -86,9 +89,14 @@
               (set! front wx)
               (send wx install-wait-cursor)
               (send wx install-mb)
-              (send wx notify-responder #t)
               (queue-window-event wx (lambda ()
                                        (send wx on-activate #t)))))))]
+  [-a _void (windowDidBecomeKey: [_id notification])
+      (when (tell #:type _BOOL self isVisible)
+        (when wxb
+          (let ([wx (->wx wxb)])
+            (when wx
+              (send wx notify-responder #t)))))]
   [-a _void (windowDidResignMain: [_id notification])
       (when wxb
         (let ([wx (->wx wxb)])
@@ -99,9 +107,18 @@
             (if root-fake-frame
                 (send root-fake-frame install-mb)
                 (send empty-mb install))
-            (send wx notify-responder #f)
             (queue-window-event wx (lambda ()
                                      (send wx on-activate #f))))))]
+  [-a _void (windowDidResignKey: [_id notification])
+      (when wxb
+        (let ([wx (->wx wxb)])
+          (when wx
+            (send wx notify-responder #f))))]
+  [-a _void (windowDidMiniaturize: [_id notification])
+      (when wxb
+        (let ([wx (->wx wxb)])
+          (when wx
+            (send wx force-window-focus))))]
   [-a _void (toggleToolbarShown: [_id sender])
       (when wxb
         (let ([wx (->wx wxb)])
@@ -118,16 +135,31 @@
   #:mixins (FocusResponder KeyMouseResponder MyWindowMethods)
   [wxb])
 
-(set-front-hook! (lambda () (values front
-                                    (and front (send front get-eventspace)))))
+(set-front-hook! (lambda () 
+                   (let ([f (or front
+                                root-fake-frame)])
+                     (values f
+                             (and f (send f get-eventspace))))))
 
-(set-eventspace-hook! (lambda (w)
-                        (or (and w
-                                 (if (objc-is-a? w MyWindow)
-                                     (tell #:type _scheme w getEventspace)
-                                     #f))
-                            (and front
-                                 (send front get-eventspace)))))
+(set-eventspace-hook! (lambda (evt w)
+                        (define (is-mouse-or-key?)
+                          (bitwise-bit-set? MouseAndKeyEventMask
+                                            (tell #:type _NSInteger evt type)))
+                        (cond
+                         [w
+                          (and (or (not root-fake-frame)
+                                   ;; only mouse and key events in the root
+                                   ;; frame need to be dispatched in the root
+                                   ;; eventspace:
+                                   (not (ptr-equal? w (send root-fake-frame get-cocoa)))
+                                   (is-mouse-or-key?))
+                               (objc-is-a? w MyWindow)
+                               (tell #:type _scheme w getEventspace))]
+                         [front (send front get-eventspace)]
+                         [root-fake-frame 
+                          (and (is-mouse-or-key?)
+                               (send root-fake-frame get-eventspace))]
+                         [else #f])))
 
 (define frame%
   (class window%
@@ -153,11 +185,11 @@
                       [init-rect (make-NSRect (make-init-point x y)
                                               (make-NSSize (max 30 w) 
                                                            (max (if (memq 'no-caption style)
-                                                                    0
+                                                                    1
                                                                     22)
                                                                 h)))])
                   (let ([c (as-objc-allocation
-                            (tell (tell (if is-sheet?
+                            (tell (tell (if (or is-sheet? (memq 'float style))
                                             MyPanel
                                             MyWindow)
                                         alloc)
@@ -231,7 +263,12 @@
     (define/public (set-sheet s) (set! child-sheet s))
 
     (define caption? (not (memq 'no-caption style)))
+    (define float? (memq 'float style))
     (define/public (can-have-sheet?) caption?)
+    (define/public (floating?) float?)
+
+    (when float?
+      (tell cocoa setFloatingPanel: #:type _BOOL #t))
 
     (define/public (direct-show on?)
       ;; in atomic mode
@@ -256,7 +293,9 @@
                        modalDelegate: #f
                        didEndSelector: #:type _SEL #f
                        contextInfo: #f))
-              (tellv cocoa makeKeyAndOrderFront: #f))
+              (if float?
+                  (tellv cocoa orderFront: #f)
+                  (tellv cocoa makeKeyAndOrderFront: #f)))
           (begin
             (when is-a-dialog?
               (let ([p (get-parent)])
@@ -265,23 +304,9 @@
                   (send p set-sheet #f)
                   (tell (tell NSApplication sharedApplication)
                         endSheet: cocoa))))
+            (tellv cocoa deminiaturize: #f)
             (tellv cocoa orderOut: #f)
-            (let ([next
-                   (atomically
-                    (with-autorelease
-                     (let ([wins (tell (tell NSApplication sharedApplication) orderedWindows)])
-                       (begin0
-                        (for/or ([i (in-range (tell #:type _NSUInteger wins count))])
-                          (let ([win (tell wins objectAtIndex: #:type _NSUInteger i)])
-                            (and (tell #:type _BOOL win isVisible)
-                                 (not (tell win parentWindow))
-                                 (or (not root-fake-frame)
-                                     (not (ptr-equal? win (send root-fake-frame get-cocoa))))
-                                 win)))))))])
-              (cond
-               [next (tellv next makeKeyWindow)]
-               [root-fake-frame (send root-fake-frame install-mb)]
-               [else (void)]))))
+            (force-window-focus)))
       (register-frame-shown this on?)
       (let ([num (tell #:type _NSInteger cocoa windowNumber)])
         (if on?
@@ -308,6 +333,20 @@
                   (sync/timeout 1 s))))))
       (atomically
        (direct-show on?)))
+
+    (define/public (force-window-focus)
+      (let ([next (get-app-front-window)])
+        (cond
+         [next (tellv next makeKeyWindow)]
+         [root-fake-frame 
+          ;; Make key focus shift to root frame:
+          (let ([root-cocoa (send root-fake-frame get-cocoa)])
+            (tellv root-cocoa orderFront: #f)
+            (tellv root-cocoa makeKeyWindow)
+            (tellv root-cocoa orderOut: #f))
+          ;; Install root frame's menu bar:
+          (send root-fake-frame install-mb)]
+         [else (void)])))
 
     (define/private (do-paint-children)
       (when saved-child
@@ -339,7 +378,8 @@
         (send saved-child enable-window (and on? (is-window-enabled?)))))
 
     (define/override (is-shown?)
-      (tell #:type _bool cocoa isVisible))
+      (or (tell #:type _bool cocoa isVisible)
+          (tell #:type _bool cocoa isMiniaturized)))
 
     (define/override (is-shown-to-root?)
       (is-shown?))
@@ -381,11 +421,20 @@
     (define/override (is-responder wx on?)
       (unless (and (not on?)
                    (not (eq? first-responder wx)))
+        (unless on?
+          (tellv cocoa makeFirstResponder: #f))
         (if on?
             (set! first-responder wx)
             (set! first-responder #f))
         (when is-main?
           (do-notify-responder wx on?))))
+
+    (define/public (get-focus-window [even-if-not-active? #f])
+      (let ([f-cocoa (tell cocoa firstResponder)])
+        (and f-cocoa
+             (or even-if-not-active?
+                 (tell #:type _BOOL cocoa isKeyWindow))
+             (->wx (get-ivar f-cocoa wxb)))))
 
     (define/public (install-wait-cursor)
       (when (positive? (eventspace-wait-cursor-count (get-eventspace)))
@@ -418,7 +467,7 @@
     (define/override (flip y h) (flip-screen (+ y h)))
 
     (define/override (get-y)
-      (- (super get-y) (if caption? 22 0)))
+      (- (super get-y) (get-menu-bar-height)))
 
     (define/override (set-size x y w h)
       (unless (and (= x -1) (= y -1))
@@ -451,20 +500,24 @@
 
     (define/override (center dir wrt)
       (let ([f (tell #:type _NSRect cocoa frame)]
-            [s (tell #:type _NSRect (tell cocoa screen) frame)])
+            [w (if wrt
+                   (tell #:type _NSRect (send wrt get-cocoa) frame)
+                   (tell #:type _NSRect (tell cocoa screen) frame))])
         (tellv cocoa setFrame: 
                #:type _NSRect (make-NSRect (make-NSPoint 
                                             (if (or (eq? dir 'both)
                                                     (eq? dir 'horizontal))
-                                                (quotient (- (NSSize-width (NSRect-size s))
-                                                             (NSSize-width (NSRect-size f)))
-                                                          2)
+                                                (+ (quotient (- (NSSize-width (NSRect-size w))
+                                                                (NSSize-width (NSRect-size f)))
+                                                             2)
+                                                   (NSPoint-x (NSRect-origin w)))
                                                 (NSPoint-x (NSRect-origin f)))
                                             (if (or (eq? dir 'both)
                                                     (eq? dir 'vertical))
-                                                (quotient (- (NSSize-height (NSRect-size s))
-                                                             (NSSize-height (NSRect-size f)))
-                                                          2)
+                                                (+ (quotient (- (NSSize-height (NSRect-size w))
+                                                                (NSSize-height (NSRect-size f)))
+                                                             2)
+                                                   (NSPoint-y (NSRect-origin w)))
                                                 (NSPoint-x (NSRect-origin f))))
                                            (NSRect-size f))
                display: #:type _BOOL #t)))
@@ -483,7 +536,9 @@
     (define/public (set-menu-bar _mb) 
       (set! mb _mb)
       (send mb set-top-window this)
-      (when (tell #:type _BOOL cocoa isMainWindow)
+      (when (or (tell #:type _BOOL cocoa isMainWindow)
+                (and (eq? this root-fake-frame)
+                     (not (get-app-front-window))))
         (install-mb)))
 
     (define/public (install-mb)
@@ -494,7 +549,7 @@
 
     (define/public (on-activate on?) (void))
 
-    (define/public (set-icon bm1 bm2 [mode 'both]) (void)) ;; FIXME
+    (define/public (set-icon bm1 [bm2 #f] [mode 'both]) (void)) ;; FIXME
 
     (define/override (call-pre-on-event w e)
       (pre-on-event w e))
@@ -508,7 +563,12 @@
     (def/public-unimplemented on-mdi-activate)
     (define/public (on-close) #t)
     (define/public (designate-root-frame)
-      (set! root-fake-frame this))
+      (set! root-fake-frame this)
+      ;; The first window shown is somehow sticky, so that it becomes
+      ;; the main window if no windows are shown:
+      (tellv cocoa orderFront: #f)
+      (tellv cocoa orderOut: #f)
+      (sync-cocoa-events))
     (def/public-unimplemented system-menu)
 
     (define/public (set-modified on?)
@@ -540,6 +600,20 @@
       (queue-window-event this (lambda () (color-callback))))))
 
 ;; ----------------------------------------
+
+(define (get-app-front-window)
+  (atomically
+   (with-autorelease
+    (let ([wins (tell (tell NSApplication sharedApplication) orderedWindows)])
+      (begin0
+       (for/or ([i (in-range (tell #:type _NSUInteger wins count))])
+         (let ([win (tell wins objectAtIndex: #:type _NSUInteger i)])
+           (and (tell #:type _BOOL win isVisible)
+                (tell #:type _BOOL win canBecomeMainWindow)
+                (not (tell win parentWindow))
+                (or (not root-fake-frame)
+                    (not (ptr-equal? win (send root-fake-frame get-cocoa))))
+                win))))))))
 
 (define (location->window x y)
   (let ([n (tell #:type _NSInteger NSWindow 

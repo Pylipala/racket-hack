@@ -1,6 +1,6 @@
 /*
   Racket
-  Copyright (c) 2004-2010 PLT Scheme Inc.
+  Copyright (c) 2004-2011 PLT Scheme Inc.
   Copyright (c) 1995-2001 Matthew Flatt
  
     This library is free software; you can redistribute it and/or
@@ -223,25 +223,33 @@ Scheme_Object *scheme_make_sema(intptr_t v)
   return (Scheme_Object *)sema;
 }
 
-static Scheme_Object *make_sema(int n, Scheme_Object **p)
+intptr_t scheme_get_semaphore_init(const char *who, int n, Scheme_Object **p)
 {
   intptr_t v;
 
   if (n) {
     if (!SCHEME_INTP(p[0])) {
       if (!SCHEME_BIGNUMP(p[0]) || !SCHEME_BIGPOS(p[0]))
-	scheme_wrong_type("make-semaphore", "non-negative exact integer", 0, n, p);
+	scheme_wrong_type(who, "non-negative exact integer", 0, n, p);
     }
 
     if (!scheme_get_int_val(p[0], &v)) {
       scheme_raise_exn(MZEXN_FAIL,
-		       "make-semaphore: starting value %s is too large",
+		       "%s: starting value %s is too large",
+                       who,
 		       scheme_make_provided_string(p[0], 0, NULL));
     } else if (v < 0)
-      scheme_wrong_type("make-semaphore", "non-negative exact integer", 0, n, p);
+      scheme_wrong_type(who, "non-negative exact integer", 0, n, p);
   } else
     v = 0;
+  
+  return v;
+}
 
+static Scheme_Object *make_sema(int n, Scheme_Object **p)
+{
+  intptr_t v;
+  v = scheme_get_semaphore_init("make-semaphore", n, p);
   return scheme_make_sema(v);
 }
 
@@ -644,28 +652,28 @@ int scheme_wait_semas_chs(int n, Scheme_Object **o, int just_try, Syncing *synci
           if (semas[i]->value) {
             if ((semas[i]->value > 0) && (!syncing || !syncing->reposts || !syncing->reposts[i]))
               --semas[i]->value;
-            if (syncing && syncing->accepts && syncing->accepts[i])
-              scheme_accept_sync(syncing, i);
+            if (syncing) {
+	      syncing->result = i + 1;
+	      if (syncing->accepts && syncing->accepts[i])
+		scheme_accept_sync(syncing, i);
+	    }
             break;
           }
         } else if (semas[i]->so.type == scheme_never_evt_type) {
           /* Never ready. */
         } else if (semas[i]->so.type == scheme_channel_syncer_type) {
-          /* Probably no need to poll */
+          if (((Scheme_Channel_Syncer *)semas[i])->picked)
+            break;
         } else if (try_channel(semas[i], syncing, i, NULL))
           break;
       }
 
       if (ii >= n) {
-        if (!scheme_current_thread->next)
+        if (!scheme_wait_until_suspend_ok()) {
           break;
-        else {
-          if (!scheme_wait_until_suspend_ok()) {
-            break;
-          } else {
-            /* there may have been some action on one of the waitables;
-               try again */
-          }
+        } else {
+          /* there may have been some action on one of the waitables;
+             try again */
         }
       } else
         break;
@@ -1295,8 +1303,7 @@ static Scheme_Object *make_sys_idle(int n, Scheme_Object **p)
 
 START_XFORM_SKIP;
 
-#define MARKS_FOR_SEMA_C
-#include "mzmark.c"
+#include "mzmark_sema.inc"
 
 static void register_traversers(void)
 {
