@@ -283,7 +283,7 @@ show_explicitly_enabled "${enable_userfw}" "Frameworks-to-user"
 
 show_explicitly_enabled "${enable_ios}" "Racket build for iOS"
 show_explicitly_enabled "${enable_ios_sim}" "Racket build for iOS Simulator"
-show_explicitly_enabled "${enable_libffi_ios} "Libffi build for iOS/Simulator"
+show_explicitly_enabled "${enable_libffi_ios}" "Libffi build for iOS/Simulator"
 
 if test "${enable_sdk}" != "" ; then
    echo "=== Using Mac OS X SDK directory ${enable_sdk}"
@@ -339,7 +339,7 @@ STRIP_DEBUG=":"
 LIBFFI="libffi"
 
 ###### iOS stuff   #######
-IOS=""
+IOS=
 if test "${enable_ios}" = "yes" -o "${enable_ios_sim}" = "yes" ; then
   if test "${enable_libffi_ios}" != "yes" ; then
     AC_MSG_ERROR(libffi-ios is not enabled. you must enable libffi-ios)

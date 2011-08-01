@@ -604,6 +604,7 @@ enable_option_checking=no
 ac_subst_vars='LTLIBOBJS
 LIBOBJS
 subdirs
+IOS
 CGC_IF_NEEDED_FOR_MMM
 RUN_RACKET_MAIN_VARIANT
 RUN_RACKET_MMM
@@ -644,6 +645,7 @@ ICP
 WXVARIANT
 WXLIBS
 LIBSFX
+LIBFFI
 OWN_LIBFFI
 SO_SUFFIX
 EXE_SUFFIX
@@ -2957,7 +2959,7 @@ show_explicitly_enabled "${enable_userfw}" "Frameworks-to-user"
 
 show_explicitly_enabled "${enable_ios}" "Racket build for iOS"
 show_explicitly_enabled "${enable_ios_sim}" "Racket build for iOS Simulator"
-show_explicitly_enabled "${enable_libffi_ios} "Libffi build for iOS/Simulator"
+show_explicitly_enabled "${enable_libffi_ios}" "Libffi build for iOS/Simulator"
 
 if test "${enable_sdk}" != "" ; then
    echo "=== Using Mac OS X SDK directory ${enable_sdk}"
@@ -3010,17 +3012,22 @@ INSTALL_SETUP_FLAGS=
 
 STRIP_DEBUG=":"
 
+LIBFFI="libffi"
+
 ###### iOS stuff   #######
+IOS=
 if test "${enable_ios}" = "yes" -o "${enable_ios_sim}" = "yes" ; then
   if test "${enable_libffi_ios}" != "yes" ; then
     as_fn_error $? "libffi-ios is not enabled. you must enable libffi-ios" "$LINENO" 5
   fi
+  IOS=".ios"
 fi
 
-if test "${enable_libffi_ios}" != "" ; then
+if test "${enable_libffi_ios}" = "yes" ; then
   if test "${enable_libffi}" != "yes" ; then
     as_fn_error $? "libffi is not enabled. you must enable libffi" "$LINENO" 5
   fi
+  LIBFFI="libffi-ios"
 fi
 
 ###### OSKit stuff #######
@@ -5916,6 +5923,9 @@ fi
 ############## final output ################
 
 LIBS="$LIBS $EXTRALIBS"
+
+
+
 
 
 

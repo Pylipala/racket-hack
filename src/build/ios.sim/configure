@@ -1,1 +1,1 @@
-../../configure --disable-gracket --disable-jit --enable-places --disable-futures --disable-shared --disable-docs --disable-compact --enable-sgc --enable-iphonesim --disable-plot
+../../configure --disable-gracket --disable-jit --enable-places --disable-futures --disable-shared --disable-docs --disable-compact --enable-sgc --enable-ios-sim --disable-plot --enable-racket="/Applications/Racket\ v5.1/bin/racket" --enable-libffi-ios

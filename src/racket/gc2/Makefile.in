@@ -24,7 +24,7 @@ CPPFLAGS = -I$(builddir)/.. -I$(srcdir)/../include $(MOST_CPPFLAGS)
 CFLAGS = -I$(builddir)/.. -I$(srcdir)/../include @CFLAGS@ $(MOST_CPPFLAGS) @COMPFLAGS@ @PROFFLAGS@
 LIBS = @LIBS@
 
-LIBFFI_INCLUDE_ON = -I../../foreign/libffi/include
+LIBFFI_INCLUDE_ON = -I../../foreign/@LIBFFI@/include
 LIBFFI_INCLUDE_OFF = 
 
 ARLIBFLAGS = @LDFLAGS@ $(LIBS)
@@ -494,13 +494,24 @@ $(MZFWMMM): ../libracket3m.@LIBSFX@
 	mkdir -p "Racket.framework/Versions/$(FWVERSION)_3m"
 	@MZLINKER@ -o $(MZFWMMM) -framework CoreFoundation -dynamiclib -all_load ../libracket3m.@LIBSFX@ @LDFLAGS@ $(LIBS)
 	rm -f Racket.framework/Racket
-	ln -s Versions/$(FWVERSION)_3m/Racket Racket.framework/Racket	
+	ln -s Versions/$(FWVERSION)_3m/Racket Racket.framework/Racket
 
-../racket@MMM@@OSX@: $(MZFWMMM) main.@LTO@
+$(MZFWMMM).ios: ../libracket3m.@LIBSFX@
+	mkdir -p "Racket.framework/Versions/$(FWVERSION)_3m"
+	/usr/bin/libtool -static -o $(MZFWMMM) ../libracket3m.@LIBSFX@
+	rm -f Racket.framework/Racket
+	ln -s Versions/$(FWVERSION)_3m/Racket Racket.framework/Racket
+
+mm.ios: $(MZFWMMM).ios main.@LTO@
+	@echo "Racket3m executable is not generated for iOS/iOS Simulator"
+
+mm: $(MZFWMMM) main.@LTO@
 	@MZLINKER@ -o ../racket@MMM@ @PROFFLAGS@ @LDFLAGS@ main.@LTO@ -Wl,-headerpad_max_install_names -F. -framework Racket
 	mkdir -p "../Racket.framework/Versions/$(FWVERSION)_3m"
 	cp "Racket.framework/Versions/$(FWVERSION)_3m/Racket" "../Racket.framework/Versions/$(FWVERSION)_3m/Racket"
 	/usr/bin/install_name_tool -change "Racket.framework/Versions/$(FWVERSION)_3m/Racket" "@executable_path/Racket.framework/Versions/$(FWVERSION)_3m/Racket" "../racket@MMM@"
+
+../racket@MMM@@OSX@: mm@IOS@
 
 clean:
 	/bin/rm -f ../racket@MMM@ *.@LTO@ $(XSRCDIR)/*

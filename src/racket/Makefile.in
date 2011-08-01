@@ -179,14 +179,15 @@ $(MSFW).ios: libracket.@LIBSFX@ libmzgc.@LIBSFX@ $(SPECIALIZINGOBJECTS)
 	rm -f Racket.framework/Racket
 	ln -s Versions/$(FWVERSION)/Racket Racket.framework/Racket
 
-racketCGC.ios: $(MZFW).ios main.@LTO@
-	@MZLINKER@ -o racket@CGC@ @PROFFLAGS@ @LDFLAGS@ main.@LTO@ -Wl,-headerpad_max_install_names -F. -framework Racket @LIBS@ -framework CoreFoundation
+cgc.ios: $(MZFW).ios main.@LTO@
+	@echo "RacketCGC executable is not generated for iOS/iOS Simulator"
+	touch racket@CGC@
 
-racketCGC: $(MZFW) main.@LTO@
+cgc: $(MZFW) main.@LTO@
 	@MZLINKER@ -o racket@CGC@ @PROFFLAGS@ @LDFLAGS@ main.@LTO@ -Wl,-headerpad_max_install_names -F. -framework Racket @LIBS@
-
-racket@CGC@@OSX@: racketCGC@IOS@
 	/usr/bin/install_name_tool -change "Racket.framework/Versions/$(FWVERSION)/Racket" "@executable_path/Racket.framework/Versions/$(FWVERSION)/Racket" "racket@CGC@"
+
+racket@CGC@@OSX@: cgc@IOS@
 
 # OSKit ----------------------------------------
 
