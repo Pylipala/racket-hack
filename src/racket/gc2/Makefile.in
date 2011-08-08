@@ -458,7 +458,7 @@ gc2.@LTO@: \
 		$(srcdir)/weak.c
 	$(CC) $(CFLAGS) -I$(builddir)/.. -c $(srcdir)/gc2.c -o gc2.@LTO@
 
-FOREIGN_OBJS_ON = ../../foreign/@LIBFFI@/src/*.@LTO@ ../../foreign/libffi/src/*/*.@LTO@
+FOREIGN_OBJS_ON = ../../foreign/@LIBFFI@/src/*.@LTO@ ../../foreign/@LIBFFI@/src/*/*.@LTO@
 FOREIGN_LIB_ON = ../../foreign/@LIBFFI@/libffi@FOREIGN_CONVENIENCE@.la
 FOREIGN_OBJS_OFF =
 FOREIGN_LIB_OFF =
